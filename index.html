@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AI Tracker: best AI models, rankings, prices and news</title>
+<meta name="description" content="Which AI models exist, the best one for each job, leaderboards, prices and news. Updates itself every day.">
+<meta name="theme-color" content="#0b1220" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f5f7fb" media="(prefers-color-scheme: light)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AI Tracker">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="brand">
+    <img src="icons/icon-192.png" alt="" width="34" height="34">
+    <div>
+      <h1>AI Tracker</h1>
+      <p class="stamp" id="stamp" aria-live="polite">Loading…</p>
+    </div>
+  </div>
+  <div class="actions">
+    <button id="refresh" class="icon-btn" type="button" aria-label="Check for new data" title="Check for new data">⟳</button>
+    <button id="theme" class="icon-btn" type="button" aria-label="Switch light or dark" title="Light / dark">🌗</button>
+  </div>
+</header>
+<nav class="tabs" id="tabs" aria-label="Sections">
+  <button type="button" data-tab="today" aria-current="page"><span class="ti">🏠</span><span>Today</span></button>
+  <button type="button" data-tab="best"><span class="ti">🏆</span><span>Best for</span></button>
+  <button type="button" data-tab="ranks"><span class="ti">📊</span><span>Rankings</span></button>
+  <button type="button" data-tab="prices"><span class="ti">💲</span><span>Prices</span></button>
+  <button type="button" data-tab="news"><span class="ti">📰</span><span>News</span></button>
+  <button type="button" data-tab="timeline"><span class="ti">🗓️</span><span>Timeline</span></button>
+</nav>
+<main id="main" tabindex="-1">
+  <section id="view" class="view"><p class="muted pad">Loading…</p></section>
+</main>
+<footer class="foot">
+  <p>Free public sources only: LMArena, Artificial Analysis, OpenRouter, Hugging Face and news RSS feeds. Updates itself every day. <button type="button" class="linkish" data-tab="sources">Sources and update status</button></p>
+</footer>
+<div id="offline" class="offline" hidden>Offline. Showing the last saved copy.</div>
+<script src="data/data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
