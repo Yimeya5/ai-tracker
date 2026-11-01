@@ -49,3 +49,57 @@ test("workflow runs daily and deploys pages", () => {
   assert.match(w, /deploy-pages/);
   assert.match(w, /git diff --cached --quiet/);
 });
+
+// ---- simple 3-tab front end
+const vm = require("node:vm");
+function loadApp() {
+  const ctx = { AI_DATA: JSON.parse(read("data/data.json")) };
+  ctx.window = ctx;
+  vm.createContext(ctx);
+  vm.runInContext(read("app.js"), ctx);
+  return ctx.AITracker;
+}
+
+test("app has exactly 3 tabs and no tables", () => {
+  const h = read("index.html");
+  const tabs = [...h.matchAll(/data-tab="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepStrictEqual(tabs, ["today", "best", "more"]);
+  assert.doesNotMatch(h + read("app.js") + read("app.css"), /<table|<th\b|<td\b/);
+});
+
+test("old #links still open the right place", () => {
+  const A = loadApp();
+  assert.equal(A.routeFor("#today").tab, "today");
+  assert.equal(A.routeFor("#home").tab, "today");
+  assert.equal(A.routeFor("#best").tab, "best");
+  assert.equal(A.routeFor("#more").tab, "more");
+  for (const s of ["ranks", "prices", "news", "timeline", "sources"]) {
+    const r = A.routeFor("#" + s);
+    assert.equal(r.tab, "more", s);
+    assert.equal(r.open, s);
+  }
+  assert.equal(A.routeFor("#main"), null);
+});
+
+test("home shows simple picks and 5 short lines", () => {
+  const A = loadApp();
+  const picks = A.homePicks();
+  assert.ok(picks.length >= 3 && picks.length <= 5, "picks: " + picks.length);
+  for (const p of picks) { assert.ok(p.name && p.label, p.key); assert.ok(p.why, "no reason for " + p.key); }
+  const lines = A.whatsNew();
+  assert.equal(lines.length, 5);
+  for (const l of lines) assert.doesNotMatch(l.t, /\$|per 1M/);
+  const html = A.views.today();
+  assert.equal((html.match(/<details class="pick"/g) || []).length, picks.length);
+  assert.doesNotMatch(html, /undefined|NaN/);
+});
+
+test("Best AI and More render every job and section", () => {
+  const A = loadApp();
+  const d = JSON.parse(read("data/data.json"));
+  const best = A.views.best();
+  for (const b of d.best) assert.ok(best.includes('id="b-' + b.id + '"'), "missing " + b.id);
+  const more = A.views.more();
+  for (const s of A.sections) assert.ok(more.includes('id="sec-' + s[0] + '"'), "missing section " + s[0]);
+  assert.doesNotMatch(best + more, /undefined|NaN/);
+});
