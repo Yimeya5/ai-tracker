@@ -1,0 +1,77 @@
+name: Update AI Tracker
+
+# Runs every day at 10:00 UTC (6 AM New York time in summer, 5 AM in winter),
+# whenever you press "Run workflow", and whenever you change a file.
+on:
+  schedule:
+    - cron: "0 10 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "data/**"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: update-and-deploy
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install the two helper libraries
+        run: pip install -r requirements.txt
+
+      - name: Fetch fresh data (each part keeps its last good copy if its source is down)
+        id: data
+        continue-on-error: true
+        run: timeout 600 python scripts/update_data.py
+
+      - name: Check the data file is valid before saving it
+        run: python -c "import json; d=json.load(open('data/data.json')); assert d['best'] and d['aa']['models'] and d['arena']['boards'], 'empty data'; print('data ok, built', d['built'])"
+
+      - name: Save new data (only when something changed)
+        run: |
+          git config user.name "ai-tracker-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "No changes today."
+          else
+            git commit -m "Daily data update $(date -u +%Y-%m-%d)"
+            git push
+          fi
+
+      - name: Prepare the website files
+        run: |
+          mkdir -p _site
+          cp -r index.html app.css app.js sw.js manifest.webmanifest .nojekyll icons data _site/
+          rm -f _site/data/history.json
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+      - name: Report a failed data update
+        if: steps.data.outcome == 'failure'
+        run: |
+          echo "::warning::Some data sources failed today. The app kept the last good copy for those parts."
