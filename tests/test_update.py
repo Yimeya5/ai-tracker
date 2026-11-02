@@ -8,7 +8,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-FIXTURES = Path(__file__).resolve().parent / "fixtures"    # real pages fetched on 2026-11-01 (gzipped)
+FIXTURES = Path(__file__).resolve().parent / "fixtures"    # real pages fetched on 2026-11-01 and 2026-11-02 (gzipped)
 # The tests run "on" 2026-11-01 22:00 UTC so the real fixtures keep falling inside the 30/60/120-day windows.
 FIXED_NOW = __import__("datetime").datetime(2026, 11, 1, 22, 0, tzinfo=__import__("datetime").timezone.utc)
 
@@ -89,7 +89,12 @@ def lm_image_rows():
     return [lm(n, o, s, h, v, date="2026-10-26") for n, o, s, h, v in top]
 
 
-LM_ROWS = {"text": lm_text_rows, "webdev": lm_webdev_rows, "text_to_image": lm_image_rows}
+def lm_agent_rows():
+    """The real Agent Arena board (lmarena_agent_latest.parquet, saved as JSON so the tests don't need pyarrow)."""
+    return json.loads(fx("lmarena_agent_latest.json"))
+
+
+LM_ROWS = {"text": lm_text_rows, "webdev": lm_webdev_rows, "text_to_image": lm_image_rows, "agent": lm_agent_rows}
 
 AA_TOP = [("Gemini 4 Carbon (High)", "gemini-4-carbon", "Google", 59.4, 4, 20, "2026-10-28"),
           ("Claude Opus 5.5 (max with fallback)", "claude-opus-5-5", "Anthropic", 58.4, 4, 20, "2026-09-22"),
@@ -158,10 +163,14 @@ EPOCH += [(f"Older Model {i}", 140 - i, 137 - i, 143 - i, "Other") for i in rang
 
 def epoch_zip():
     csvt = "Model,eci,eci_ci_low,eci_ci_high,date,Organization\n" + "".join(f"{n},{e},{lo},{hi},2026-10-01,{o}\n" for n, e, lo, hi, o in EPOCH)
+    real = zipfile.ZipFile(io.BytesIO(fx("epoch_agent_subset.zip")))      # the real agent test CSVs
     b = io.BytesIO()
     with zipfile.ZipFile(b, "w") as z:
         z.writestr("epoch_capabilities_index/eci_scores.csv", csvt)
         z.writestr("benchmarks/other.csv", "x\n1\n")
+        for n in real.namelist():
+            if n.endswith(".csv") and n != "benchmark_metadata.csv":
+                z.writestr("benchmarks/" + n, real.read(n))
     return b.getvalue()
 
 
@@ -201,7 +210,6 @@ NEWS = {
 }
 
 PRICE_HTML = {
-    "https://claude.com/pricing": "<html><body><h2>Free</h2> Try Claude $0 Free for everyone <h2>Pro</h2> For everyday work $17 Per month with annual subscription discount ( $200 billed up front). $20 if billed monthly. <h2>Max</h2> For all-day work $100 Per month <h2>Ultra</h2> For your longest tasks $200 Per month" + " filler" * 60 + "</body></html>",
     "https://x.ai/pricing": "<div>Free $0/month Get started Plus $8/month Get Plus Premium $30/month Get Premium Super $100/month Get Super Ultra $250/month</div>" + " filler" * 60,
     "https://gemini.google/subscriptions/": "<p>Free $0 / month with a Google Account</p><p>Google AI Plus $4.99 / month Get 2x higher usage</p><p>Google AI Pro $19.99 / month Get 4x higher usage</p><p>Google AI Ultra Starting at: $99.99 / month</p>" + " filler" * 60,
     "https://mistral.ai/pricing": "<p>Free</p><p>Pro ... $14.99 /mo</p><p>Team ... $24.99 /user/mo</p>" + " filler" * 60,
@@ -242,6 +250,18 @@ FX_URLS = {
     "https://itunes.apple.com/lookup?id=1558240027&country=us": "itunes_lookup.json",
     "https://x.ai/pricing": "xai_pricing.html",
     "https://www.deepseek.com/en/": "deepseek_home.html",
+    # v6: agent apps (saved 2026-11-02)
+    "https://claude.com/pricing": "web_claude_pricing.html",
+    "https://developers.openai.com/codex/pricing": "web_codex_pricing.html",
+    "https://one.google.com/intl/en_us/about/google-ai-plans/": "web_google_ai_plans.html",
+    "https://jules.google/": "web_jules.html",
+    "https://github.com/features/copilot/plans": "web_copilot_plans.html",
+    "https://cursor.com/pricing": "web_cursor_pricing.html",
+    "https://devin.ai/pricing": "web_devin_pricing.html",
+    "https://replit.com/pricing": "web_replit_pricing.html",
+    "https://apps.apple.com/us/app/comet-ai-browser-assistant/id6748622471": "appstore_comet.html",
+    "https://help.manus.im/en/articles/11711111-what-is-the-current-membership-pricing-for-manus": "web_manus_help.html",
+    "https://apps.apple.com/us/app/replit-vibe-code-with-ai-fast/id1614022293": "appstore_replit.html",
 }
 
 
@@ -293,7 +313,7 @@ def install_fakes(m, aa=True):
     return m
 
 
-ALL_SECTIONS = ("lmarena", "aa", "livebench", "epoch", "openrouter", "official", "prices", "news")
+ALL_SECTIONS = ("lmarena", "aa", "livebench", "epoch", "openrouter", "official", "prices", "news", "agentapps")
 
 
 def boom(*a, **k):
@@ -525,13 +545,18 @@ class Prices(unittest.TestCase):
         apps = self.apps()
         self.assertEqual(len(apps), 9)
         gpt = apps["ChatGPT"]
-        self.assertEqual(self.plans(gpt), {"Go": 8, "Plus": 19.99, "Pro 100": 100, "Pro 200": 200})   # first match, not the yearly $200 "Plus"
+        self.assertEqual(self.plans(gpt), {"Go": 8, "Plus": 19.99, "Pro 100": 100, "Pro 200": 200, "Pro 500": 500})   # first match, not the yearly $200 "Plus"
         self.assertEqual(gpt["src"]["label"], "App Store price (US)")
         self.assertIn("apps.apple.com/us/app/chatgpt", gpt["src"]["url"])
         self.assertTrue(gpt["readToday"] and gpt["read_ok"])
         self.assertEqual(self.plans(apps["Perplexity"]), {"Pro": 20, "Max": 200})                 # not the yearly $200 "Pro"
         meta = apps["Meta AI"]
         self.assertTrue(meta["free"] and meta["readToday"] and not meta["plans"])                 # Apple lookup says Free
+
+    def test_claude_real_page(self):
+        claude = self.apps()["Claude"]                    # the real claude.com/pricing page (saved 2026-11-02)
+        self.assertEqual(self.plans(claude), {"Pro": 20, "Max": 100, "Ultra": 200})
+        self.assertTrue(claude["read_ok"])
 
     def test_grok_web_page_with_badge(self):
         grok = self.apps()["Grok"]
@@ -553,7 +578,7 @@ class Prices(unittest.TestCase):
     def test_polite_fetching(self):
         self.apps()
         uas = {h["User-Agent"] for _, h in self.calls}
-        self.assertTrue(all("ai-tracker/5" in u for u in uas))
+        self.assertTrue(all("ai-tracker/6" in u for u in uas))
         # 3 tries for a page that keeps failing (the Copilot page isn't in the fixtures -> 403), waiting 4 s then 10 s
         self.assertEqual(sum(1 for u, _ in self.calls if "microsoft.com" in u), 3)
         self.assertIn(4, self.waits)
@@ -726,22 +751,353 @@ class FastModalities(unittest.TestCase):
         self.assertTrue(self.m.is_fast("Claude Haiku 5.5"))
 
 
+# ------------------------------------------------------------------ v6: Agents tab
+def agent_raw(m, apex_newest=None):
+    """raw sections for the agent tests, built from the real files saved on 2026-11-02."""
+    date, rows = m.lm_board(lm_agent_rows(), "overall")
+    lb = m.parse_livebench(fx("livebench_table_20261025.csv").decode(), json.loads(fx("livebench_categories_20261025.json")))
+    z = zipfile.ZipFile(io.BytesIO(fx("epoch_agent_subset.zip")))
+    agent = {}
+    for bid, fname, col, _ in m.EPOCH_AGENT:
+        br = m.parse_epoch_bench(z.read(fname).decode(), col)
+        agent[bid] = {"ok": True, "updated": m.NOW_ISO, "rows": br, "newest": max(x["d"] for x in br)}
+    if apex_newest:
+        agent["apex"]["newest"] = apex_newest
+    return {"lmarena": {"boards": {"agent": {"label": "Agent Arena", "date": date, "url": "https://lmarena.ai/leaderboard/agent", "rows": rows}},
+                        "_updated": m.NOW_ISO},
+            "livebench": {"rows": lb, "date": "2026-10-25", "release": "20261025", "_updated": m.NOW_ISO},
+            "epoch": {"rows": [], "agent": agent, "_updated": m.NOW_ISO}}
+
+
+class AgentTests(unittest.TestCase):
+    """Best AI for agents: LMArena Agent Arena, LiveBench Long Agentic, APEX-Agents (real data)."""
+    def setUp(self):
+        self.m = load(tempfile.mkdtemp())
+
+    def test_agent_arena_board(self):
+        date, rows = self.m.lm_board(lm_agent_rows(), "overall")
+        self.assertEqual(date, "2026-10-28")
+        self.assertEqual([x["n"] for x in rows[:3]], ["Claude Opus 5.5", "Gemini 4 Carbon", "Claude Sonnet 5.5"])
+        self.assertTrue(0 < rows[0]["s"] < 1 and rows[0]["lo"] <= rows[0]["s"] <= rows[0]["hi"])   # IPS, not rounded to 0
+        self.assertEqual(sum(1 for x in rows if x["k"] == "gpt-6-luna"), 1)          # Max / Medium / Low runs: best one only
+
+    @unittest.skipUnless(importlib.util.find_spec("pyarrow"), "pyarrow not installed")
+    def test_parquet_fixture_matches_json(self):
+        rows = self.m.read_parquet(fx("lmarena_agent_latest.parquet"))
+        self.assertEqual([x["model_name"] for x in rows], [x["model_name"] for x in lm_agent_rows()])
+        self.assertAlmostEqual(rows[0]["score"], lm_agent_rows()[0]["score"])
+
+    def test_livebench_long_agentic(self):
+        lb = self.m.parse_livebench(fx("livebench_table_20261025.csv").decode(), json.loads(fx("livebench_categories_20261025.json")))
+        top = sorted(lb, key=lambda x: -x["cats"]["long agentic"])[:3]
+        self.assertEqual([x["k"] for x in top], ["claude-fable-5-1", "gpt-6-astra", "claude-opus-5-5"])
+        self.assertIn("browser", lb[0]["cats"])
+
+    def test_name_matching(self):
+        n, bk = self.m.normalize, self.m.bench_key
+        self.assertEqual({n("Claude Opus 5.5 (Max)"), bk("claude-opus-5-5_max"), n("claude-opus-5.5")}, {"claude-opus-5-5"})
+        self.assertEqual({n("Gemini 4 Argon (High)"), bk("gemini-4-argon_unknown")}, {"gemini-4-argon"})
+        self.assertEqual(bk("gpt-6.1-terra_xhigh"), n("GPT-6.1 Terra (Max)"))
+        self.assertEqual(bk("qwen3.8-max_high"), "qwen3-8-max")                    # "max" is part of this model's name
+        self.assertNotEqual(bk("claude-opus-5_max"), bk("claude-opus-5-5_max"))
+
+    def test_epoch_bench_keeps_best_run(self):
+        z = zipfile.ZipFile(io.BytesIO(fx("epoch_agent_subset.zip")))
+        rows = self.m.parse_epoch_bench(z.read("apex_agents_external.csv").decode(), "Pass@1 score")
+        self.assertEqual([x["k"] for x in rows[:3]], ["gemini-4-argon", "claude-sonnet-5-5", "claude-opus-5-5"])
+        self.assertEqual(len({x["k"] for x in rows}), len(rows))
+        self.assertEqual(rows[0]["s"], 0.824)
+
+    def test_rule_today(self):
+        res = self.m.agent_pick(agent_raw(self.m))
+        self.assertEqual(res["status"], "best")
+        self.assertEqual([(w["n"], w["top3"]) for w in res["winners"]], [("Claude Opus 5.5", 3), ("Claude Sonnet 5.5", 2)])
+        self.assertEqual(res["n"], 3)
+        cands = {c["n"]: c["top3"] for c in res["candidates"]}
+        self.assertEqual(cands.get("Gemini 4 Carbon"), 1)                          # #2 on the Arena only: not best
+        for w in res["winners"]:
+            self.assertTrue(all(x["url"].startswith("https://") and x["date"] for x in w["ranks"]))
+
+    def test_one_test_alone_never_names_best(self):
+        raw = agent_raw(self.m)
+        raw["livebench"]["rows"] = []
+        raw["epoch"]["agent"] = {}
+        res = self.m.agent_pick(raw)
+        self.assertEqual((res["status"], res["n"], res["winners"]), ("none", 1, []))
+        self.assertIn("no model is named best", res["why"])
+
+    def test_old_test_is_skipped(self):
+        raw = agent_raw(self.m, apex_newest="2026-06-01")                         # more than 120 days before Nov 1
+        tests = {b["id"]: b for b in self.m.agent_boards(raw)}
+        self.assertTrue(tests["apex"]["skipped"])
+        self.assertIn("120 days", tests["apex"]["skipWhy"])
+        res = self.m.agent_pick(raw)
+        self.assertEqual(res["n"], 2)
+        self.assertEqual([w["n"] for w in res["winners"]], ["Claude Opus 5.5"])     # Sonnet was top 3 only on APEX + Arena
+
+    def test_info_tests_not_in_rule(self):
+        out = self.m.build_agents(agent_raw(self.m), [], [])
+        tests = {t["id"]: t for t in out["tests"]}
+        self.assertEqual({k for k, t in tests.items() if t["inRule"]}, {"arena", "lb_agentic", "apex"})
+        self.assertEqual(tests["vending"]["top"][0]["shown"], "$16,484")
+        self.assertEqual(tests["apex"]["top"][0]["shown"], "82.4%")
+        self.assertEqual(tests["rli"]["top"][0]["n"], "Claude Opus 5.5")
+        self.assertEqual(out["best"]["testsUsed"], ["arena", "lb_agentic", "apex"])
+        for t in out["tests"]:
+            self.assertTrue(t["url"].startswith("https://") and t["credit"] and t["date"] and len(t["top"]) == 5)
+
+    def test_epoch_agent_test_keeps_last_good(self):
+        good = self.m.parse_epoch_bench(zipfile.ZipFile(io.BytesIO(fx("epoch_agent_subset.zip"))).read("rli_external.csv").decode(), "Score")
+        prev = {"agent": {"rli": {"ok": True, "updated": "2026-10-20T10:00:00+00:00", "rows": good, "newest": "2026-09-30"}}}
+        def zip_without_rli(url, **k):
+            b = io.BytesIO()
+            src = zipfile.ZipFile(io.BytesIO(epoch_zip()))
+            with zipfile.ZipFile(b, "w") as z:
+                for n in src.namelist():
+                    if not n.endswith("rli_external.csv"):
+                        z.writestr(n, src.read(n))
+            return Resp(b.getvalue())
+        self.m.get = zip_without_rli
+        sec = self.m.fetch_epoch(prev)
+        self.assertFalse(sec["agent"]["rli"]["ok"])
+        self.assertEqual(sec["agent"]["rli"]["rows"], good)
+        self.assertEqual(sec["agent"]["rli"]["updated"], "2026-10-20T10:00:00+00:00")
+        self.assertTrue(sec["agent"]["apex"]["ok"])
+
+    def test_agent_arena_keeps_last_good(self):
+        m = install_fakes(self.m)
+        first = m.fetch_lmarena(None)
+        self.assertIn("agent", first["boards"])
+        LM_ROWS.pop("agent")
+        try:
+            sec = m.fetch_lmarena(first)
+        finally:
+            LM_ROWS["agent"] = lm_agent_rows
+        self.assertTrue(sec["boards"]["agent"]["stale"])
+        tests = {b["id"]: b for b in m.agent_boards({"lmarena": sec})}
+        self.assertFalse(tests["arena"]["ok"])                    # Sources view: "using the last good copy"
+
+
+class AgentApps(unittest.TestCase):
+    """Agent app prices from the real pages saved on 2026-11-02."""
+    def setUp(self):
+        self.m = load(tempfile.mkdtemp())
+        self.calls = []
+        def get(url, **k):
+            self.calls.append(url)
+            return strict_get(url, **k)
+        self.m.get = get
+
+    def apps(self, prev=None):
+        return {a["id"]: a for a in self.m.fetch_agentapps(prev)["apps"]}
+
+    def plans(self, a):
+        return {p["name"]: p["usd_month"] for p in a["plans"]}
+
+    def test_each_app(self):
+        apps = self.apps()
+        want = {"comet": {"Pro": 20, "Max": 200}, "manus": {"Pro (4,000 credits)": 20, "Pro (8,000 credits)": 40},   # help page, not old App Store plans
+                "codex": {"Go": 8, "Plus": 20, "Pro": 100}, "copilot": {"Pro": 10, "Pro+": 39, "Max": 100},
+                "cursor": {"Plus": 8, "Premium": 30, "Super": 100, "Ultra": 200}, "devin": {"Pro": 20, "Max": 200},
+                "replit": {"Core": 20, "Pro": 100}}                                         # monthly, not "$18 / $90 billed annually"
+        for aid, plans in want.items():
+            self.assertEqual(self.plans(apps[aid]), plans, aid)
+            self.assertTrue(apps[aid]["readToday"] and apps[aid]["read_ok"], aid)
+        for aid in ("chatgpt-work", "gemini-agent", "claude-in-chrome", "claude-code", "jules"):
+            self.assertTrue(apps[aid]["readToday"], aid)                                    # the proof line was found
+            self.assertEqual(apps[aid]["plans"], [], aid)
+        self.assertEqual(apps["jules"]["facts"]["freeTasks"], "Free: 15 tasks a day")
+        self.assertEqual(len(apps), 12)
+        self.assertEqual({a["group"] for a in apps.values()}, {"tasks", "code"})
+
+    def test_plans_from_the_cost_tab(self):
+        raw = {"prices": self.m.fetch_prices(None), "agentapps": self.m.fetch_agentapps(None)}
+        out = {a["id"]: a for a in self.m.build_agent_apps(raw)}
+        self.assertEqual(self.plans(out["chatgpt-work"]), {"Go": 8, "Plus": 19.99, "Pro 100": 100, "Pro 200": 200, "Pro 500": 500})
+        self.assertEqual(out["chatgpt-work"]["src"]["label"], "App Store price (US)")
+        self.assertEqual(out["chatgpt-work"]["proof"]["label"], "Codex pricing page")
+        self.assertEqual(self.plans(out["gemini-agent"]), {"Google AI Ultra": 99.99})
+        self.assertIn("US only", out["gemini-agent"]["note"])
+        self.assertEqual(self.plans(out["claude-code"]), {"Pro": 20, "Max": 100, "Ultra": 200})
+        self.assertEqual(self.plans(out["claude-in-chrome"]), {"Pro": 20, "Max": 100, "Ultra": 200})
+        self.assertFalse(out["claude-code"]["free"])
+        self.assertEqual(self.plans(out["jules"]), {"Google AI Pro": 19.99, "Google AI Ultra": 99.99})
+        self.assertEqual(out["jules"]["freeNote"], "Free: 15 tasks a day")
+        self.assertEqual(out["comet"]["cheapest"]["usd_month"], 20)
+        for a in out.values():
+            self.assertTrue(a["src"]["url"].startswith("https://") and a["checked"], a["id"])
+
+    def test_each_page_read_once_per_run(self):
+        self.m.PAGE_CACHE = {}
+        self.m.fetch_prices(None)
+        self.m.fetch_agentapps(None)
+        self.assertEqual(self.calls.count("https://claude.com/pricing"), 1)
+        self.assertEqual(self.calls.count("https://developers.openai.com/codex/pricing"), 1)
+
+    def test_missing_proof_line_keeps_last_good(self):
+        first = self.m.fetch_agentapps(None)
+        def get(url, **k):
+            r = strict_get(url, **k)
+            if url == "https://claude.com/pricing":
+                r = Resp(r.content.replace(b"Claude Code", b"Some Other Thing"))
+            return r
+        self.m.get = get
+        cc = self.apps(first)["claude-code"]
+        self.assertFalse(cc["readToday"])
+        self.assertIn("not on the page", cc["tried"][0]["err"])
+        self.assertEqual(cc["checked"], "2026-11-01")              # the last good check stays
+
+    def test_stale_after_30_days(self):
+        first = self.m.fetch_agentapps(None)
+        for a in first["apps"]:
+            a["checked"] = "2026-09-25"
+            for p in a["plans"]:
+                p["checked"] = "2026-09-25"
+        self.m.get = boom
+        apps = self.apps(first)
+        self.assertTrue(apps["cursor"]["stale"] and all(p["stale"] for p in apps["cursor"]["plans"]))
+        self.assertEqual(self.plans(apps["cursor"])["Premium"], 30)
+        stale = self.m.stale_prices({"apps": list(apps.values())})
+        self.assertIn(("Claude Code", ""), [(x["app"], x["plan"]) for x in stale])          # its proof page too
+
+    def test_cursor_is_the_x_subscription(self):
+        cur = self.apps()["cursor"]
+        self.assertEqual(cur["maker"], "SpaceX")
+        self.assertIn("The X Subscription", cur["note"])
+        first = self.m.fetch_agentapps(None)
+        def get(url, **k):
+            r = strict_get(url, **k)
+            return Resp(r.content.replace(b"Grok", b"Gxxk")) if url == "https://cursor.com/pricing" else r
+        self.m.get = get
+        cur = self.apps(first)["cursor"]
+        self.assertFalse(cur["readToday"])                          # not the X Subscription page any more
+        self.assertIn("not on the page", cur["tried"][0]["err"])
+        self.assertEqual(self.plans(cur)["Premium"], 30)             # last good prices stay
+
+    def test_manus_help_page(self):
+        man = self.apps()["manus"]
+        self.assertEqual(man["src"]["label"], "Manus help page")
+        self.assertEqual(len(man["tried"]), 1)                       # no App Store backup: its plan list is out of date
+        self.assertNotIn(19, self.plans(man).values())
+        self.m.get = boom
+        man = self.apps(None)["manus"]
+        self.assertFalse(man["readToday"])
+        self.assertEqual(self.plans(man), {"Pro (4,000 credits)": 20, "Pro (8,000 credits)": 40})   # seeds, marked "last checked"
+
+    def test_replit_app_store_backup(self):
+        def get(url, **k):
+            if url == "https://replit.com/pricing":
+                raise RuntimeError("HTTP 403")
+            return strict_get(url, **k)
+        self.m.get = get
+        rp = self.apps()["replit"]
+        self.assertEqual(rp["src"]["label"], "App Store price (US)")
+        self.assertEqual(self.plans(rp), {"Core": 20})
+
+    def test_copilot_reads_only_the_plans_block(self):
+        cp = self.apps()["copilot"]
+        self.assertNotIn(15, self.plans(cp).values())              # later "Pro plan $15 per month" credits line
+        def get(url, **k):
+            r = strict_get(url, **k)
+            return Resp(r.content.replace(b"Pricing plans", b"Plans")) if "copilot" in url else r
+        self.m.get = get
+        self.assertFalse(self.apps()["copilot"]["readToday"])
+
+
+AGENT_FEEDS = [("feed_OpenAI.xml", "OpenAI", "lab"), ("feed_TechCrunch.xml", "TechCrunch", "news"),
+               ("feed_ArsTechnica.xml", "Ars Technica", "news"), ("feed_Wired.xml", "Wired", "news")]
+
+
+class AgentNews(unittest.TestCase):
+    """The real feeds saved on 2026-11-02 and the official pages."""
+    def setUp(self):
+        self.m = load(tempfile.mkdtemp())
+        self.m.get = strict_get
+        self.items = []
+        for f, name, kind in AGENT_FEEDS:
+            self.items += self.m.parse_feed(fx(f), name, kind)
+        self.official = self.m.official_posts({"official": self.m.fetch_official(None)})
+
+    def test_kept_and_dropped_today(self):
+        kept, dropped = self.m.agent_news_report(self.items, self.official)
+        kept_t = {t for _, _, _, t in kept}
+        self.assertEqual(kept_t, {
+            "Zest’s new AI agent finds restaurants and books reservations over text",
+            "An AI Agent Injected Drugs Into a Live Mouse’s Brain",
+            "A Defense Contractor Gave Their Personal AI Agent Access to a Secure Pentagon System",
+            "Patch the Planet: global response coordination as agents uncover critical vulnerabilities",
+            "Donating Agent Skills to the Agentic AI Foundation"})
+        why = {t: r for r, _, _, t in dropped}
+        self.assertEqual(why["Uber brings ChatGPT Work to all employees with OpenAI"], "dropped: customer story")
+        self.assertEqual(why["Franchisee reconciles cash in 94% less time with ChatGPT Work"], "dropped: customer story")
+        self.assertEqual(why["Legora is building the agentic operating system for legal work"], "dropped: customer story")
+        self.assertEqual(why["How a Contractor’s Claude Agent Got Into the Pentagon"], "dropped: explainer")
+        self.assertTrue(why["DoorDash said it’s only received ‘several hundred’ orders from AI agents"].startswith("dropped: opinion"))
+        self.assertIn("dropped", why['"No human at the helm": Delaware plan would let AI agents run entire businesses'])
+        self.assertIn("dropped", why["I Put a Bunch of AI Agents in Charge of a Fantasy Soccer Team. They’re Not Better Than Humans—Yet"])
+
+    def test_list(self):
+        news = self.m.agent_news(self.items, self.official)
+        self.assertLessEqual(len(news), 8)
+        self.assertEqual([n["d"] for n in news], sorted((n["d"] for n in news), reverse=True))
+        self.assertTrue(all(n["d"][:10] >= "2026-10-18" for n in news))           # last 14 days
+        self.assertTrue(all(n["t"] and n["u"].startswith("https://") and n["s"] for n in news))
+        patch = [n for n in news if n["t"].startswith("Patch the Planet")]
+        self.assertEqual(len(patch), 1)                                           # feed copy + official copy = one line
+        self.assertTrue(patch[0]["official"])
+
+    def test_rules(self):
+        c = lambda t: self.m.classify_agent_news(t)[0]
+        for t in ("Benefit Street Partners answers questions faster with Codex", "How Oracle turns days of work into minutes with ChatGPT and Codex",
+                  "Amp puts AI agents to work beyond code with OpenAI models", "The EU’s next chapter in AI is agentic",
+                  "Accelerating the search for antimicrobial peptides with Google Antigravity", "OpenAI sued over agent mistakes",
+                  "Google reportedly plans a new Gemini Agent", "Why AI agents keep failing", "Comet tail seen over Europe tonight?"):
+            self.assertEqual(c(t), "", t)
+        self.assertEqual(c("Advancing computer use with Ironclad"), "")                                      # customer story
+        self.assertEqual(c("We urgently need to monitor AI agents\u2019 actions in real time"), "")                 # opinion
+        self.assertEqual(c("Into the Omniverse: How Developers Turn Ideas Into Simulations With Frontier AI Agents"), "")
+        cs = self.m.classify_agent_news
+        self.assertEqual(cs("Things That Go Beep in the Night: Agentic AI Joins the Search for Extraterrestrial Signals", "NVIDIA")[0], "")
+        self.assertEqual(cs("NVIDIA launches agent toolkit for robots", "NVIDIA")[0], "Launch")                 # vendor blog with a launch
+        self.assertEqual(c("OpenAI launches a new Codex agent for teams"), "Launch")
+        self.assertEqual(c("Anthropic adds computer use to Claude for Chrome users"), "News")
+        self.assertEqual(c("Google releases Gemini 4 Carbon"), "")                # no agent word
+
+    def test_max_eight(self):
+        words = ["Alpha", "Bravo", "Delta", "Echo", "Foxtrot", "Hotel", "India", "Juliet", "Kilo", "Lima", "Mike", "Oscar"]
+        jobs = ["taxes", "travel", "email", "recipes", "invoices", "music", "homework", "fitness", "shopping", "meetings", "photos", "bills"]
+        many = [{"t": f"{w} ships an AI agent for {j}", "u": f"https://e.com/{i}", "s": "TechCrunch", "k": "news",
+                 "d": (FIXED_NOW - timedelta(hours=i)).isoformat()} for i, (w, j) in enumerate(zip(words, jobs))]
+        self.assertEqual(len(self.m.agent_news(many, [])), 8)
+
+
 class Speed(unittest.TestCase):
     """The daily run must never hang: parsing the biggest real pages, and a hostile one, stays fast."""
     def test_parsers_are_bounded(self):
         import time
         m = load(tempfile.mkdtemp())
         t0 = time.time()
-        for f in ("appstore_chatgpt.html", "appstore_grok.html", "appstore_perplexity.html", "xai_pricing.html"):
+        for f in ("appstore_chatgpt.html", "appstore_grok.html", "appstore_perplexity.html", "xai_pricing.html",
+                  "web_claude_pricing.html", "web_copilot_plans.html", "web_codex_pricing.html", "appstore_manus.html", "web_manus_help.html", "web_replit_pricing.html"):
             m.page_text(fx(f).decode())
         for f, base, mode in (("rel_anthropic_news.html", "https://www.anthropic.com/news", "before"),
                               ("rel_xai_news.html", "https://x.ai/news", "inside"), ("rel_meta_ai_blog.html", "https://ai.meta.com/blog/", "after")):
             m.parse_html_posts(fx(f).decode(), base, mode)
         m.parse_rss_posts(fx("rel_openai_rss.xml"))
+        m.parse_feed(fx("feed_OpenAI.xml"), "OpenAI", "lab", per_feed=500)
+
         hostile = "<html>" + '<a href="/x">' * 20000 + "<h2>" * 5000 + "<script>" + "x" * 500000
         m.parse_html_posts(hostile, "https://e.com/")
         m.page_text(hostile)
         m.parse_deepseek_log(hostile, "https://e.com/")
+        words = ("Pro Plus Max Go Premium Super Ultra Core From Google AI Ultra Claude Code Jules in Pro " * 8000)[:m.MAX_PAGE]
+        for a in m.AGENT_APPS + m.PRICE_APPS:                 # every price / proof regex on a page with no prices at all
+            for src in a["sources"]:
+                if src.get("proof"):
+                    re.search(src["proof"], words, re.I)
+                for _, _, pat in src["plans"]:
+                    if src["kind"] == "web":
+                        re.search(pat, words, re.I | re.S)
         self.assertLess(time.time() - t0, 5)
 
 
@@ -805,6 +1161,19 @@ class Pipeline(unittest.TestCase):
         self.assertEqual(picks["pictures"]["status"], "best")
         self.assertTrue(picks["chat"]["usesAA"])
         self.assertIn("aa", [s["id"] for s in d["sources"]])
+        self.check_agents(d)
+
+    def check_agents(self, d):
+        ag = d["agents"]
+        self.assertEqual(ag["best"]["status"], "best")
+        self.assertEqual([w["n"] for w in ag["best"]["winners"]], ["Claude Opus 5.5", "Claude Sonnet 5.5"])
+        self.assertEqual(len(ag["apps"]), 12)
+        self.assertTrue(all(a["src"]["url"].startswith("https://") and a["checked"] and a["group"] in ("tasks", "code") for a in ag["apps"]))
+        self.assertEqual({t["id"] for t in ag["tests"]}, {"arena", "lb_agentic", "apex", "lb_browser", "vending", "rli"})
+        self.assertTrue(all(n["u"] and n["s"] and n["d"] for n in ag["news"]["items"]))
+        self.assertTrue(d["status"]["agentapps"]["ok"])
+        self.assertIn("agentapps", [s["id"] for s in d["sources"]])
+        self.assertNotIn("artificialanalysis", json.dumps(ag).lower())
 
     def test_coverage_and_votes_use_every_row_and_text_overall(self):
         self.run_main()
@@ -852,7 +1221,7 @@ class Pipeline(unittest.TestCase):
     def test_everything_fails_writes_nothing(self):
         self.run_main()
         before = (self.root / "data" / "data.json").read_bytes()
-        m, rc = self.run_main(lmarena=1, aa=1, livebench=1, epoch=1, openrouter=1, official=1, prices=1, news=1)
+        m, rc = self.run_main(lmarena=1, aa=1, livebench=1, epoch=1, openrouter=1, official=1, prices=1, news=1, agentapps=1)
         self.assertEqual(rc, 2)
         self.assertEqual((self.root / "data" / "data.json").read_bytes(), before)
 
@@ -967,6 +1336,7 @@ class AAOff(unittest.TestCase):
         self.assertTrue(all(x["src"] == "openrouter" for x in d["cost"]["dev"]))
         self.assertTrue(all("artificialanalysis" not in x["u"] for x in d["releases"]["items"]))
         self.assertIn("Gemini 4 Carbon", [x["n"] for x in d["releases"]["items"]])     # from Google DeepMind's own blog
+        Pipeline.check_agents(self, d)                                                  # Agents tab works with AA off
 
     def test_needs_all_three(self):
         m = load(self.root)
@@ -996,7 +1366,7 @@ class AAOff(unittest.TestCase):
         os.environ["AA_ENABLED"] = "1"
         self.run_main()
         os.environ.pop("AA_ENABLED")
-        m, rc = self.run_main(lmarena=1, aa=1, livebench=1, epoch=1, openrouter=1, official=1, prices=1, news=1)
+        m, rc = self.run_main(lmarena=1, aa=1, livebench=1, epoch=1, openrouter=1, official=1, prices=1, news=1, agentapps=1)
         self.assertEqual(rc, 1)
         d = self.assert_no_aa()
         self.assertFalse(d["status"]["lmarena"]["ok"])          # built from last good copies

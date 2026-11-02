@@ -5,7 +5,10 @@ const path = require("node:path");
 const vm = require("node:vm");
 const R = path.join(__dirname, "..");
 const read = (f) => fs.readFileSync(path.join(R, f), "utf8");
-const data = () => JSON.parse(read("data/data.json"));
+// Until the daily Action has run v6 once, data/data.json has no "agents" part: the Agents-tab tests then use
+// tests/fixtures/agents_sample.json (built by v6 from the real pages saved on 2026-11-02).
+const AGENTS_SAMPLE = () => JSON.parse(read("tests/fixtures/agents_sample.json"));
+const data = () => { const d = JSON.parse(read("data/data.json")); if (!d.agents) d.agents = AGENTS_SAMPLE(); return d; };
 
 function loadApp(d) {
   const ctx = { AI_DATA: d || data() };
@@ -36,7 +39,7 @@ test("manifest is installable", () => {
 
 test("service worker: new version, data from the network first", () => {
   const s = read("sw.js");
-  assert.match(s, /const VERSION = "v5-2026-11-01"/);
+  assert.match(s, /const VERSION = "v6-2026-11-02"/);
   assert.match(s, /\/data\//);
   assert.match(s, /fetch\(req, \{ cache: "no-store" \}\)/);
 });
@@ -52,11 +55,17 @@ test("workflow runs daily, passes the AA key only to the data step, checks the n
   assert.match(w, /rm -f _site\/data\/history\.json _site\/data\/raw\.json/);
 });
 
-test("exactly 4 tabs, a Sources view, no tables, no leftovers", () => {
+test("exactly 5 tabs (short labels on a phone), a Sources view, no tables, no leftovers", () => {
   const h = read("index.html");
-  const tabs = [...h.matchAll(/<nav[\s\S]*?<\/nav>/g)][0][0].match(/data-tab="([^"]+)"/g).map((s) => s.slice(10, -1));
-  assert.deepStrictEqual(tabs, ["best", "cost", "releases", "news"]);
-  assert.match(h, />Best for what</); assert.match(h, />Cost</); assert.match(h, />New releases</); assert.match(h, />Big news</);
+  const nav = [...h.matchAll(/<nav[\s\S]*?<\/nav>/g)][0][0];
+  const tabs = nav.match(/data-tab="([^"]+)"/g).map((s) => s.slice(10, -1));
+  assert.deepStrictEqual(tabs, ["best", "cost", "releases", "news", "agents"]);
+  assert.match(h, />Best for what</); assert.match(h, />Cost</); assert.match(h, />New releases</); assert.match(h, />Big news</); assert.match(h, />Agents</);
+  for (const short of ["Best", "Cost", "New", "News", "Agents"]) assert.match(nav, new RegExp('class="short" aria-hidden="true">' + short + "<"));
+  assert.match(nav, /🤖/);
+  const css = read("app.css");
+  assert.match(css, /grid-template-columns:repeat\(5,minmax\(0,1fr\)\)/);
+  assert.match(css, /\.tabs \.long\{display:none\}/);
   assert.match(h, /data-tab="sources"/);
   const all = h + read("app.js") + read("app.css");
   assert.doesNotMatch(all, /<table|<th\b|<td\b/);
@@ -73,7 +82,8 @@ test("data file has the new shape", () => {
   assert.equal(d.v, 3);
   for (const k of ["status", "sources", "picks", "cost", "releases", "bignews", "rule"]) assert.ok(d[k], "missing " + k);
   assert.equal(typeof d.aaEnabled, "boolean");
-  const ids = ["lmarena", "livebench", "epoch", "openrouter", "official", "prices", "news"].concat(d.aaEnabled ? ["aa"] : []);
+  const ids = ["lmarena", "livebench", "epoch", "openrouter", "official", "prices", "news"].concat(d.aaEnabled ? ["aa"] : [])
+    .concat(JSON.parse(read("data/data.json")).agents ? ["agentapps"] : []);
   for (const s of ids) {
     assert.ok(d.status[s], "no status for " + s);
     assert.ok(d.sources.some((x) => x.id === s), "no source entry for " + s);
@@ -102,7 +112,9 @@ test("old #links fall back to the first tab; new links work", () => {
     assert.equal(A.routeFor(h).tab, "best", h);
     assert.equal(A.routeFor(h).more, false, h);
   }
-  for (const t of ["best", "cost", "releases", "news", "sources"]) assert.equal(A.routeFor("#" + t).tab, t);
+  for (const t of ["best", "cost", "releases", "news", "agents", "sources"]) assert.equal(A.routeFor("#" + t).tab, t);
+  assert.equal(A.routeFor("#agents-more").tab, "agents");
+  assert.equal(A.routeFor("#agents-more").more, true);
   assert.equal(A.routeFor("#cost-more").more, true);
   assert.equal(A.routeFor("#news-more").tab, "news");
   assert.equal(A.routeFor("#main"), null);
@@ -110,7 +122,7 @@ test("old #links fall back to the first tab; new links work", () => {
 
 test("every view renders, simple views are short, See more is there", () => {
   const A = loadApp();
-  for (const t of ["best", "cost", "releases", "news"]) {
+  for (const t of ["best", "cost", "releases", "news", "agents"]) {
     const simple = A.view(t, false), full = A.view(t, true);
     for (const h of [simple, full]) assert.doesNotMatch(h, /undefined|NaN|Something went wrong/, t);
     assert.ok(full.length >= simple.length, t + " details should not be shorter");
@@ -167,7 +179,7 @@ test("Artificial Analysis off: no AA anywhere, 3-of-3 rule, pictures marked '1 s
   assert.doesNotMatch(read("data/data.json") + read("data/data.js"), /artificialanalysis\.ai|"aa"/i);
   if (fs.existsSync(path.join(R, "data/raw.json"))) assert.doesNotMatch(read("data/raw.json"), /"aa":|artificialanalysis\.ai/);
   const A = loadApp(d);
-  const all = ["best", "cost", "releases", "news"].map((t) => A.view(t, false) + A.view(t, true)).join("") + A.view("sources", false);
+  const all = ["best", "cost", "releases", "news", "agents"].map((t) => A.view(t, false) + A.view(t, true)).join("") + A.view("sources", false);
   assert.doesNotMatch(all, /Artificial Analysis|artificialanalysis/);
   assert.match(d.rule, /all 3/);
   assert.match(A.view("best", true), /all 3 independent sources/);
@@ -206,7 +218,10 @@ test("Sources view credits licenses: CC BY 4.0 links for LMArena and Epoch, Live
   assert.match(html, /LMArena \(lmarena\.ai\)/);
   assert.match(html, /Epoch AI \(epoch\.ai\)/);
   assert.match(html, /LiveBench \(livebench\.ai\)/);
-  assert.equal((html.match(/href="https:\/\/creativecommons\.org\/licenses\/by\/4\.0\/"/g) || []).length, 2);
+  // LMArena and Epoch AI in the main list, plus the agent tests that use the same data (Agent Arena, APEX, Vending-Bench, RLI)
+  const main = html.split("<h3>")[0];
+  assert.equal((main.match(/href="https:\/\/creativecommons\.org\/licenses\/by\/4\.0\/"/g) || []).length, 2);
+  assert.ok((html.match(/href="https:\/\/creativecommons\.org\/licenses\/by\/4\.0\/"/g) || []).length >= 6);
 });
 
 test("⚡ Fast tag: name-based label in See more, dev prices and releases, explained, never on the simple Best view", () => {
@@ -263,4 +278,99 @@ test("v5: New releases use the company's own page when there is one", () => {
   for (const r of official) assert.notEqual(r.src, "OpenRouter");
   const keys = d.releases.items.map((r) => r.n.toLowerCase().replace(/[^a-z0-9]/g, ""));
   assert.equal(keys.length, new Set(keys).size, "a model is listed twice");
+});
+
+// ------------------------------------------------------------------ v6: Agents tab
+test("v6 data: agents part has the right shape (every item has a source, link and date)", () => {
+  const ag = data().agents;
+  assert.ok(["best", "none"].includes(ag.best.status));
+  assert.equal(ag.best.need, 2);
+  for (const w of ag.best.winners) {
+    assert.ok(w.top3 >= 2 && w.top3 <= ag.best.n, "best for agents needs top 3 in at least 2 tests: " + w.n);
+    for (const r of w.ranks) assert.ok(r.name && /^https:\/\//.test(r.url) && r.date, "rank without source/date");
+  }
+  assert.deepStrictEqual(ag.tests.filter((t) => t.inRule).map((t) => t.id), ["arena", "lb_agentic", "apex"]);
+  for (const t of ag.tests) assert.ok(t.name && t.credit && /^https:\/\//.test(t.url) && Array.isArray(t.top), t.id);
+  assert.ok(ag.apps.length >= 10);
+  for (const a of ag.apps) {
+    assert.ok(a.app && a.what && ["tasks", "code"].includes(a.group), a.app);
+    assert.ok(a.src && /^https:\/\//.test(a.src.url) && a.src.label && a.checked, "agent app without source/date: " + a.app);
+    if (a.plansFrom) assert.ok(a.proof && /^https:\/\//.test(a.proof.url) && a.proof.checked, "no proof line for " + a.app);
+  }
+  assert.ok(ag.news.items.length <= 8);
+  for (const n of ag.news.items) assert.ok(n.t && n.s && n.d && /^https:\/\//.test(n.u));
+});
+
+test("v6 Agents tab, simple view: best model, one line per app in 2 groups, a few news items, See more", () => {
+  const d = data(), A = loadApp(d), h = A.view("agents", false);
+  assert.match(h, /<h2>AI agents<\/h2>/);
+  assert.match(h, /Best AI for agents/);
+  for (const w of d.agents.best.winners) assert.ok(h.includes(w.n), w.n);
+  assert.match(h, /top 3 in \d of \d agent tests/);
+  assert.match(h, /Does tasks for you/); assert.match(h, /Writes code for you/);
+  for (const a of d.agents.apps) assert.ok(h.includes("<b>" + a.app + "</b>"), a.app);
+  assert.match(h, /(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d/);
+  assert.match(h, /data-more="agents"/);
+  assert.match(h, /href="#sources"/);
+  assert.ok((h.match(/class="tag"/g) || []).length <= 4, "simple view shows at most 4 news items");
+  assert.doesNotMatch(h, /Included: /, "proof lines only under See more");
+});
+
+test("v6 Agents tab, See more: rule, every test's top 5, every plan with its proof line, all news", () => {
+  const d = data(), h = loadApp(d).view("agents", true);
+  assert.match(h, /top 3 of at least 2 of the 3/);
+  for (const t of d.agents.tests) {
+    assert.ok(h.includes(t.name), t.name);
+    for (const r of t.top) assert.ok(h.includes(r.shown), t.id + " " + r.shown);
+  }
+  assert.match(h, /Info only/);
+  assert.match(h, /APEX-Agents by Mercor, via Epoch AI/);
+  for (const a of d.agents.apps) for (const p of a.plans) assert.ok(h.includes(p.name + ": <b>"), a.app + " " + p.name);
+  for (const a of d.agents.apps.filter((x) => x.proof)) assert.ok(h.includes(a.proof.label), a.app);
+  for (const n of d.agents.news.items) assert.ok(h.includes(n.t.replace(/&/g, "&amp;").replace(/'/g, "&#39;").replace(/"/g, "&quot;")), n.t);
+  assert.match(h, /Back to the simple view/);
+});
+
+test("v6 Agents tab: no clear winner, a skipped test, a stale price and a missing agents part all show plainly", () => {
+  const d = JSON.parse(JSON.stringify(data()));
+  d.agents.best = Object.assign({}, d.agents.best, { status: "none", winners: [], why: "Only 1 of the 3 agent tests has fresh data right now, so no model is named best." });
+  const apex = d.agents.tests.find((t) => t.id === "apex");
+  apex.skipped = true; apex.skipWhy = "newest result is from 2026-06-01, more than 120 days ago";
+  const cur = d.agents.apps.find((a) => a.id === "cursor");
+  cur.src.readToday = false; cur.src.stale = true; cur.src.checked = "2026-09-20"; cur.plans.forEach((p) => (p.stale = true));
+  cur.cheapest = Object.assign({}, cur.cheapest, { stale: true });
+  const A = loadApp(d);
+  assert.match(A.view("agents", false), /No clear winner yet/);
+  assert.match(A.view("agents", false), /last checked Sep 20/);
+  assert.match(A.view("agents", false), /⚠ stale/);
+  assert.match(A.view("agents", true), /Left out today: newest result is from 2026-06-01/);
+  assert.match(A.view("sources", false), /Left out today/);
+  const none = Object.assign({}, d); delete none.agents;
+  const B = loadApp(none);
+  assert.match(B.view("agents", false), /being built/);
+  assert.doesNotMatch(B.view("agents", true) + B.view("sources", false), /undefined|NaN|Something went wrong/);
+});
+
+test("v6 Sources view lists every agent test and every agent app page with today's result", () => {
+  const d = data(), html = loadApp(d).view("sources", false);
+  assert.match(html, /Agent tests \(Agents tab\)/);
+  for (const t of d.agents.tests) assert.ok(html.includes(t.credit), t.credit);
+  assert.match(html, /Agent app pages/);
+  for (const a of d.agents.apps) assert.ok(html.includes(a.app), a.app);
+  assert.match(html, /https:\/\/www\.mercor\.com\/apex\//);
+});
+
+test("v6 Agents tab looks right in both themes: only theme colors, dark mode defined", () => {
+  const css = read("app.css");
+  const agentCss = css.split("/* Agents tab */")[1].split("/*")[0];
+  assert.doesNotMatch(agentCss, /#[0-9a-f]{3,6}\b|rgb\(/i, "agent styles must use the theme variables");
+  assert.match(css, /@media \(prefers-color-scheme: dark\)/);
+  assert.match(css, /:root\[data-theme="dark"\]/);
+});
+
+test("v6 leftovers: credits read 'Data from each company's…' (small e)", () => {
+  const A = loadApp(data());
+  const all = ["releases", "news", "cost", "agents"].map((t) => A.view(t, false) + A.view(t, true)).join("");
+  assert.doesNotMatch(all, /Data from (<a[^>]*>)?Each /);
+  assert.match(all, /each company's/);
 });
