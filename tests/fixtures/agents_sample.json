@@ -1,0 +1,1323 @@
+{
+ "best": {
+  "status": "best",
+  "need": 2,
+  "n": 3,
+  "winners": [
+   {
+    "k": "claude-opus-5-5",
+    "n": "Claude Opus 5.5",
+    "o": "Anthropic",
+    "top3": 3,
+    "covered": 3,
+    "ranks": [
+     {
+      "test": "arena",
+      "name": "LMArena Agent Arena",
+      "date": "2026-10-28",
+      "url": "https://lmarena.ai/leaderboard/agent",
+      "unit": "num",
+      "rank": 1,
+      "score": 0.2094,
+      "top3": true,
+      "shown": "0.209"
+     },
+     {
+      "test": "lb_agentic",
+      "name": "LiveBench Long Agentic",
+      "date": "2026-10-25",
+      "url": "https://livebench.ai/",
+      "unit": "num",
+      "rank": 3,
+      "score": 72.8,
+      "top3": true,
+      "shown": "72.8"
+     },
+     {
+      "test": "apex",
+      "name": "APEX-Agents",
+      "date": "2026-10-26",
+      "url": "https://www.mercor.com/apex/",
+      "unit": "pct",
+      "rank": 3,
+      "score": 0.735,
+      "top3": true,
+      "shown": "73.5%"
+     }
+    ],
+    "fast": false
+   },
+   {
+    "k": "claude-sonnet-5-5",
+    "n": "Claude Sonnet 5.5",
+    "o": "Anthropic",
+    "top3": 2,
+    "covered": 3,
+    "ranks": [
+     {
+      "test": "arena",
+      "name": "LMArena Agent Arena",
+      "date": "2026-10-28",
+      "url": "https://lmarena.ai/leaderboard/agent",
+      "unit": "num",
+      "rank": 3,
+      "score": 0.1384,
+      "top3": true,
+      "shown": "0.138"
+     },
+     {
+      "test": "lb_agentic",
+      "name": "LiveBench Long Agentic",
+      "date": "2026-10-25",
+      "url": "https://livebench.ai/",
+      "unit": "num",
+      "rank": 5,
+      "score": 63.4,
+      "top3": false,
+      "shown": "63.4"
+     },
+     {
+      "test": "apex",
+      "name": "APEX-Agents",
+      "date": "2026-10-26",
+      "url": "https://www.mercor.com/apex/",
+      "unit": "pct",
+      "rank": 2,
+      "score": 0.755,
+      "top3": true,
+      "shown": "75.5%"
+     }
+    ],
+    "fast": false
+   }
+  ],
+  "candidates": [
+   {
+    "k": "gemini-4-carbon",
+    "n": "Gemini 4 Carbon",
+    "o": "Google",
+    "top3": 1,
+    "covered": 1,
+    "ranks": [
+     {
+      "test": "arena",
+      "name": "LMArena Agent Arena",
+      "date": "2026-10-28",
+      "url": "https://lmarena.ai/leaderboard/agent",
+      "unit": "num",
+      "rank": 2,
+      "score": 0.1604,
+      "top3": true,
+      "shown": "0.160"
+     },
+     {
+      "test": "lb_agentic",
+      "name": "LiveBench Long Agentic",
+      "date": "2026-10-25",
+      "url": "https://livebench.ai/",
+      "unit": "num",
+      "rank": null,
+      "shown": ""
+     },
+     {
+      "test": "apex",
+      "name": "APEX-Agents",
+      "date": "2026-10-26",
+      "url": "https://www.mercor.com/apex/",
+      "unit": "pct",
+      "rank": null,
+      "shown": ""
+     }
+    ],
+    "fast": false
+   },
+   {
+    "k": "claude-fable-5-1",
+    "n": "Claude Fable 5.1",
+    "o": "Anthropic",
+    "top3": 1,
+    "covered": 3,
+    "ranks": [
+     {
+      "test": "arena",
+      "name": "LMArena Agent Arena",
+      "date": "2026-10-28",
+      "url": "https://lmarena.ai/leaderboard/agent",
+      "unit": "num",
+      "rank": 4,
+      "score": 0.1335,
+      "top3": false,
+      "shown": "0.134"
+     },
+     {
+      "test": "lb_agentic",
+      "name": "LiveBench Long Agentic",
+      "date": "2026-10-25",
+      "url": "https://livebench.ai/",
+      "unit": "num",
+      "rank": 1,
+      "score": 77.9,
+      "top3": true,
+      "shown": "77.9"
+     },
+     {
+      "test": "apex",
+      "name": "APEX-Agents",
+      "date": "2026-10-26",
+      "url": "https://www.mercor.com/apex/",
+      "unit": "pct",
+      "rank": 5,
+      "score": 0.686,
+      "top3": false,
+      "shown": "68.6%"
+     }
+    ],
+    "fast": false
+   },
+   {
+    "k": "gemini-4-argon",
+    "n": "Gemini 4 Argon",
+    "o": "Google DeepMind",
+    "top3": 1,
+    "covered": 3,
+    "ranks": [
+     {
+      "test": "arena",
+      "name": "LMArena Agent Arena",
+      "date": "2026-10-28",
+      "url": "https://lmarena.ai/leaderboard/agent",
+      "unit": "num",
+      "rank": 7,
+      "score": 0.1073,
+      "top3": false,
+      "shown": "0.107"
+     },
+     {
+      "test": "lb_agentic",
+      "name": "LiveBench Long Agentic",
+      "date": "2026-10-25",
+      "url": "https://livebench.ai/",
+      "unit": "num",
+      "rank": 6,
+      "score": 61.2,
+      "top3": false,
+      "shown": "61.2"
+     },
+     {
+      "test": "apex",
+      "name": "APEX-Agents",
+      "date": "2026-10-26",
+      "url": "https://www.mercor.com/apex/",
+      "unit": "pct",
+      "rank": 1,
+      "score": 0.824,
+      "top3": true,
+      "shown": "82.4%"
+     }
+    ],
+    "fast": false
+   },
+   {
+    "k": "gpt-6-astra",
+    "n": "GPT-6 Astra",
+    "o": "OpenAI",
+    "top3": 1,
+    "covered": 3,
+    "ranks": [
+     {
+      "test": "arena",
+      "name": "LMArena Agent Arena",
+      "date": "2026-10-28",
+      "url": "https://lmarena.ai/leaderboard/agent",
+      "unit": "num",
+      "rank": 5,
+      "score": 0.1296,
+      "top3": false,
+      "shown": "0.130"
+     },
+     {
+      "test": "lb_agentic",
+      "name": "LiveBench Long Agentic",
+      "date": "2026-10-25",
+      "url": "https://livebench.ai/",
+      "unit": "num",
+      "rank": 2,
+      "score": 77.5,
+      "top3": true,
+      "shown": "77.5"
+     },
+     {
+      "test": "apex",
+      "name": "APEX-Agents",
+      "date": "2026-10-26",
+      "url": "https://www.mercor.com/apex/",
+      "unit": "pct",
+      "rank": 11,
+      "score": 0.647,
+      "top3": false,
+      "shown": "64.7%"
+     }
+    ],
+    "fast": false
+   }
+  ],
+  "why": "Named best because it is in the top 3 of at least 2 of the 3 independent agent tests (LMArena Agent Arena, LiveBench Long Agentic, APEX-Agents).",
+  "testsUsed": [
+   "arena",
+   "lb_agentic",
+   "apex"
+  ]
+ },
+ "tests": [
+  {
+   "id": "arena",
+   "name": "LMArena Agent Arena",
+   "credit": "LMArena (lmarena.ai)",
+   "url": "https://lmarena.ai/leaderboard/agent",
+   "what": "People give the same task to two hidden agents and vote for the one that did it better.",
+   "license": "CC BY 4.0",
+   "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+   "unit": "num",
+   "inRule": true,
+   "date": "2026-10-28",
+   "ok": true,
+   "updated": "2026-11-02T03:00:00+00:00",
+   "skipped": false,
+   "skipWhy": "",
+   "top": [
+    {
+     "k": "claude-opus-5-5",
+     "n": "Claude Opus 5.5",
+     "o": "Anthropic",
+     "s": 0.2094,
+     "shown": "0.209"
+    },
+    {
+     "k": "gemini-4-carbon",
+     "n": "Gemini 4 Carbon",
+     "o": "Google",
+     "s": 0.1604,
+     "shown": "0.160"
+    },
+    {
+     "k": "claude-sonnet-5-5",
+     "n": "Claude Sonnet 5.5",
+     "o": "Anthropic",
+     "s": 0.1384,
+     "shown": "0.138"
+    },
+    {
+     "k": "claude-fable-5-1",
+     "n": "Claude Fable 5.1",
+     "o": "Anthropic",
+     "s": 0.1335,
+     "shown": "0.134"
+    },
+    {
+     "k": "gpt-6-astra",
+     "n": "GPT-6 Astra",
+     "o": "OpenAI",
+     "s": 0.1296,
+     "shown": "0.130"
+    }
+   ],
+   "count": 54
+  },
+  {
+   "id": "lb_agentic",
+   "name": "LiveBench Long Agentic",
+   "credit": "LiveBench (livebench.ai)",
+   "url": "https://livebench.ai/",
+   "what": "Long, many-step tasks done with tools. New, hidden tasks every release.",
+   "license": "",
+   "licenseUrl": "",
+   "unit": "num",
+   "inRule": true,
+   "date": "2026-10-25",
+   "ok": true,
+   "updated": "2026-11-02T03:00:00+00:00",
+   "skipped": false,
+   "skipWhy": "",
+   "top": [
+    {
+     "k": "claude-fable-5-1",
+     "n": "Claude Fable 5.1",
+     "o": "Anthropic",
+     "s": 77.9,
+     "shown": "77.9"
+    },
+    {
+     "k": "gpt-6-astra",
+     "n": "GPT-6 Astra",
+     "o": "OpenAI",
+     "s": 77.5,
+     "shown": "77.5"
+    },
+    {
+     "k": "claude-opus-5-5",
+     "n": "Claude Opus 5.5",
+     "o": "Anthropic",
+     "s": 72.8,
+     "shown": "72.8"
+    },
+    {
+     "k": "gpt-6-1-sol",
+     "n": "GPT-6.1 Sol",
+     "o": "OpenAI",
+     "s": 68.7,
+     "shown": "68.7"
+    },
+    {
+     "k": "claude-sonnet-5-5",
+     "n": "Claude Sonnet 5.5",
+     "o": "Anthropic",
+     "s": 63.4,
+     "shown": "63.4"
+    }
+   ],
+   "count": 32
+  },
+  {
+   "id": "apex",
+   "name": "APEX-Agents",
+   "credit": "APEX-Agents by Mercor, via Epoch AI",
+   "url": "https://www.mercor.com/apex/",
+   "what": "Real work tasks from banking, consulting and law, done by an agent. Score = share solved on the first try.",
+   "license": "CC BY 4.0 (Epoch AI data)",
+   "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+   "unit": "pct",
+   "inRule": true,
+   "date": "2026-10-26",
+   "ok": true,
+   "updated": "2026-11-02T03:00:00+00:00",
+   "skipped": false,
+   "skipWhy": "",
+   "top": [
+    {
+     "k": "gemini-4-argon",
+     "n": "Gemini 4 Argon",
+     "o": "Google DeepMind",
+     "s": 0.824,
+     "shown": "82.4%"
+    },
+    {
+     "k": "claude-sonnet-5-5",
+     "n": "Claude Sonnet 5.5",
+     "o": "Anthropic",
+     "s": 0.755,
+     "shown": "75.5%"
+    },
+    {
+     "k": "claude-opus-5-5",
+     "n": "Claude Opus 5.5",
+     "o": "Anthropic",
+     "s": 0.735,
+     "shown": "73.5%"
+    },
+    {
+     "k": "deepseek-v4-1-flash",
+     "n": "DeepSeek V4.1 Flash 1017",
+     "o": "DeepSeek",
+     "s": 0.698,
+     "shown": "69.8%"
+    },
+    {
+     "k": "claude-fable-5-1",
+     "n": "Claude Fable 5.1",
+     "o": "Anthropic",
+     "s": 0.686,
+     "shown": "68.6%"
+    }
+   ],
+   "count": 55
+  },
+  {
+   "id": "lb_browser",
+   "name": "LiveBench Browser",
+   "credit": "LiveBench (livebench.ai)",
+   "url": "https://livebench.ai/",
+   "what": "Tasks done in a web browser.",
+   "license": "",
+   "licenseUrl": "",
+   "unit": "num",
+   "inRule": false,
+   "date": "2026-10-25",
+   "ok": true,
+   "updated": "2026-11-02T03:00:00+00:00",
+   "skipped": false,
+   "skipWhy": "",
+   "top": [
+    {
+     "k": "gpt-6-1-sol",
+     "n": "GPT-6.1 Sol",
+     "o": "OpenAI",
+     "s": 93.3,
+     "shown": "93.3"
+    },
+    {
+     "k": "gpt-6-1-terra",
+     "n": "GPT-6.1 Terra",
+     "o": "OpenAI",
+     "s": 93.1,
+     "shown": "93.1"
+    },
+    {
+     "k": "gpt-6-astra",
+     "n": "GPT-6 Astra",
+     "o": "OpenAI",
+     "s": 91.3,
+     "shown": "91.3"
+    },
+    {
+     "k": "claude-fable-5-1",
+     "n": "Claude Fable 5.1",
+     "o": "Anthropic",
+     "s": 89.8,
+     "shown": "89.8"
+    },
+    {
+     "k": "claude-sonnet-5-5",
+     "n": "Claude Sonnet 5.5",
+     "o": "Anthropic",
+     "s": 89.3,
+     "shown": "89.3"
+    }
+   ],
+   "count": 32
+  },
+  {
+   "id": "vending",
+   "name": "Vending-Bench 2",
+   "credit": "Vending-Bench 2 by Andon Labs, via Epoch AI",
+   "url": "https://andonlabs.com/evals/vending-bench-2",
+   "what": "An agent runs a pretend vending-machine business for a year. Score = money at the end.",
+   "license": "CC BY 4.0 (Epoch AI data)",
+   "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+   "unit": "usd",
+   "inRule": false,
+   "date": "2026-10-28",
+   "ok": true,
+   "updated": "2026-11-02T03:00:00+00:00",
+   "skipped": false,
+   "skipWhy": "",
+   "top": [
+    {
+     "k": "gemini-4-carbon",
+     "n": "Gemini 4 Carbon",
+     "o": "Google",
+     "s": 16484.2067,
+     "shown": "$16,484"
+    },
+    {
+     "k": "gpt-6-astra",
+     "n": "GPT-6 Astra",
+     "o": "OpenAI",
+     "s": 15514.7017,
+     "shown": "$15,515"
+    },
+    {
+     "k": "gpt-6-sol",
+     "n": "GPT-6 Sol",
+     "o": "OpenAI",
+     "s": 14427.8483,
+     "shown": "$14,428"
+    },
+    {
+     "k": "gemini-4-argon",
+     "n": "Gemini 4 Argon",
+     "o": "Google DeepMind",
+     "s": 13718.1583,
+     "shown": "$13,718"
+    },
+    {
+     "k": "claude-opus-5",
+     "n": "Claude Opus 5",
+     "o": "Anthropic",
+     "s": 11181.8733,
+     "shown": "$11,182"
+    }
+   ],
+   "count": 66
+  },
+  {
+   "id": "rli",
+   "name": "Remote Labor Index",
+   "credit": "Remote Labor Index by Scale AI and CAIS, via Epoch AI",
+   "url": "https://labs.scale.com/leaderboard/rli",
+   "what": "Real paid freelance projects. Score = share done well enough to be accepted.",
+   "license": "CC BY 4.0 (Epoch AI data)",
+   "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+   "unit": "pct",
+   "inRule": false,
+   "date": "2026-09-30",
+   "ok": true,
+   "updated": "2026-11-02T03:00:00+00:00",
+   "skipped": false,
+   "skipWhy": "",
+   "top": [
+    {
+     "k": "claude-opus-5-5",
+     "n": "Claude Opus 5.5",
+     "o": "Anthropic",
+     "s": 0.2125,
+     "shown": "21.2%"
+    },
+    {
+     "k": "gpt-6-astra",
+     "n": "GPT-6 Astra",
+     "o": "OpenAI",
+     "s": 0.2083,
+     "shown": "20.8%"
+    },
+    {
+     "k": "claude-fable-5-1",
+     "n": "Claude Fable 5.1",
+     "o": "Anthropic",
+     "s": 0.1792,
+     "shown": "17.9%"
+    },
+    {
+     "k": "gemini-4-argon",
+     "n": "Gemini 4 Argon",
+     "o": "Google DeepMind",
+     "s": 0.1708,
+     "shown": "17.1%"
+    },
+    {
+     "k": "claude-fable-5",
+     "n": "Claude Fable 5",
+     "o": "Anthropic",
+     "s": 0.161,
+     "shown": "16.1%"
+    }
+   ],
+   "count": 16
+  }
+ ],
+ "rule": "A model is named best for agents only when it is in the top 3 of at least 2 of the 3 independent agent tests.",
+ "apps": [
+  {
+   "id": "chatgpt-work",
+   "app": "ChatGPT Work",
+   "maker": "OpenAI",
+   "group": "tasks",
+   "what": "An agent inside ChatGPT that does multi-step tasks across your files and apps.",
+   "free": true,
+   "note": "",
+   "freeNote": "",
+   "plans": [
+    {
+     "name": "Go",
+     "usd_month": 8.0,
+     "checked": "2026-11-02",
+     "stale": false
+    },
+    {
+     "name": "Plus",
+     "usd_month": 19.99,
+     "checked": "2026-11-02",
+     "stale": false
+    },
+    {
+     "name": "Pro 100",
+     "usd_month": 100.0,
+     "checked": "2026-11-02",
+     "stale": false
+    },
+    {
+     "name": "Pro 200",
+     "usd_month": 200.0,
+     "checked": "2026-11-02",
+     "stale": false
+    },
+    {
+     "name": "Pro 500",
+     "usd_month": 500.0,
+     "checked": "2026-11-02",
+     "stale": false
+    }
+   ],
+   "src": {
+    "kind": "appstore",
+    "label": "App Store price (US)",
+    "url": "https://apps.apple.com/us/app/chatgpt/id6448311069",
+    "checked": "2026-11-02",
+    "readToday": true,
+    "stale": false
+   },
+   "plansFrom": "ChatGPT",
+   "proof": {
+    "label": "Codex pricing page",
+    "url": "https://developers.openai.com/codex/pricing",
+    "checked": "2026-11-02",
+    "readToday": true,
+    "stale": false,
+    "tried": [
+     {
+      "label": "Codex pricing page",
+      "url": "https://developers.openai.com/codex/pricing",
+      "ok": true,
+      "err": ""
+     }
+    ],
+    "text": "“ChatGPT Work and Codex are included in your ChatGPT Free, Go, Plus, Pro…”"
+   },
+   "cheapest": {
+    "name": "Go",
+    "usd_month": 8.0,
+    "checked": "2026-11-02",
+    "stale": false
+   },
+   "checked": "2026-11-02"
+  },
+  {
+   "id": "gemini-agent",
+   "app": "Gemini Agent",
+   "maker": "Google",
+   "group": "tasks",
+   "what": "Does tasks for you in the Gemini app.",
+   "free": false,
+   "note": "Only in Google AI Ultra. US only, English only.",
+   "freeNote": "",
+   "plans": [
+    {
+     "name": "Google AI Ultra",
+     "usd_month": 99.99,
+     "checked": "2026-11-01",
+     "note": "from; $99.99 or $199.99",
+     "stale": false
+    }
+   ],
+   "src": {
+    "kind": "web",
+    "label": "Pricing page",
+    "url": "https://gemini.google/subscriptions/",
+    "checked": "2026-11-01",
+    "readToday": false,
+    "stale": false
+   },
+   "plansFrom": "Gemini",
+   "proof": {
+    "label": "Google AI plans page",
+    "url": "https://one.google.com/intl/en_us/about/google-ai-plans/",
+    "checked": "2026-11-02",
+    "readToday": true,
+    "stale": false,
+    "tried": [
+     {
+      "label": "Google AI plans page",
+      "url": "https://one.google.com/intl/en_us/about/google-ai-plans/",
+      "ok": true,
+      "err": ""
+     }
+    ],
+    "text": "Google AI Ultra: “Gemini Agent (US only, English only)”"
+   },
+   "cheapest": {
+    "name": "Google AI Ultra",
+    "usd_month": 99.99,
+    "checked": "2026-11-01",
+    "note": "from; $99.99 or $199.99",
+    "stale": false
+   },
+   "checked": "2026-11-01"
+  },
+  {
+   "id": "claude-in-chrome",
+   "app": "Claude in Chrome",
+   "maker": "Anthropic",
+   "group": "tasks",
+   "what": "Reads the page you're on, then clicks, types and fills in forms for you.",
+   "free": false,
+   "note": "Not on the Free plan.",
+   "freeNote": "",
+   "plans": [
+    {
+     "name": "Pro",
+     "usd_month": 20.0,
+     "checked": "2026-11-02",
+     "stale": false
+    },
+    {
+     "name": "Max",
+     "usd_month": 100.0,
+     "checked": "2026-11-02",
+     "stale": false
+    },
+    {
+     "name": "Ultra",
+     "usd_month": 200.0,
+     "checked": "2026-11-02",
+     "stale": false
+    }
+   ],
+   "src": {
+    "kind": "web",
+    "label": "Pricing page",
+    "url": "https://claude.com/pricing",
+    "checked": "2026-11-02",
+    "readToday": true,
+    "stale": false
+   },
+   "plansFrom": "Claude",
+   "proof": {
+    "label": "Claude pricing page",
+    "url": "https://claude.com/pricing",
+    "checked": "2026-11-02",
+    "readToday": true,
+    "stale": false,
+    "tried": [
+     {
+      "label": "Claude pricing page",
+      "url": "https://claude.com/pricing",
+      "ok": true,
+      "err": ""
+     }
+    ],
+    "text": "Plan table: “Claude in Chrome: No (Free), Yes (Pro, Max, Ultra)”"
+   },
+   "cheapest": {
+    "name": "Pro",
+    "usd_month": 20.0,
+    "checked": "2026-11-02",
+    "stale": false
+   },
+   "checked": "2026-11-02"
+  },
+  {
+   "id": "comet",
+   "app": "Comet",
+   "maker": "Perplexity",
+   "group": "tasks",
+   "what": "An AI web browser that does tasks for you.",
+   "free": true,
+   "note": "",
+   "freeNote": "",
+   "plans": [
+    {
+     "name": "Pro",
+     "usd_month": 20.0,
+     "checked": "2026-11-02",
+     "stale": false
+    },
+    {
+     "name": "Max",
+     "usd_month": 200.0,
+     "checked": "2026-11-02",
+     "stale": false
+    }
+   ],
+   "src": {
+    "label": "App Store price (US)",
+    "url": "https://apps.apple.com/us/app/comet-ai-browser-assistant/id6748622471",
+    "checked": "2026-11-02",
+    "readToday": true,
+    "stale": false,
+    "tried": [
+     {
+      "label": "App Store price (US)",
+      "url": "https://apps.apple.com/us/app/comet-ai-browser-assistant/id6748622471",
+      "ok": true,
+      "err": ""
+     }
+    ]
+   },
+   "proof": null,
+   "cheapest": {
+    "name": "Pro",
+    "usd_month": 20.0,
+    "checked": "2026-11-02",
+    "stale": false
+   },
+   "checked": "2026-11-02"
+  },
+  {
+   "id": "manus",
+   "app": "Manus",
+   "maker": "Butterfly Effect",
+   "group": "tasks",
+   "what": "A general agent: research, slides, websites and more.",
+   "free": true,
+   "note": "Free plan with daily credits.",
+   "freeNote": "",
+   "plans": [
+    {
+     "name": "Pro (4,000 credits)",
+     "usd_month": 20.0,
+     "checked": "2026-11-02",
+     "note": "from",
+     "stale": false
+    },
+    {
+     "name": "Pro (8,000 credits)",
+     "usd_month": 40.0,
+     "checked": "2026-11-02",
+     "note": "from; 7-day free trial",
+     "stale": false
+    }
+   ],
+   "src": {
+    "label": "Manus help page",
+    "url": "https://help.manus.im/en/articles/11711111-what-is-the-current-membership-pricing-for-manus",
+    "checked": "2026-11-02",
+    "readToday": true,
+    "stale": false,
+    "tried": [
+     {
+      "label": "Manus help page",
+      "url": "https://help.manus.im/en/articles/11711111-what-is-the-current-membership-pricing-for-manus",
+      "ok": true,
+      "err": ""
+     }
+    ]
+   },
+   "proof": null,
+   "cheapest": {
+    "name": "Pro (4,000 credits)",
+    "usd_month": 20.0,
+    "checked": "2026-11-02",
+    "note": "from",
+    "stale": false
+   },
+   "checked": "2026-11-02"
+  },
+  {
+   "id": "codex",
+   "app": "Codex",
+   "maker": "OpenAI",
+   "group": "code",
+   "what": "OpenAI's coding agent, in the app, the terminal, your editor and the cloud.",
+   "free": true,
+   "note": "",
+   "freeNote": "",
+   "plans": [
+    {
+     "name": "Go",
+     "usd_month": 8.0,
+     "checked": "2026-11-02",
+     "stale": false
+    },
+    {
+     "name": "Plus",
+     "usd_month": 20.0,
+     "checked": "2026-11-02",
+     "stale": false
+    },
+    {
+     "name": "Pro",
+     "usd_month": 100.0,
+     "checked": "2026-11-02",
+     "note": "from; $100, $200 or $500",
+     "stale": false
+    }
+   ],
+   "src": {
+    "label": "Pricing page",
+    "url": "https://developers.openai.com/codex/pricing",
+    "checked": "2026-11-02",
+    "readToday": true,
+    "stale": false,
+    "tried": [
+     {
+      "label": "Pricing page",
+      "url": "https://developers.openai.com/codex/pricing",
+      "ok": true,
+      "err": ""
+     }
+    ]
+   },
+   "proof": null,
+   "cheapest": {
+    "name": "Go",
+    "usd_month": 8.0,
+    "checked": "2026-11-02",
+    "stale": false
+   },
+   "checked": "2026-11-02"
+  },
+  {
+   "id": "claude-code",
+   "app": "Claude Code",
+   "maker": "Anthropic",
+   "group": "code",
+   "what": "Anthropic's coding agent, in the terminal, your editor, the desktop app and the web.",
+   "free": false,
+   "note": "Not on the Free plan.",
+   "freeNote": "",
+   "plans": [
+    {
+     "name": "Pro",
+     "usd_month": 20.0,
+     "checked": "2026-11-02",
+     "stale": false
+    },
+    {
+     "name": "Max",
+     "usd_month": 100.0,
+     "checked": "2026-11-02",
+     "stale": false
+    },
+    {
+     "name": "Ultra",
+     "usd_month": 200.0,
+     "checked": "2026-11-02",
+     "stale": false
+    }
+   ],
+   "src": {
+    "kind": "web",
+    "label": "Pricing page",
+    "url": "https://claude.com/pricing",
+    "checked": "2026-11-02",
+    "readToday": true,
+    "stale": false
+   },
+   "plansFrom": "Claude",
+   "proof": {
+    "label": "Claude pricing page",
+    "url": "https://claude.com/pricing",
+    "checked": "2026-11-02",
+    "readToday": true,
+    "stale": false,
+    "tried": [
+     {
+      "label": "Claude pricing page",
+      "url": "https://claude.com/pricing",
+      "ok": true,
+      "err": ""
+     }
+    ],
+    "text": "Plan table: “Claude Code: No (Free), Yes (Pro, Max, Ultra)”"
+   },
+   "cheapest": {
+    "name": "Pro",
+    "usd_month": 20.0,
+    "checked": "2026-11-02",
+    "stale": false
+   },
+   "checked": "2026-11-02"
+  },
+  {
+   "id": "jules",
+   "app": "Jules",
+   "maker": "Google",
+   "group": "code",
+   "what": "Google's coding agent: works on your GitHub code and opens a pull request.",
+   "free": true,
+   "note": "",
+   "freeNote": "Free: 15 tasks a day",
+   "plans": [
+    {
+     "name": "Google AI Pro",
+     "usd_month": 19.99,
+     "checked": "2026-11-01",
+     "stale": false
+    },
+    {
+     "name": "Google AI Ultra",
+     "usd_month": 99.99,
+     "checked": "2026-11-01",
+     "note": "from; $99.99 or $199.99",
+     "stale": false
+    }
+   ],
+   "src": {
+    "kind": "web",
+    "label": "Pricing page",
+    "url": "https://gemini.google/subscriptions/",
+    "checked": "2026-11-01",
+    "readToday": false,
+    "stale": false
+   },
+   "plansFrom": "Gemini",
+   "proof": {
+    "label": "Jules plans",
+    "url": "https://jules.google/",
+    "checked": "2026-11-02",
+    "readToday": true,
+    "stale": false,
+    "tried": [
+     {
+      "label": "Jules plans",
+      "url": "https://jules.google/",
+      "ok": true,
+      "err": ""
+     }
+    ],
+    "text": "A free plan with a daily task limit; more tasks with Google AI Pro or Ultra"
+   },
+   "cheapest": {
+    "name": "Google AI Pro",
+    "usd_month": 19.99,
+    "checked": "2026-11-01",
+    "stale": false
+   },
+   "checked": "2026-11-01"
+  },
+  {
+   "id": "copilot",
+   "app": "GitHub Copilot",
+   "maker": "GitHub (Microsoft)",
+   "group": "code",
+   "what": "Coding agent in your editor, the terminal and on GitHub.",
+   "free": true,
+   "note": "",
+   "freeNote": "",
+   "plans": [
+    {
+     "name": "Pro",
+     "usd_month": 10.0,
+     "checked": "2026-11-02",
+     "stale": false
+    },
+    {
+     "name": "Pro+",
+     "usd_month": 39.0,
+     "checked": "2026-11-02",
+     "stale": false
+    },
+    {
+     "name": "Max",
+     "usd_month": 100.0,
+     "checked": "2026-11-02",
+     "stale": false
+    }
+   ],
+   "src": {
+    "label": "Plans page",
+    "url": "https://github.com/features/copilot/plans",
+    "checked": "2026-11-02",
+    "readToday": true,
+    "stale": false,
+    "tried": [
+     {
+      "label": "Plans page",
+      "url": "https://github.com/features/copilot/plans",
+      "ok": true,
+      "err": ""
+     }
+    ]
+   },
+   "proof": null,
+   "cheapest": {
+    "name": "Pro",
+    "usd_month": 10.0,
+    "checked": "2026-11-02",
+    "stale": false
+   },
+   "checked": "2026-11-02"
+  },
+  {
+   "id": "cursor",
+   "app": "Cursor",
+   "maker": "SpaceX",
+   "group": "code",
+   "what": "A code editor with a built-in coding agent.",
+   "free": true,
+   "note": "Sold as The X Subscription: one plan with Grok and X. Claude or GPT inside Cursor cost extra.",
+   "freeNote": "",
+   "plans": [
+    {
+     "name": "Plus",
+     "usd_month": 8.0,
+     "checked": "2026-11-02",
+     "stale": false
+    },
+    {
+     "name": "Premium",
+     "usd_month": 30.0,
+     "checked": "2026-11-02",
+     "stale": false
+    },
+    {
+     "name": "Super",
+     "usd_month": 100.0,
+     "checked": "2026-11-02",
+     "stale": false
+    },
+    {
+     "name": "Ultra",
+     "usd_month": 200.0,
+     "checked": "2026-11-02",
+     "stale": false
+    }
+   ],
+   "src": {
+    "label": "Pricing page",
+    "url": "https://cursor.com/pricing",
+    "checked": "2026-11-02",
+    "readToday": true,
+    "stale": false,
+    "tried": [
+     {
+      "label": "Pricing page",
+      "url": "https://cursor.com/pricing",
+      "ok": true,
+      "err": ""
+     }
+    ]
+   },
+   "proof": null,
+   "cheapest": {
+    "name": "Plus",
+    "usd_month": 8.0,
+    "checked": "2026-11-02",
+    "stale": false
+   },
+   "checked": "2026-11-02"
+  },
+  {
+   "id": "devin",
+   "app": "Devin",
+   "maker": "Cognition",
+   "group": "code",
+   "what": "A coding agent that works on its own, on your computer or in the cloud.",
+   "free": true,
+   "note": "",
+   "freeNote": "",
+   "plans": [
+    {
+     "name": "Pro",
+     "usd_month": 20.0,
+     "checked": "2026-11-02",
+     "stale": false
+    },
+    {
+     "name": "Max",
+     "usd_month": 200.0,
+     "checked": "2026-11-02",
+     "stale": false
+    }
+   ],
+   "src": {
+    "label": "Pricing page",
+    "url": "https://devin.ai/pricing",
+    "checked": "2026-11-02",
+    "readToday": true,
+    "stale": false,
+    "tried": [
+     {
+      "label": "Pricing page",
+      "url": "https://devin.ai/pricing",
+      "ok": true,
+      "err": ""
+     }
+    ]
+   },
+   "proof": null,
+   "cheapest": {
+    "name": "Pro",
+    "usd_month": 20.0,
+    "checked": "2026-11-02",
+    "stale": false
+   },
+   "checked": "2026-11-02"
+  },
+  {
+   "id": "replit",
+   "app": "Replit Agent",
+   "maker": "Replit",
+   "group": "code",
+   "what": "Builds apps and websites from a plain description.",
+   "free": null,
+   "note": "Monthly prices (less if billed yearly).",
+   "freeNote": "",
+   "plans": [
+    {
+     "name": "Core",
+     "usd_month": 20.0,
+     "checked": "2026-11-02",
+     "stale": false
+    },
+    {
+     "name": "Pro",
+     "usd_month": 100.0,
+     "checked": "2026-11-02",
+     "stale": false
+    }
+   ],
+   "src": {
+    "label": "Pricing page",
+    "url": "https://replit.com/pricing",
+    "checked": "2026-11-02",
+    "readToday": true,
+    "stale": false,
+    "tried": [
+     {
+      "label": "Pricing page",
+      "url": "https://replit.com/pricing",
+      "ok": true,
+      "err": ""
+     }
+    ]
+   },
+   "proof": null,
+   "cheapest": {
+    "name": "Core",
+    "usd_month": 20.0,
+    "checked": "2026-11-02",
+    "stale": false
+   },
+   "checked": "2026-11-02"
+  }
+ ],
+ "groups": [
+  {
+   "id": "tasks",
+   "label": "Does tasks for you"
+  },
+  {
+   "id": "code",
+   "label": "Writes code for you"
+  }
+ ],
+ "news": {
+  "items": [
+   {
+    "t": "An AI Agent Injected Drugs Into a Live Mouse’s Brain",
+    "u": "https://www.wired.com/story/an-ai-agent-did-brain-surgery-on-live-mouse/",
+    "s": "Wired",
+    "d": "2026-10-31T10:00:00+00:00",
+    "tag": "News",
+    "official": false
+   },
+   {
+    "t": "Zest’s new AI agent finds restaurants and books reservations over text",
+    "u": "https://techcrunch.com/2026/10/30/zests-new-ai-agent-finds-restaurants-and-books-reservations-over-text/",
+    "s": "TechCrunch",
+    "d": "2026-10-30T17:47:12+00:00",
+    "tag": "Launch",
+    "official": false
+   },
+   {
+    "t": "A Defense Contractor Gave Their Personal AI Agent Access to a Secure Pentagon System",
+    "u": "https://www.wired.com/story/a-defense-contractor-gave-their-personal-ai-agent-access-to-a-secure-pentagon-system/",
+    "s": "Wired",
+    "d": "2026-10-29T18:39:43+00:00",
+    "tag": "News",
+    "official": false
+   },
+   {
+    "t": "Donating Agent Skills to the Agentic AI Foundation",
+    "u": "https://www.anthropic.com/news/donating-agent-skills-to-the-agentic-ai-foundation",
+    "s": "Anthropic news",
+    "d": "2026-10-22T12:00:00+00:00",
+    "tag": "News",
+    "official": true
+   },
+   {
+    "t": "Patch the Planet: global response coordination as agents uncover critical vulnerabilities",
+    "u": "https://openai.com/index/coordinated-disclosure-of-critical-vulnerabilities",
+    "s": "OpenAI News",
+    "d": "2026-10-21T12:00:00+00:00",
+    "tag": "News",
+    "official": true
+   }
+  ],
+  "days": 14,
+  "max": 8,
+  "rules": "Titles about AI agents from the last 14 days. Customer stories, opinion, lawsuits, policy, rumors and how-tos are left out."
+ },
+ "maxAge": 120,
+ "staleDays": 30
+}
