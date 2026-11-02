@@ -95,6 +95,7 @@ details > summary::-webkit-details-marker{display:none}
 .badge.new{background:var(--new-soft);color:var(--new)}
 .badge.tie{background:var(--tie-soft);color:var(--tie)}
 .badge.none{background:var(--none-soft);color:var(--muted)}
+.stale{display:inline-block;font-size:12.5px;font-weight:700;color:var(--warn);white-space:nowrap;margin-left:4px}
 .fast{display:inline-block;font-size:12.5px;font-weight:700;line-height:1.3;padding:1px 8px;border-radius:999px;background:var(--new-soft);color:var(--new);white-space:nowrap;vertical-align:2px;margin-left:4px}
 .badge.one{background:var(--none-soft);color:var(--text);white-space:normal}
 .note.aa{font-size:14.5px}

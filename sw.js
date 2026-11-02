@@ -1,7 +1,7 @@
 // AI Tracker service worker.
 // Data (data/*) = network first, saved copy when offline, so the app never shows old data while online.
 // App files = saved copy first for speed, refreshed in the background on every visit.
-const VERSION = "v4-2026-11-01-sources-c";
+const VERSION = "v5-2026-11-01";
 const SHELL = "ait-shell-" + VERSION;
 const DATA = "ait-data";
 const SHELL_FILES = ["./", "./index.html", "./app.css", "./app.js", "./manifest.webmanifest",

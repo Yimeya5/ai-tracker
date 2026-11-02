@@ -162,23 +162,29 @@
   }
 
   // ---------------------------------------------------------------- views: Cost
+  // Each app shows where today's price came from (its own pricing page, or its own App Store listing),
+  // when it was last checked, and a "stale" mark when that check is more than D.staleDays (30) days old.
+  function staleMark(isStale) { return isStale ? ' <span class="stale" title="Not confirmed for more than ' + ((D && D.staleDays) || 30) + ' days">⚠ stale</span>' : ""; }
   function appRow(a, full) {
+    var src = a.src || { label: "Pricing page", url: a.page };
     var right = a.free ? '<span class="free">Free ✓</span>' : '<span class="muted">No free plan</span>';
-    var paid = a.cheapest ? "Paid plans from " + monthly(a.cheapest.usd_month) : (a.note || "No paid plan");
-    var h = "<li><span class=\"rn\"><b>" + esc(a.app) + "</b><small>" + esc(a.maker) + " · " + esc(paid) + "</small>";
+    var paid = a.cheapest ? "Paid plans from " + monthly(a.cheapest.usd_month) + staleMark(a.cheapest.stale) : esc(a.note || "No paid plan");
+    var h = "<li><span class=\"rn\"><b>" + esc(a.app) + "</b><small>" + esc(a.maker) + " · " + paid + "</small>";
     if (full && list(a.plans).length) {
       h += '<span class="plans">' + list(a.plans).map(function (p) {
-        return '<span class="plan">' + esc(p.name) + ": <b>" + esc(monthly(p.usd_month)) + "</b>" + (p.note ? " (" + esc(p.note) + ")" : "") + "</span>";
+        return '<span class="plan">' + esc(p.name) + ": <b>" + esc(monthly(p.usd_month)) + "</b>" + (p.note ? " (" + esc(p.note) + ")" : "") + staleMark(p.stale) + "</span>";
       }).join("") + "</span>";
     }
-    h += '<small class="checked">' + ext(a.page, "Pricing page") + " · checked " + esc(day(a.checked)) +
-      (a.read_ok ? "" : ' · <span class="warn">couldn\'t read the page today, showing the last good price</span>') + "</small></span>" +
+    var read = a.readToday === undefined ? a.read_ok : a.readToday;
+    h += '<small class="checked">' + ext(src.url || a.page, esc(src.label || "Pricing page")) +
+      (read ? " · checked " + esc(day(a.checked)) : ' · <span class="warn">price last checked ' + esc(day(a.checked)) + "</span>") +
+      staleMark(a.stale) + "</small></span>" +
       '<span class="rv">' + right + "</span></li>";
     return h;
   }
   function vCost() {
     var apps = list(D.cost && D.cost.apps);
-    var h = "<h2>Cost</h2><p class=\"sub\">Can you use it for free, and what does the paid plan cost?</p>" + staleNote("prices");
+    var h = "<h2>Cost</h2><p class=\"sub\">Can you use it for free, and what does the paid plan cost? Monthly US prices.</p>" + staleNote("prices");
     h += '<ul class="rows card">' + apps.map(function (a) { return appRow(a, false); }).join("") + "</ul>";
     h += moreButton("cost") + credits(["prices", "openrouter", "aa"]);
     return h;
@@ -186,7 +192,7 @@
   function vCostMore() {
     var apps = list(D.cost && D.cost.apps), dev = list(D.cost && D.cost.dev);
     var h = backButton() + "<h2>Cost: full details</h2><h3>Apps: every plan</h3>" +
-      "<p class=\"sub\">Monthly prices in US dollars, read from each company's own pricing page every day. If a page can't be read, the last good price stays and you see the date it was checked.</p>" + staleNote("prices");
+      "<p class=\"sub\">Monthly prices in US dollars, read every day from each company's own pricing page, or from the company's own App Store listing (US prices) when its web page blocks servers. App Store prices can differ from web prices by a few cents. If a page can't be read, the last good price stays with the date it was last checked; after " + ((D && D.staleDays) || 30) + " days it is marked stale.</p>" + staleNote("prices");
     h += '<ul class="rows card">' + apps.map(function (a) { return appRow(a, true); }).join("") + "</ul>";
     h += "<h3>For developers: price per million tokens</h3><p class=\"sub\">What it costs to use each model through its API: to send / to get back. A million tokens is about 750,000 words. Cheapest first.</p>" +
       '<p class="note">⚡ ' + esc(fastNote()) + "</p>";
@@ -205,16 +211,16 @@
   }
   function vReleases() {
     var items = list(D.releases && D.releases.items);
-    var h = "<h2>New releases</h2><p class=\"sub\">The newest models from the big AI companies.</p>" + staleNote("openrouter");
+    var h = "<h2>New releases</h2><p class=\"sub\">The newest models from the big AI companies, from their own announcements.</p>" + staleNote("openrouter");
     h += '<ul class="rows card">' + (items.slice(0, 5).map(relRow).join("") || '<li class="muted">Nothing new yet.</li>') + "</ul>";
     if (items.slice(0, 5).some(function (r) { return r.fast; })) h += '<p class="note">⚡ ' + esc(fastNote()) + "</p>";
-    h += moreButton("releases", items.length > 5) + credits(["openrouter", "aa"]);
+    h += moreButton("releases", items.length > 5) + credits(["official", "openrouter", "aa"]);
     return h;
   }
   function vReleasesMore() {
     var items = list(D.releases && D.releases.items);
     var h = backButton() + "<h2>New releases: last " + ((D.releases && D.releases.days) || 60) + " days</h2>" +
-      "<p class=\"sub\">Date = when it became available on OpenRouter" + (D.aaEnabled ? ", or the release date listed by " + AA_CREDIT + " for models OpenRouter doesn't have" : "") + ". ⚡ " + esc(fastNote()) + "</p>" + staleNote("openrouter");
+      "<p class=\"sub\">Date and link = the company's own announcement when it has one (OpenAI, Google, Anthropic, Mistral, xAI, Meta, DeepSeek), otherwise the date it became available on OpenRouter" + (D.aaEnabled ? " or the release date listed by " + AA_CREDIT : "") + ". Each model is listed once. ⚡ " + esc(fastNote()) + "</p>" + staleNote("openrouter");
     var lastMo = "", body = "";
     items.forEach(function (r) {
       var mo = String(r.d).slice(0, 7);
@@ -222,7 +228,7 @@
       body += relRow(r);
     });
     h += '<ul class="rows card">' + (body || '<li class="muted">Nothing new yet.</li>') + "</ul>";
-    return h + backButton() + credits(["openrouter", "aa"]);
+    return h + backButton() + credits(["official", "openrouter", "aa"]);
   }
 
   // ---------------------------------------------------------------- views: Big news
@@ -234,13 +240,13 @@
     var items = list(D.bignews && D.bignews.items);
     var h = "<h2>Big news</h2><p class=\"sub\">Only the big stories: new models, price changes and major company news.</p>" + staleNote("news");
     h += '<ul class="rows card">' + (items.slice(0, 5).map(newsRow).join("") || '<li class="muted">No big news right now.</li>') + "</ul>";
-    return h + moreButton("news", items.length > 5) + credits(["news"]);
+    return h + moreButton("news", items.length > 5) + credits(["official", "news"]);
   }
   function vNewsMore() {
     var items = list(D.bignews && D.bignews.items);
-    var h = backButton() + "<h2>Big news: last 30 days</h2><p class=\"sub\">Picked from AI lab blogs and tech news sites by simple word rules (launches, prices, deals, lawsuits). Repeats of the same story are removed.</p>" + staleNote("news");
+    var h = backButton() + "<h2>Big news: last 30 days</h2><p class=\"sub\">" + esc((D.bignews && D.bignews.rules) || "") + " From the companies' own pages, AI lab blogs and tech news sites, picked by fixed word rules (opinion, lawsuits, rumors, partnerships and customer stories are left out). The same story from several sites is shown once, from the company's own page when there is one.</p>" + staleNote("news");
     h += '<ul class="rows card">' + (items.slice(0, 30).map(newsRow).join("") || '<li class="muted">No big news right now.</li>') + "</ul>";
-    return h + backButton() + credits(["news"]);
+    return h + backButton() + credits(["official", "news"]);
   }
 
   // ---------------------------------------------------------------- Sources view
@@ -256,6 +262,28 @@
           (s.data ? (s.license ? " · " : "") + ext(s.data, "the data") : "") + "</small>" : "") +
         "<small>" + line + (st.note ? " · " + esc(st.note) : "") + (!st.ok && st.err ? ' · <span class="muted">' + esc(st.err) + "</span>" : "") + "</small></span></li>";
     }).join("") + "</ul>";
+    var offs = list(D.officialSources);
+    if (offs.length) {
+      h += "<h3>Official company pages (new models)</h3><ul class=\"rows card\">" + offs.map(function (o) {
+        var line = o.ok ? '<span class="ok">✓ Read OK ' + esc(ago(o.updated)) + "</span>"
+          : o.updated ? '<span class="warn">⚠ Failed today, using the copy from ' + esc(day(o.updated)) + "</span>" : '<span class="warn">⚠ No copy yet</span>';
+        return '<li><span class="rn"><b>' + ext(o.url, esc(o.label)) + "</b><small>" + line + (o.err ? ' · <span class="muted">' + esc(o.err) + "</span>" : "") + "</small></span></li>";
+      }).join("") + "</ul>";
+    }
+    var apps = list(D.cost && D.cost.apps);
+    if (apps.length) {
+      var stale = list(D.stalePrices);
+      h += "<h3>App prices</h3>" + (stale.length ? '<p class="note bad">⚠ ' + stale.length + " price" + (stale.length > 1 ? "s" : "") +
+        " not confirmed for more than " + ((D && D.staleDays) || 30) + " days: " + esc(stale.map(function (x) { return x.app + (x.plan ? " " + x.plan : ""); }).join(", ")) + "</p>" : "");
+      h += '<ul class="rows card">' + apps.map(function (a) {
+        var src = a.src || { label: "Pricing page", url: a.page };
+        var read = a.readToday === undefined ? a.read_ok : a.readToday;
+        var line = read ? '<span class="ok">✓ Read today</span>' : '<span class="warn">⚠ Failed today</span>';
+        var failed = list(a.tried).filter(function (t) { return !t.ok; }).map(function (t) { return t.label + ": " + t.err; });
+        return '<li><span class="rn"><b>' + esc(a.app) + "</b><small>" + ext(src.url || a.page, esc(src.label || "Pricing page")) + " · last checked " + esc(day(a.checked)) + staleMark(a.stale) + "</small>" +
+          "<small>" + line + (failed.length ? ' · <span class="muted">' + esc(failed.join("; ")) + "</span>" : "") + "</small></span></li>";
+      }).join("") + "</ul>";
+    }
     var feeds = list(D.bignews && D.bignews.feeds);
     if (feeds.length) {
       h += "<h3>News feeds</h3><ul class=\"rows card\">" + feeds.map(function (f) {
@@ -267,6 +295,8 @@
       (D.aaEnabled ? "<p><b>Artificial Analysis index:</b> the same set of hard tests run on every model, as one score. Private use only.</p>" : "") +
       "<p><b>LiveBench:</b> new tasks every release, kept hidden, so models can't have learned the answers.</p>" +
       "<p><b>⚡ Fast:</b> " + esc(fastNote()) + " A rough guide only; it never changes a pick.</p>" +
+      "<p><b>Prices:</b> \u201cApp Store price (US)\u201d comes from the company's own App Store listing. A price not confirmed for more than " + ((D && D.staleDays) || 30) + " days is marked \u26a0 stale.</p>" +
+      "<p><b>New releases:</b> taken from each company's own page when it announced the model (that date and link), otherwise the date it appeared on OpenRouter.</p>" +
       "<p><b>Epoch Capabilities Index:</b> many benchmarks combined into one score, with a margin of error.</p>" +
       "<p>Data built " + esc(new Date(D.built).toLocaleString()) + ". No AI is used to pick anything. No sign-in, no tracking.</p></div>";
     return h;
