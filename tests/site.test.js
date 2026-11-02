@@ -36,7 +36,7 @@ test("manifest is installable", () => {
 
 test("service worker: new version, data from the network first", () => {
   const s = read("sw.js");
-  assert.match(s, /const VERSION = "v4-2026-11-01-sources-c"/);
+  assert.match(s, /const VERSION = "v5-2026-11-01"/);
   assert.match(s, /\/data\//);
   assert.match(s, /fetch\(req, \{ cache: "no-store" \}\)/);
 });
@@ -73,7 +73,7 @@ test("data file has the new shape", () => {
   assert.equal(d.v, 3);
   for (const k of ["status", "sources", "picks", "cost", "releases", "bignews", "rule"]) assert.ok(d[k], "missing " + k);
   assert.equal(typeof d.aaEnabled, "boolean");
-  const ids = ["lmarena", "livebench", "epoch", "openrouter", "prices", "news"].concat(d.aaEnabled ? ["aa"] : []);
+  const ids = ["lmarena", "livebench", "epoch", "openrouter", "official", "prices", "news"].concat(d.aaEnabled ? ["aa"] : []);
   for (const s of ids) {
     assert.ok(d.status[s], "no status for " + s);
     assert.ok(d.sources.some((x) => x.id === s), "no source entry for " + s);
@@ -229,4 +229,38 @@ test("⚡ Fast tag: name-based label in See more, dev prices and releases, expla
   assert.match(more, /not a speed test/);
   assert.doesNotMatch(A.view("best", false), /class="fast"/);
   assert.match(A.view("sources", false), /⚡ Fast:<\/b> .*not a speed test/);
+});
+
+test("v5: every app price shows its source page, last-checked date and a stale mark when old", () => {
+  const d = JSON.parse(JSON.stringify(data()));
+  for (const a of d.cost.apps) assert.ok(a.src && /^https:\/\//.test(a.src.url) && a.src.label && a.checked, a.app);
+  const A = loadApp(d);
+  const cost = A.view("cost", false);
+  assert.match(cost, /App Store price \(US\)/);
+  assert.doesNotMatch(cost, /⚠ stale/);
+  const gpt = d.cost.apps.find((a) => a.app === "ChatGPT");
+  gpt.readToday = false; gpt.stale = true; gpt.checked = "2026-09-20"; gpt.plans.forEach((p) => (p.stale = true));
+  gpt.cheapest = Object.assign({}, gpt.cheapest, { stale: true });
+  d.stalePrices = [{ app: "ChatGPT", plan: "Plus", usd_month: 19.99, checked: "2026-09-20" }];
+  const B = loadApp(d);
+  assert.match(B.view("cost", false), /price last checked Sep 20/);
+  assert.match(B.view("cost", false), /⚠ stale/);
+  assert.match(B.view("cost", true), /⚠ stale/);
+  assert.match(B.view("sources", false), /not confirmed for more than 30 days: ChatGPT Plus/);
+});
+
+test("v5: Sources view lists each official page and each app's price page with today's result", () => {
+  const d = data(), html = loadApp(d).view("sources", false);
+  for (const o of d.officialSources) assert.ok(html.includes(o.label), o.label);
+  for (const a of d.cost.apps) assert.ok(html.includes(a.app), a.app);
+  assert.match(html, /Read today|Failed today/);
+});
+
+test("v5: New releases use the company's own page when there is one", () => {
+  const d = data();
+  const official = d.releases.items.filter((r) => r.official);
+  assert.ok(official.length > 0);
+  for (const r of official) assert.notEqual(r.src, "OpenRouter");
+  const keys = d.releases.items.map((r) => r.n.toLowerCase().replace(/[^a-z0-9]/g, ""));
+  assert.equal(keys.length, new Set(keys).size, "a model is listed twice");
 });

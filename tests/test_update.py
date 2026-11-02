@@ -3,11 +3,14 @@ same shape as the real one (see sources_research.md and aa_api_notes.md).
 
 Run:  python -m unittest discover -s tests -v      (or: python tests/test_update.py)
 """
-import importlib.util, io, json, os, re, shutil, sys, tempfile, unittest, zipfile
+import gzip, importlib.util, io, json, os, re, shutil, sys, tempfile, unittest, zipfile
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+FIXTURES = Path(__file__).resolve().parent / "fixtures"    # real pages fetched on 2026-11-01 (gzipped)
+# The tests run "on" 2026-11-01 22:00 UTC so the real fixtures keep falling inside the 30/60/120-day windows.
+FIXED_NOW = __import__("datetime").datetime(2026, 11, 1, 22, 0, tzinfo=__import__("datetime").timezone.utc)
 
 
 def load(root):
@@ -19,11 +22,17 @@ def load(root):
     m.OUT_JSON = m.DATA_DIR / "data.json"
     m.OUT_JS = m.DATA_DIR / "data.js"
     m.RAW_JSON = m.DATA_DIR / "raw.json"
+    m.NOW, m.NOW_ISO, m.TODAY = FIXED_NOW, FIXED_NOW.isoformat(timespec="seconds"), FIXED_NOW.date().isoformat()
+    m.sleep = lambda s: None
     return m
 
 
+def fx(name):
+    return gzip.open(FIXTURES / (name + ".gz")).read()
+
+
 # ------------------------------------------------------------------ fake sources
-NOW = datetime.now(timezone.utc)
+NOW = FIXED_NOW
 
 
 def lm(name, org, s, half, votes, cat="overall", date="2026-10-28"):
@@ -217,7 +226,28 @@ class Resp:
             raise RuntimeError(f"HTTP {self.status_code}")
 
 
+# real pages (fixtures) for the official release pages, the App Store listings and x.ai/pricing
+FX_URLS = {
+    "https://openai.com/news/rss.xml": "rel_openai_rss.xml",
+    "https://deepmind.google/blog/rss.xml": "rel_deepmind_rss.xml",
+    "https://blog.google/technology/ai/rss/": "rel_google_ai_rss.xml",
+    "https://mistral.ai/news/rss": "rel_mistral_rss.xml",
+    "https://www.anthropic.com/news": "rel_anthropic_news.html",
+    "https://x.ai/news": "rel_xai_news.html",
+    "https://ai.meta.com/blog/": "rel_meta_ai_blog.html",
+    "https://api-docs.deepseek.com/updates/": "rel_deepseek_updates.html",
+    "https://apps.apple.com/us/app/chatgpt/id6448311069": "appstore_chatgpt.html",
+    "https://apps.apple.com/us/app/perplexity-ask-anything/id1668000334": "appstore_perplexity.html",
+    "https://apps.apple.com/us/app/grok/id6670324846": "appstore_grok.html",
+    "https://itunes.apple.com/lookup?id=1558240027&country=us": "itunes_lookup.json",
+    "https://x.ai/pricing": "xai_pricing.html",
+    "https://www.deepseek.com/en/": "deepseek_home.html",
+}
+
+
 def fake_get(url, timeout=None, headers=None, **kw):
+    if url in FX_URLS:
+        return Resp(fx(FX_URLS[url]))
     if "lmarena-ai/leaderboard-dataset" in url:
         cfg = url.split("parquet/")[1].split("/")[0]
         if cfg not in LM_ROWS:
@@ -259,8 +289,11 @@ def install_fakes(m, aa=True):
     m.read_parquet = lambda raw: LM_ROWS[raw.decode()]()
     if aa:
         m.aa_get = fake_aa_get
-    m.SECTIONS = [(n, getattr(m, "fetch_" + n)) for n in ("lmarena", "aa", "livebench", "epoch", "openrouter", "prices", "news")]
+    m.SECTIONS = [(n, getattr(m, "fetch_" + n)) for n in ALL_SECTIONS]
     return m
+
+
+ALL_SECTIONS = ("lmarena", "aa", "livebench", "epoch", "openrouter", "official", "prices", "news")
 
 
 def boom(*a, **k):
@@ -465,55 +498,251 @@ class Parsers(unittest.TestCase):
         self.assertLessEqual(len(big), 30)
 
 
+def strict_get(url, **k):
+    """Like the real get(): an error status raises."""
+    r = fake_get(url, **k)
+    r.raise_for_status()
+    return r
+
+
 class Prices(unittest.TestCase):
+    """Consumer app prices, read from the real pages saved on 2026-11-01 (tests/fixtures)."""
     def setUp(self):
         self.m = load(tempfile.mkdtemp())
-        self.m.get = fake_get
-        self.m.sleep = lambda s: None
+        self.calls, self.waits = [], []
+        def get(url, **k):
+            self.calls.append((url, k.get("headers")))
+            return strict_get(url, **k)
+        self.m.get, self.m.sleep = get, self.waits.append
 
-    def test_reads_pages_and_keeps_last_good(self):
-        sec = self.m.fetch_prices(None)
-        apps = {a["app"]: a for a in sec["apps"]}
+    def apps(self, prev=None):
+        return {a["app"]: a for a in self.m.fetch_prices(prev)["apps"]}
+
+    def plans(self, app):
+        return {p["name"]: p["usd_month"] for p in app["plans"]}
+
+    def test_app_store_listings(self):
+        apps = self.apps()
         self.assertEqual(len(apps), 9)
-        claude = {p["name"]: p for p in apps["Claude"]["plans"]}
-        self.assertEqual(claude["Pro"]["usd_month"], 20)
-        self.assertEqual(claude["Pro"]["checked"], self.m.TODAY)
-        self.assertTrue(apps["Claude"]["read_ok"])
-        grok = {p["name"]: p for p in apps["Grok"]["plans"]}
-        self.assertEqual(grok["Ultra"]["usd_month"], 250)        # changed on the page -> updated
-        # ChatGPT page answers 403 -> seed values with the seed date
-        gpt = {p["name"]: p for p in apps["ChatGPT"]["plans"]}
-        self.assertEqual((gpt["Plus"]["usd_month"], gpt["Plus"]["checked"]), (20, "2026-11-01"))
-        self.assertFalse(apps["ChatGPT"]["read_ok"])
-        self.assertTrue(all(a["free"] for a in sec["apps"]))
+        gpt = apps["ChatGPT"]
+        self.assertEqual(self.plans(gpt), {"Go": 8, "Plus": 19.99, "Pro 100": 100, "Pro 200": 200})   # first match, not the yearly $200 "Plus"
+        self.assertEqual(gpt["src"]["label"], "App Store price (US)")
+        self.assertIn("apps.apple.com/us/app/chatgpt", gpt["src"]["url"])
+        self.assertTrue(gpt["readToday"] and gpt["read_ok"])
+        self.assertEqual(self.plans(apps["Perplexity"]), {"Pro": 20, "Max": 200})                 # not the yearly $200 "Pro"
+        meta = apps["Meta AI"]
+        self.assertTrue(meta["free"] and meta["readToday"] and not meta["plans"])                 # Apple lookup says Free
 
-    def test_one_retry_after_a_pause(self):
-        calls, waits = [], []
-        def flaky(url, **k):
-            calls.append(url)
-            if url == "https://x.ai/pricing" and calls.count(url) == 1:
+    def test_grok_web_page_with_badge(self):
+        grok = self.apps()["Grok"]
+        self.assertEqual(grok["src"]["url"], "https://x.ai/pricing")
+        self.assertEqual(self.plans(grok), {"Plus": 8, "Premium": 30, "Super": 100, "Ultra": 200})   # "Premium Most popular $30"
+
+    def test_grok_app_store_backup(self):
+        def get(url, **k):
+            self.calls.append((url, k.get("headers")))
+            if url == "https://x.ai/pricing":
                 raise RuntimeError("403 Client Error: Forbidden")
-            r = fake_get(url, **k)
-            r.raise_for_status()          # like the real get(): a 403 raises
-            return r
-        self.m.get, self.m.sleep = flaky, waits.append
-        sec = self.m.fetch_prices(None)
-        grok = [a for a in sec["apps"] if a["app"] == "Grok"][0]
+            return strict_get(url, **k)
+        self.m.get = get
+        grok = self.apps()["Grok"]
+        self.assertEqual(grok["src"]["label"], "App Store price (US)")
+        self.assertEqual(self.plans(grok), {"SuperGrok Lite": 10, "SuperGrok": 30, "SuperGrok Plus": 100, "SuperGrok Heavy": 300})
+        self.assertEqual([t["ok"] for t in grok["tried"]], [False, True])
+
+    def test_polite_fetching(self):
+        self.apps()
+        uas = {h["User-Agent"] for _, h in self.calls}
+        self.assertTrue(all("ai-tracker/5" in u for u in uas))
+        # 3 tries for a page that keeps failing (the Copilot page isn't in the fixtures -> 403), waiting 4 s then 10 s
+        self.assertEqual(sum(1 for u, _ in self.calls if "microsoft.com" in u), 3)
+        self.assertIn(4, self.waits)
+        self.assertIn(10, self.waits)
+        self.assertIn(self.m.PRICE_PAUSE, self.waits)            # a short pause between pages
+
+    def test_retry_then_success(self):
+        seen = []
+        def flaky(url, **k):
+            seen.append(url)
+            if url == "https://x.ai/pricing" and seen.count(url) < 3:
+                raise RuntimeError("403 Client Error: Forbidden")
+            return strict_get(url, **k)
+        self.m.get = flaky
+        grok = self.apps()["Grok"]
+        self.assertEqual(grok["src"]["url"], "https://x.ai/pricing")
         self.assertTrue(grok["read_ok"])
-        self.assertEqual(calls.count("https://x.ai/pricing"), 2)
-        self.assertTrue(waits and 3 <= waits[0] <= 5)
-        self.assertEqual(calls.count("https://chatgpt.com/pricing/"), 2)   # still 403 after the retry -> last good
+
+    def test_keeps_last_good_and_marks_stale(self):
+        first = self.m.fetch_prices(None)
+        for a in first["apps"]:                          # pretend the last good check was 40 days ago
+            a["checked"] = "2026-09-22"
+            for p in a["plans"]:
+                p["checked"] = "2026-09-22"
+        self.m.get = lambda url, **k: (_ for _ in ()).throw(RuntimeError("down"))
+        sec = self.m.fetch_prices(first)
         gpt = [a for a in sec["apps"] if a["app"] == "ChatGPT"][0]
-        self.assertFalse(gpt["read_ok"])
+        self.assertEqual(self.plans(gpt)["Plus"], 19.99)                 # last good value kept
+        self.assertEqual(gpt["checked"], "2026-09-22")
+        self.assertFalse(gpt["readToday"])
+        self.assertTrue(gpt["stale"] and all(p["stale"] for p in gpt["plans"]))
+        stale = self.m.stale_prices(sec)
+        self.assertIn(("ChatGPT", "Plus"), [(x["app"], x["plan"]) for x in stale])
 
     def test_odd_number_is_ignored(self):
-        old = {"apps": [{"app": "Claude", "plans": [{"name": "Max", "usd_month": 100, "checked": "2026-10-01"}]}]}
-        PRICE_HTML_BAD = dict(PRICE_HTML)
-        PRICE_HTML_BAD["https://claude.com/pricing"] = PRICE_HTML["https://claude.com/pricing"].replace("$100 Per month", "$1 Per month")
-        self.m.get = lambda url, **k: Resp(PRICE_HTML_BAD[url]) if url in PRICE_HTML_BAD else Resp(b"", 403)
-        sec = self.m.fetch_prices(old)
-        mx = [p for p in [a for a in sec["apps"] if a["app"] == "Claude"][0]["plans"] if p["name"] == "Max"][0]
-        self.assertEqual((mx["usd_month"], mx["checked"]), (100, "2026-10-01"))
+        first = self.m.fetch_prices(None)
+        for a in first["apps"]:
+            for p in a["plans"]:
+                p["checked"] = "2026-10-01"
+        real = self.m.appstore_price
+        self.m.appstore_price = lambda iap, label: 1.99 if label == "ChatGPT Plus" else real(iap, label)
+        gpt = [a for a in self.m.fetch_prices(first)["apps"] if a["app"] == "ChatGPT"][0]
+        plus = [p for p in gpt["plans"] if p["name"] == "Plus"][0]
+        self.assertEqual((plus["usd_month"], plus["checked"]), (19.99, "2026-10-01"))   # $1.99 is not believable
+
+    def test_wrong_listing_is_rejected(self):
+        def get(url, **k):
+            r = strict_get(url, **k)
+            if "perplexity" in url:
+                r = Resp(r.content.replace(b"Perplexity AI Inc.", b"Some Other Dev"))
+            return r
+        self.m.get = get
+        ppl = self.apps()["Perplexity"]
+        self.assertFalse(ppl["readToday"])
+        self.assertIn("not the company", ppl["tried"][0]["err"])
+
+
+class OfficialReleases(unittest.TestCase):
+    """Official company pages (real fixtures) -> New releases."""
+    def setUp(self):
+        self.m = load(tempfile.mkdtemp())
+        self.m.get = strict_get
+        self.raw = {"official": self.m.fetch_official(None), "openrouter": {"models": self.m.parse_openrouter(
+            json.loads(fx("openrouter_sample.json")))}}
+
+    def test_every_page_is_read(self):
+        for sid, s in self.raw["official"]["sources"].items():
+            self.assertTrue(s["ok"] and s["posts"], sid)
+
+    def test_finds_the_releases(self):
+        rel = {r["n"]: r for r in self.m.official_releases(self.raw)}
+        want = {"Gemini 4 Carbon": ("2026-10-28", "Google DeepMind blog"), "Mistral Large 4": ("2026-10-06", "Mistral news"),
+                "GPT-6.1 Terra": ("2026-10-26", "OpenAI News"), "Claude Opus 5.5": ("2026-09-22", "Anthropic news"),
+                "Claude Haiku 5.5": ("2026-10-07", "Anthropic news"), "Grok 4.7": ("2026-09-21", "xAI news"),
+                "Grok Voice 3.0": ("2026-10-14", "xAI news"), "Muse Spark 1.1": ("2026-07-09", "Meta AI blog"),
+                "DeepSeek-V4.1-Flash-1017": ("2026-10-17", "DeepSeek API change log"), "Voxtral 3": ("2026-10-20", "Mistral news"),
+                "Genie 4": ("2026-10-27", "Google DeepMind blog"), "Gemini 4 Argon": ("2026-09-30", "Google DeepMind blog"),
+                "GPT-6 Astra": ("2026-09-03", "OpenAI News")}       # OpenAI posts a lot: older posts must still be kept
+        for n, (d, src) in want.items():
+            self.assertIn(n, rel)
+            self.assertEqual((rel[n]["d"], rel[n]["src"]), (d, src), n)
+        for bad in ("GPT-5.5 Bio Bug Bounty", "Grok Bot", "Grok for Outlook", "Playground", "Anthropic Cyber Mission"):
+            self.assertFalse(any(bad in n for n in rel), bad)
+
+    def test_release_rule_on_titles(self):
+        rn = self.m.release_names
+        self.assertEqual(rn("Introducing GPT-6 Sol and Luna"), ["GPT-6 Sol", "GPT-6 Luna"])
+        self.assertEqual(rn("Introducing Gemini 3.8 Flash and 3.8 Flash Cyber"), ["Gemini 3.8 Flash", "Gemini 3.8 Flash Cyber"])
+        self.assertEqual(rn("Introducing Gemini 3.8 Live with Live Avatar"), ["Gemini 3.8 Live"])
+        self.assertEqual(rn("Introducing Timestral"), ["Timestral"])
+        for t in ("Developing Gemini 4 Argon responsibly and safely", "Gemini 4 Argon for Robotics",
+                  "GPT-6.1 Sol helps CodeRabbit strengthen security", "Greptile takes bug detection beyond code review with GPT-6 Astra",
+                  "Claude Haiku 5.5 is our fastest, most capable small model"):
+            self.assertEqual(rn(t), [], t)
+
+    def test_merged_with_openrouter_once(self):
+        d = self.m.build_releases(self.raw)
+        names = [r["n"] for r in d["items"]]
+        self.assertIn("Gemini 4 Carbon", names)                         # not on OpenRouter
+        keys = [self.m.rel_key(n) for n in names]
+        self.assertEqual(len(keys), len(set(keys)), "a model is listed twice")
+        ds = [r for r in d["items"] if self.m.rel_key(r["n"]) == "deepseekv41flash1017"][0]
+        self.assertEqual(ds["src"], "DeepSeek API change log")         # official source wins over OpenRouter
+        self.assertTrue(ds["official"])
+        self.assertIn("deepseekv41flash", keys)                        # the September release stays its own line
+
+    def test_failed_page_keeps_last_good(self):
+        def get(url, **k):
+            if "x.ai/news" in url:
+                raise RuntimeError("HTTP 503")
+            return strict_get(url, **k)
+        self.m.get = get
+        sec = self.m.fetch_official(self.raw["official"])
+        self.assertFalse(sec["sources"]["xai"]["ok"])
+        self.assertEqual(sec["sources"]["xai"]["posts"], self.raw["official"]["sources"]["xai"]["posts"])
+        self.assertTrue(sec["sources"]["openai"]["ok"])
+
+
+class BigNewsToday(unittest.TestCase):
+    """The 118 real headlines from 2026-11-01 (tests/fixtures/news_today.json)."""
+    def setUp(self):
+        self.m = load(tempfile.mkdtemp())
+        self.items = json.loads(fx("news_today.json"))["items"]
+
+    def test_soft_items_are_dropped(self):
+        kept, dropped = self.m.news_report(self.items)
+        kept_t = [t for _, t in kept]
+        for t in ("Apple CEO says", "Judge allows NAACP lawsuit", "OpenAI reportedly lowers", "Anthropic expected to receive",
+                  "Anthropic IPO warns", "OpenAI and ServiceNow expand partnership", "OpenAI expands partnership with Oracle",
+                  "Southeast Asia", "Greptile", "Ollie", "Apple Intelligence"):
+            self.assertFalse(any(k.startswith(t) for k in kept_t), t)
+        for t in ("Google announces Gemini 4 Carbon", "DeepMind unveils Genie 4", "Gemini 4 Carbon: Our next frontier model",
+                  "Genie 4: A new generation of world simulation"):
+            self.assertTrue(any(k.startswith(t) for k in kept_t), t)
+
+    def test_list_with_official_posts(self):
+        self.m.get = strict_get
+        official = self.m.official_posts({"official": self.m.fetch_official(None)})
+        big = self.m.big_news(self.items, official)
+        titles = [b["t"] for b in big]
+        self.assertLessEqual(len(big), 30)
+        self.assertEqual(sum(1 for t in titles if "Gemini 4 Carbon" in t), 1, "one story, one line")
+        self.assertEqual(sum(1 for t in titles if "Genie 4" in t), 1)
+        self.assertIn("Anthropic files S-1 with the SEC for proposed initial public offering", titles)
+        self.assertTrue(all(b["tag"] in ("New model", "Price change", "Product", "Funding", "Acquisition", "IPO") for b in big))
+        self.assertTrue(all(b["s"] and b["u"] and b["d"] for b in big))
+
+    def test_rules(self):
+        c = self.m.classify_news
+        self.assertEqual(c("Anthropic raises $30 billion at a new valuation")[0], "Funding")
+        self.assertEqual(c("Startup raises $40 million for AI agents")[0], "")
+        self.assertEqual(c("ChatGPT Plus subscription price goes up to $25 per month")[0], "Price change")
+        self.assertEqual(c("Asana cuts model costs 76x in browser tests with GPT-6.1 Sol")[0], "")
+        self.assertEqual(c("OpenAI acquires Orchestra Bio")[0], "Acquisition")
+        self.assertEqual(c("Google shuts down Bard")[0], "Product")
+        self.assertEqual(c("OpenAI might rebrand its data centers")[0], "")
+
+
+class FastModalities(unittest.TestCase):
+    def setUp(self):
+        self.m = load(tempfile.mkdtemp())
+
+    def test_only_text_models(self):
+        ms = {m["n"]: m for m in self.m.parse_openrouter(json.loads(fx("openrouter_sample.json")))}
+        self.assertEqual(ms["Nano Banana 2.1"]["mods"], ["image", "text"])
+        self.assertFalse(self.m.is_fast("Nano Banana 2.1", ms["Nano Banana 2.1"]["mods"]))
+        self.assertTrue(self.m.is_fast("Gemini 3.8 Flash", ms["Gemini 3.8 Flash"]["mods"]))
+        for n in ("Gemini Nano Banana 2.1", "Grok Voice 3.0", "EmbeddingGemma 2", "Veo 4 Lite", "Gemini 3.5 Transcribe Mini", "Genie 4"):
+            self.assertFalse(self.m.is_fast(n), n)          # not on OpenRouter: name words rule it out
+        self.assertTrue(self.m.is_fast("Claude Haiku 5.5"))
+
+
+class Speed(unittest.TestCase):
+    """The daily run must never hang: parsing the biggest real pages, and a hostile one, stays fast."""
+    def test_parsers_are_bounded(self):
+        import time
+        m = load(tempfile.mkdtemp())
+        t0 = time.time()
+        for f in ("appstore_chatgpt.html", "appstore_grok.html", "appstore_perplexity.html", "xai_pricing.html"):
+            m.page_text(fx(f).decode())
+        for f, base, mode in (("rel_anthropic_news.html", "https://www.anthropic.com/news", "before"),
+                              ("rel_xai_news.html", "https://x.ai/news", "inside"), ("rel_meta_ai_blog.html", "https://ai.meta.com/blog/", "after")):
+            m.parse_html_posts(fx(f).decode(), base, mode)
+        m.parse_rss_posts(fx("rel_openai_rss.xml"))
+        hostile = "<html>" + '<a href="/x">' * 20000 + "<h2>" * 5000 + "<script>" + "x" * 500000
+        m.parse_html_posts(hostile, "https://e.com/")
+        m.page_text(hostile)
+        m.parse_deepseek_log(hostile, "https://e.com/")
+        self.assertLess(time.time() - t0, 5)
 
 
 class Pipeline(unittest.TestCase):
@@ -532,7 +761,7 @@ class Pipeline(unittest.TestCase):
         m = install_fakes(load(self.root))
         for name in fail:
             setattr(m, "fetch_" + name, boom)
-        m.SECTIONS = [(n, getattr(m, "fetch_" + n)) for n in ("lmarena", "aa", "livebench", "epoch", "openrouter", "prices", "news")]
+        m.SECTIONS = [(n, getattr(m, "fetch_" + n)) for n in ALL_SECTIONS]
         return m, m.main()
 
     def data(self):
@@ -623,7 +852,7 @@ class Pipeline(unittest.TestCase):
     def test_everything_fails_writes_nothing(self):
         self.run_main()
         before = (self.root / "data" / "data.json").read_bytes()
-        m, rc = self.run_main(lmarena=1, aa=1, livebench=1, epoch=1, openrouter=1, prices=1, news=1)
+        m, rc = self.run_main(lmarena=1, aa=1, livebench=1, epoch=1, openrouter=1, official=1, prices=1, news=1)
         self.assertEqual(rc, 2)
         self.assertEqual((self.root / "data" / "data.json").read_bytes(), before)
 
@@ -647,7 +876,7 @@ class Pipeline(unittest.TestCase):
         def leaky(url):
             raise RuntimeError("bad request with key TEST-KEY-123456")
         m.aa_get = leaky
-        m.SECTIONS = [(n, getattr(m, "fetch_" + n)) for n in ("lmarena", "aa", "livebench", "epoch", "openrouter", "prices", "news")]
+        m.SECTIONS = [(n, getattr(m, "fetch_" + n)) for n in ALL_SECTIONS]
         m.main()
         txt = (self.root / "data" / "data.json").read_text()
         self.assertNotIn("TEST-KEY-123456", txt)
@@ -687,7 +916,7 @@ class AAOff(unittest.TestCase):
         m.aa_get, m.get = counting_aa, counting_get
         for name in fail:
             setattr(m, "fetch_" + name, boom)
-        m.SECTIONS = [(n, getattr(m, "fetch_" + n)) for n in ("lmarena", "aa", "livebench", "epoch", "openrouter", "prices", "news")]
+        m.SECTIONS = [(n, getattr(m, "fetch_" + n)) for n in ALL_SECTIONS]
         return m, m.main()
 
     def files(self):
@@ -736,7 +965,8 @@ class AAOff(unittest.TestCase):
         self.assertNotIn("best", [p["status"] for p in d["picks"] if p["id"] == "pictures"])
         # prices and releases from OpenRouter only
         self.assertTrue(all(x["src"] == "openrouter" for x in d["cost"]["dev"]))
-        self.assertTrue(all(x["src"] == "OpenRouter" for x in d["releases"]["items"]))
+        self.assertTrue(all("artificialanalysis" not in x["u"] for x in d["releases"]["items"]))
+        self.assertIn("Gemini 4 Carbon", [x["n"] for x in d["releases"]["items"]])     # from Google DeepMind's own blog
 
     def test_needs_all_three(self):
         m = load(self.root)
@@ -766,7 +996,7 @@ class AAOff(unittest.TestCase):
         os.environ["AA_ENABLED"] = "1"
         self.run_main()
         os.environ.pop("AA_ENABLED")
-        m, rc = self.run_main(lmarena=1, aa=1, livebench=1, epoch=1, openrouter=1, prices=1, news=1)
+        m, rc = self.run_main(lmarena=1, aa=1, livebench=1, epoch=1, openrouter=1, official=1, prices=1, news=1)
         self.assertEqual(rc, 1)
         d = self.assert_no_aa()
         self.assertFalse(d["status"]["lmarena"]["ok"])          # built from last good copies
