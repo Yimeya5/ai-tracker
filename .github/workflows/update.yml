@@ -61,14 +61,32 @@ jobs:
           assert d["cost"]["apps"], "no app prices"
           assert all(a["page"] and a["checked"] for a in d["cost"]["apps"]), "price without source or date"
           assert "items" in d["releases"] and "items" in d["bignews"], "missing releases or news"
-          for s in ("lmarena", "livebench", "epoch", "openrouter", "prices", "news"):
+          for s in ("lmarena", "livebench", "epoch", "openrouter", "official", "prices", "news"):
               assert s in d["status"], "no status for " + s
+          assert all(a.get("src") and a["src"].get("url") for a in d["cost"]["apps"]), "price without its source page"
+          assert all(r["u"] and r["src"] for r in d["releases"]["items"]), "release without source"
           if not d["aaEnabled"]:
               raw = json.load(open("data/raw.json"))
               assert "aa" not in raw and "aa" not in d["status"], "Artificial Analysis data while it is switched off"
               assert not any(s["id"] == "aa" for s in d["sources"]), "Artificial Analysis listed while it is switched off"
               assert not any(p.get("usesAA") for p in d["picks"]), "pick uses Artificial Analysis while it is switched off"
           print("data ok, built", d["built"])
+          PY
+
+      - name: List stale prices and failed pages
+        run: |
+          python - <<'PY'
+          import json
+          d = json.load(open("data/data.json"))
+          for x in d.get("stalePrices", []):
+              print(f"::warning::Stale price: {x['app']} {x['plan']} last checked {x['checked']} (more than {d.get('staleDays', 30)} days ago)")
+          for a in d["cost"]["apps"]:
+              if not a.get("readToday"):
+                  print(f"Price page not read today: {a['app']} (last checked {a['checked']})")
+          for o in d.get("officialSources", []):
+              if not o["ok"]:
+                  print(f"::warning::Official page failed today: {o['label']} ({o.get('err', '')}) - using the last good copy")
+          print(f"{len(d.get('stalePrices', []))} stale prices")
           PY
 
       - name: Make sure the API key is not in any file
