@@ -1,13 +1,13 @@
 (function (root) {
   "use strict";
-  // AI Tracker: 4 tabs that answer 4 questions.
-  //   Best for what · Cost · New releases · Big news   (+ a Sources view)
+  // AI Tracker: 5 tabs that answer 5 questions.
+  //   Best for what · Cost · New releases · Big news · Agents   (+ a Sources view)
   // Each tab shows a short simple view first, and "See more" opens the full details.
   // All picks are made by fixed rules in scripts/update_data.py; this file only shows them.
   var hasDom = typeof document !== "undefined";
   var D = root.AI_DATA || null;
 
-  var TABS = ["best", "cost", "releases", "news"];
+  var TABS = ["best", "cost", "releases", "news", "agents"];
   var VIEWS_ALL = TABS.concat(["sources"]);
   var state = { tab: "best", more: false, open: {} };
 
@@ -249,6 +249,151 @@
     return h + backButton() + credits(["official", "news"]);
   }
 
+  // ---------------------------------------------------------------- views: Agents
+  // Agents = AI that does tasks for you. 3 parts: the best model inside an agent (top 3 in at least 2 of 3 agent tests),
+  // the agent apps and what they cost, and agent news. Built by fixed rules in scripts/update_data.py.
+  function AG() { return (D && D.agents) || null; }
+  function agentTest(id) { return list(AG() && AG().tests).filter(function (t) { return t.id === id; })[0] || null; }
+  function agentRankLine(r) {
+    var t = agentTest(r.test) || {};
+    var head = ext(r.url || t.url, esc(r.name));
+    if (!r.rank) return "<li>" + head + ': <span class="muted">not listed</span></li>';
+    var bits = ["#" + r.rank];
+    if (r.shown) bits.push(r.shown);
+    if (r.date) bits.push(day(r.date));
+    return "<li" + (r.top3 ? ' class="agree"' : "") + ">" + head + ": <b>" + esc(bits.join(" · ")) + "</b>" + (r.top3 ? ' <span class="tick" aria-label="top 3">✓ top 3</span>' : "") + "</li>";
+  }
+  function agentWho(c, n) {
+    return (c.o ? "by " + esc(c.o) + " · " : "") + "top 3 in " + c.top3 + " of " + n + " agent tests";
+  }
+  function agentBestCard(full) {
+    var b = AG().best || {}, w = list(b.winners);
+    var h = '<section class="card abest"><h3><span class="ico sm" aria-hidden="true">🤖</span>Best AI for agents</h3>' +
+      '<p class="note">' + (full ? esc(AG().rule || "") : "The AI model inside an agent. Named best only when it is top 3 in at least 2 of 3 independent agent tests.") + "</p>";
+    if (b.status === "best" && w.length) {
+      h += '<ul class="rows">' + w.map(function (c) {
+        return '<li><span class="rn"><b class="big">' + esc(c.n) + "</b>" + (full ? fastTag(c.fast) : "") + "<small>" + agentWho(c, b.n) + "</small>" +
+          '<small class="checked">' + list(c.ranks).filter(function (r) { return r.top3; }).map(function (r) {
+            return ext(r.url, esc(r.name)) + " #" + r.rank + (r.date ? ", " + esc(day(r.date)) : "");
+          }).join(" · ") + "</small></span></li>";
+      }).join("") + "</ul>";
+    } else {
+      h += '<p class="why"><b>No clear winner yet.</b> ' + esc(b.why || "") + "</p>";
+      var close = list(b.candidates).slice(0, 3);
+      if (close.length) h += '<p class="note">Closest: ' + esc(close.map(function (c) { return c.n + " (top 3 in " + c.top3 + ")"; }).join(", ")) + "</p>";
+    }
+    return h + "</section>";
+  }
+  function agentPrice(a) {
+    if (a.cheapest) return "paid from " + monthly(a.cheapest.usd_month) + staleMark(a.cheapest.stale);
+    return list(a.plans).length ? "" : "no price found";
+  }
+  function agentFree(a) {
+    if (a.free === true) return '<span class="free">Free ✓</span>';
+    if (a.free === false) return '<span class="muted">Paid</span>';
+    return '<span class="muted" title="The pricing page doesn\'t list a free plan">Free?</span>';
+  }
+  function agentSimpleRow(a) {
+    var s = a.src || {}, only = list(a.plans);
+    var bits = [esc(a.maker)];
+    if (a.plansFrom && a.free === false && only.length === 1) bits.push("only with " + esc(only[0].name));
+    else if (a.plansFrom) bits.push("with " + esc(a.plansFrom) + " plans");
+    var price = agentPrice(a);
+    if (price) bits.push(price);
+    bits.push(ext(s.url, esc(s.label || "Pricing page")) + (s.readToday ? ", " + esc(day(s.checked || a.checked)) : ', <span class="warn">last checked ' + esc(day(s.checked || a.checked)) + "</span>") + staleMark(s.stale));
+    return '<li><span class="rn"><b>' + esc(a.app) + "</b><small>" + bits.join(" · ") + '</small></span><span class="rv">' + agentFree(a) + "</span></li>";
+  }
+  function agentAppRow(a, full) {
+    if (!full) return agentSimpleRow(a);
+    var s = a.src || {}, pf = a.proof;
+    var bits = [esc(a.maker)];
+    if (a.plansFrom) bits.push(a.free ? "comes with " + esc(a.plansFrom) + ", Free plan too" : "comes with paid " + esc(a.plansFrom) + " plans");
+    else if (a.free === true) bits.push("Free plan");
+    else if (a.free == null) bits.push("free plan not listed on the pricing page");
+    var price = agentPrice(a);
+    if (price) bits.push(price);
+    var h = '<li><span class="rn"><b>' + esc(a.app) + "</b><small>" + bits.join(" · ") + "</small>";
+    if (full) {
+      h += "<small>" + esc(a.what) + (a.note ? " " + esc(a.note) : "") + (a.freeNote ? " " + esc(a.freeNote) + "." : "") + "</small>";
+      if (list(a.plans).length) h += '<span class="plans">' + list(a.plans).map(function (p) {
+        return '<span class="plan">' + esc(p.name) + ": <b>" + esc(monthly(p.usd_month)) + "</b>" + (p.note ? " (" + esc(p.note) + ")" : "") + staleMark(p.stale) + "</span>";
+      }).join("") + "</span>";
+    } else if (a.note) {
+      h += "<small>" + esc(a.note) + "</small>";
+    }
+    var read = s.readToday;
+    h += '<small class="checked">' + (a.plansFrom ? "Prices: " : "") + ext(s.url, esc(s.label || "Pricing page")) +
+      (read ? " · checked " + esc(day(s.checked || a.checked)) : ' · <span class="warn">price last checked ' + esc(day(s.checked || a.checked)) + "</span>") + staleMark(s.stale) + "</small>";
+    if (pf) {
+      h += '<small class="checked">' + (full && pf.text ? "Included: " + esc(pf.text) + " · " : "Included: ") + ext(pf.url, esc(pf.label)) +
+        (pf.readToday ? " · checked " + esc(day(pf.checked)) : ' · <span class="warn">last checked ' + esc(day(pf.checked)) + "</span>") + staleMark(pf.stale) + "</small>";
+    }
+    return h + '</span><span class="rv">' + agentFree(a) + "</span></li>";
+  }
+  function agentGroups(full) {
+    var apps = list(AG().apps), h = "";
+    list(AG().groups).forEach(function (g) {
+      var rows = apps.filter(function (a) { return a.group === g.id; });
+      if (!rows.length) return;
+      h += '<h4 class="grp">' + esc(g.label) + "</h4>" + '<ul class="rows card">' + rows.map(function (a) { return agentAppRow(a, full); }).join("") + "</ul>";
+    });
+    return h;
+  }
+  function agentNewsRows(n) {
+    var items = list(AG().news && AG().news.items).slice(0, n);
+    return '<ul class="rows card">' + (items.map(newsRow).join("") || '<li class="muted">No agent news in the last ' + ((AG().news && AG().news.days) || 14) + " days.</li>") + "</ul>";
+  }
+  function agentCredits(full) {
+    var extra = list(AG() && AG().tests).filter(function (t) { return /via Epoch AI/.test(t.credit) && (full || t.inRule); }).map(function (t) { return ext(t.url, esc(t.credit)); });
+    var ids = full ? ["lmarena", "livebench", "epoch", "agentapps", "prices", "official", "news"] : ["lmarena", "livebench", "epoch", "agentapps", "news"];
+    return credits(ids).replace("Data from ", "Data from " + (extra.length ? extra.join(", ") + ", " : ""));
+  }
+  function vAgents() {
+    if (!AG()) return "<h2>AI agents</h2><p class=\"sub\">The agents data is being built. Check back after the next daily update.</p>";
+    var h = "<h2>AI agents</h2><p class=\"sub\">AI that does tasks for you: the best model inside an agent, the agent apps and what they cost, and agent news.</p>";
+    h += staleList(["lmarena", "livebench", "epoch", "agentapps"]);
+    h += agentBestCard(false);
+    h += "<h3>Agent apps</h3>" + agentGroups(false);
+    h += "<h3>Agent news</h3>" + agentNewsRows(4);
+    return h + moreButton("agents") + agentCredits();
+  }
+  function vAgentsMore() {
+    if (!AG()) return backButton() + vAgents();
+    var ag = AG(), b = ag.best || {};
+    var h = backButton() + "<h2>AI agents: full details</h2>";
+    h += '<div class="card prose"><h3>How the pick works</h3><p><b>Best AI for agents</b>: ' + esc(ag.rule || "") +
+      " The 3 tests are run by different groups in different ways: people's votes (LMArena), hidden tasks (LiveBench) and real work tasks (APEX-Agents). Every model that passes is shown.</p>" +
+      "<p>A test whose newest result is more than " + (ag.maxAge || 120) + " days old is left out. With fewer than 2 usable tests no model is named best.</p>" +
+      "<p>Vending-Bench 2, Remote Labor Index and LiveBench Browser are shown for information only; they don't change the pick. No AI is used to choose.</p></div>";
+    h += agentBestCard(true);
+    list(b.winners).forEach(function (c) {
+      h += '<div class="cand card pad"><p class="cn"><b>' + esc(c.n) + "</b>" + fastTag(c.fast) + (c.o ? ' <span class="muted">by ' + esc(c.o) + "</span>" : "") + "</p>" +
+        '<p class="note">Top 3 in ' + c.top3 + " of " + b.n + " agent tests.</p><ul class=\"ranks\">" + list(c.ranks).map(agentRankLine).join("") + "</ul></div>";
+    });
+    if (list(b.candidates).length) {
+      h += '<details class="sub-more"><summary>Other candidates (' + b.candidates.length + ")</summary>" + list(b.candidates).map(function (c) {
+        return '<div class="cand"><p class="cn"><b>' + esc(c.n) + "</b>" + (c.o ? ' <span class="muted">by ' + esc(c.o) + "</span>" : "") + '</p><p class="note">Top 3 in ' + c.top3 + " of " + b.n +
+          ' tests.</p><ul class="ranks">' + list(c.ranks).map(agentRankLine).join("") + "</ul></div>";
+      }).join("") + "</details>";
+    }
+    h += "<h3>Each agent test: top 5</h3>";
+    list(ag.tests).forEach(function (t) {
+      h += '<section class="job"><h4>' + ext(t.url, esc(t.name)) + (t.inRule ? "" : ' <span class="badge none">Info only</span>') + "</h4>" +
+        '<p class="note">' + esc(t.what) + " " + esc(t.credit) + (t.date ? " · newest result " + esc(day(t.date)) : "") +
+        (t.license ? " · " + (t.licenseUrl ? ext(t.licenseUrl, esc(t.license)) : esc(t.license)) : "") + "</p>" +
+        (t.skipped ? '<p class="note bad">Left out today: ' + esc(t.skipWhy) + ".</p>" : "") +
+        (t.ok === false && !t.skipped ? '<p class="note bad">Didn\'t answer today; using the last good copy.</p>' : "") +
+        '<ol class="top5">' + list(t.top).map(function (r, i) {
+          return '<li><span class="rk">' + (i + 1) + '.</span><span class="nm"><b>' + esc(r.n) + "</b>" + (r.o ? ' <span class="muted">' + esc(r.o) + "</span>" : "") +
+            '</span><span class="sc">' + esc(r.shown) + "</span></li>";
+        }).join("") + "</ol></section>";
+    });
+    h += "<h3>Agent apps: every plan</h3><p class=\"sub\">Monthly US prices, read every day from each app's own pricing page or App Store listing. Agents that come with a ChatGPT, Claude or Gemini plan show that plan's price (same as the Cost tab) and the line on the company's page that says which plans include it. After " + ((D && D.staleDays) || 30) + " days without a check a price is marked stale.</p>" + staleNote("agentapps");
+    h += agentGroups(true);
+    h += "<h3>Agent news: last " + ((ag.news && ag.news.days) || 14) + " days</h3><p class=\"sub\">" + esc((ag.news && ag.news.rules) || "") + "</p>" + agentNewsRows((ag.news && ag.news.max) || 8);
+    return h + backButton() + agentCredits(true);
+  }
+
   // ---------------------------------------------------------------- Sources view
   function vSources() {
     var h = "<h2>Sources</h2><p class=\"sub\">Where every number comes from. The app rebuilds itself every day. If a source doesn't answer, its last good copy is kept.</p>";
@@ -284,6 +429,26 @@
           "<small>" + line + (failed.length ? ' · <span class="muted">' + esc(failed.join("; ")) + "</span>" : "") + "</small></span></li>";
       }).join("") + "</ul>";
     }
+    var ag = AG();
+    if (ag && list(ag.tests).length) {
+      h += "<h3>Agent tests (Agents tab)</h3><ul class=\"rows card\">" + list(ag.tests).map(function (t) {
+        var line = t.skipped ? '<span class="warn">⚠ Left out today: ' + esc(t.skipWhy) + "</span>"
+          : t.ok ? '<span class="ok">✓ OK</span>' + (t.date ? " · newest result " + esc(day(t.date)) : "")
+          : '<span class="warn">⚠ Using last good copy' + (t.updated ? " from " + esc(day(t.updated)) : "") + "</span>";
+        return '<li><span class="rn"><b>' + ext(t.url, esc(t.credit)) + "</b><small>" + esc(t.name) + ": " + esc(t.what) + (t.inRule ? "" : " Information only.") + "</small>" +
+          (t.license ? "<small>License: " + (t.licenseUrl ? ext(t.licenseUrl, esc(t.license)) : esc(t.license)) + "</small>" : "") +
+          "<small>" + line + "</small></span></li>";
+      }).join("") + "</ul>";
+      var aps = list(ag.apps);
+      h += "<h3>Agent app pages</h3><ul class=\"rows card\">" + aps.map(function (a) {
+        var pg = a.proof || a.src || {};
+        var line = pg.readToday ? '<span class="ok">✓ Read today</span>' : '<span class="warn">⚠ Failed today</span>';
+        var failed = list(pg.tried).filter(function (t) { return !t.ok; }).map(function (t) { return t.label + ": " + t.err; });
+        return '<li><span class="rn"><b>' + esc(a.app) + "</b><small>" + ext(pg.url, esc(pg.label || "Pricing page")) + " · last checked " + esc(day(pg.checked)) + staleMark(pg.stale) +
+          (a.plansFrom ? " · prices from the " + esc(a.plansFrom) + " row above" : "") + "</small>" +
+          "<small>" + line + (failed.length ? ' · <span class="muted">' + esc(failed.join("; ")) + "</span>" : "") + "</small></span></li>";
+      }).join("") + "</ul>";
+    }
     var feeds = list(D.bignews && D.bignews.feeds);
     if (feeds.length) {
       h += "<h3>News feeds</h3><ul class=\"rows card\">" + feeds.map(function (f) {
@@ -298,6 +463,7 @@
       "<p><b>Prices:</b> \u201cApp Store price (US)\u201d comes from the company's own App Store listing. A price not confirmed for more than " + ((D && D.staleDays) || 30) + " days is marked \u26a0 stale.</p>" +
       "<p><b>New releases:</b> taken from each company's own page when it announced the model (that date and link), otherwise the date it appeared on OpenRouter.</p>" +
       "<p><b>Epoch Capabilities Index:</b> many benchmarks combined into one score, with a margin of error.</p>" +
+      (ag ? "<p><b>Agent tests:</b> LMArena Agent Arena score (people's votes between two agents, higher is better), LiveBench Long Agentic (0 to 100), APEX-Agents (share of work tasks solved on the first try). A model is best for agents when it is top 3 in at least 2 of the 3.</p>" : "") +
       "<p>Data built " + esc(new Date(D.built).toLocaleString()) + ". No AI is used to pick anything. No sign-in, no tracking.</p></div>";
     return h;
   }
@@ -331,12 +497,16 @@
   function credits(ids) {
     ids = ids.filter(active);
     if (!ids.length) return '<p class="credits"><a href="#sources">All sources and update status</a></p>';
-    return '<p class="credits">Data from ' + ids.map(function (id) { var s = src(id); return s.url ? ext(s.url, esc(s.credit || s.name)) : esc(s.credit || s.name); }).join(", ") +
+    return '<p class="credits">Data from ' + ids.map(function (id) {
+      var s = src(id), t = String(s.credit || s.name || "");
+      if (/^Each /.test(t)) t = "each" + t.slice(4);          // mid-sentence: "Data from each company's…"
+      return s.url ? ext(s.url, esc(t)) : esc(t);
+    }).join(", ") +
       '. <a href="#sources">All sources and update status</a></p>';
   }
 
-  var VIEWS = { best: vBest, cost: vCost, releases: vReleases, news: vNews, sources: vSources };
-  var MORE = { best: vBestMore, cost: vCostMore, releases: vReleasesMore, news: vNewsMore };
+  var VIEWS = { best: vBest, cost: vCost, releases: vReleases, news: vNews, agents: vAgents, sources: vSources };
+  var MORE = { best: vBestMore, cost: vCostMore, releases: vReleasesMore, news: vNewsMore, agents: vAgentsMore };
 
   function viewHtml(tab, more) {
     if (!D) return '<h2>No data yet</h2><p class="sub">Connect to the internet once and reopen the app.</p>';
@@ -345,7 +515,7 @@
     catch (e) { return '<h2>Something went wrong</h2><p class="sub">This part could not be shown. Pull to refresh or try again later.</p>'; }
   }
 
-  // #best #cost #releases #news #sources, and "#<tab>-more" for the details. Anything else (old links) -> first tab.
+  // #best #cost #releases #news #agents #sources, and "#<tab>-more" for the details. Anything else (old links) -> first tab.
   function routeFor(hash) {
     var h = String(hash || "").replace(/^#/, "").toLowerCase();
     if (h === "main") return null;                           // skip link

@@ -1,5 +1,5 @@
 /* AI Tracker: one calm column, big text, cards that open with a tap.
-   Phone: 4 tabs in a bar at the bottom. Tablet and wider: tabs in one row at the top. */
+   Phone: 5 tabs in a bar at the bottom (short labels). Tablet and wider: tabs in one row at the top (full labels). */
 :root{
   --bg:#f6f5f1;--card:#ffffff;--soft:#eceffc;--text:#16181d;--muted:#5b6170;--line:#e3e0d8;
   --accent:#3846c4;--on-accent:#ffffff;--good:#2b8547;--warn:#a96300;
@@ -59,10 +59,11 @@ button{font:inherit;color:inherit}
 /* tabs: bottom bar on phone */
 .tabs{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--card);border-top:1px solid var(--line);
   padding:6px max(6px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(6px,env(safe-area-inset-left,0px))}
-.tabs .pill{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;max-width:620px;margin:0 auto}
+.tabs .pill{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:2px;max-width:620px;margin:0 auto}
 .tabs button{border:0;background:none;cursor:pointer;color:var(--muted);border-radius:16px;min-height:62px;min-width:0;
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:13.5px;line-height:1.15;padding:6px 2px;text-align:center}
 .tabs .ti{font-size:22px;line-height:1}
+.tabs .long{display:none}
 .tabs button[aria-current="page"]{background:var(--soft);color:var(--accent);font-weight:700}
 
 /* content */
@@ -144,6 +145,25 @@ details[open] > summary .chev{transform:rotate(45deg) translate(-2px,-2px)}
 .tag{display:inline-block;font-size:12.5px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--accent);background:var(--soft);
   border-radius:999px;padding:2px 9px;margin:0 8px 4px 0;vertical-align:2px}
 .srcs .rn small + small{margin-top:4px}
+.rn small.checked + small.checked{margin-top:0}
+
+/* Agents tab */
+.abest{padding:18px 20px 6px;margin-bottom:6px}
+.abest h3{margin:0 0 4px;display:flex;align-items:center;gap:10px}
+.ico.sm{width:40px;height:40px;border-radius:12px;font-size:22px;flex:none}
+.abest .rows{padding:0}
+.abest .why{margin:6px 0 12px}
+b.big{font-size:21px;font-weight:800;letter-spacing:-.01em}
+h4.grp{font-size:15px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin:18px 0 8px}
+.card.pad{padding:14px 20px;margin-top:12px}
+.card.pad.cand{border-top:1px solid var(--line)}
+.job h4{font-size:18px;margin:0 0 6px}
+.job h4 a{color:var(--text)}
+.top5{list-style:none;margin:6px 0 0;padding:0;font-size:15.5px}
+.top5 li{display:flex;align-items:baseline;gap:8px;padding:4px 0}
+.top5 .rk{flex:none;width:1.4em;color:var(--muted);font-variant-numeric:tabular-nums}
+.top5 .nm{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+.top5 .sc{flex:none;font-variant-numeric:tabular-nums;font-weight:650}
 
 .morebtn,.backbtn{display:flex;align-items:center;justify-content:center;width:100%;min-height:52px;margin-top:16px;border-radius:14px;
   border:1px solid var(--line);background:var(--card);cursor:pointer;font-weight:700;font-size:16.5px;color:var(--accent);text-decoration:none}
@@ -160,9 +180,11 @@ details[open] > summary .chev{transform:rotate(45deg) translate(-2px,-2px)}
   .top{padding-top:calc(30px + env(safe-area-inset-top,0px))}
   .tabs{position:sticky;top:0;bottom:auto;background:var(--bg);border-top:0;
     padding:calc(12px + env(safe-area-inset-top,0px)) max(20px,env(safe-area-inset-right,0px)) 12px max(20px,env(safe-area-inset-left,0px))}
-  .tabs .pill{max-width:720px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:6px;box-shadow:var(--shadow)}
-  .tabs button{flex-direction:row;gap:8px;min-height:50px;border-radius:999px;font-size:16.5px;padding:6px 10px}
+  .tabs .pill{max-width:760px;grid-template-columns:repeat(5,auto);justify-content:space-between;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:6px;box-shadow:var(--shadow)}
+  .tabs button{flex-direction:row;gap:7px;min-height:50px;border-radius:999px;font-size:16px;padding:6px 14px;white-space:nowrap}
   .tabs .ti{font-size:19px}
+  .tabs .long{display:inline}
+  .tabs .short{display:none}
   .offline{bottom:24px}
 }
 @media (max-width:420px){

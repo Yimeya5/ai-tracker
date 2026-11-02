@@ -1,7 +1,7 @@
 {
  "name": "AI Tracker",
  "short_name": "AI Tracker",
- "description": "Which AI is best for what, what it costs, new releases and big news. Picked by fixed rules from independent sources. Updates itself every day.",
+ "description": "Which AI is best for what, what it costs, new releases, big news and AI agents. Picked by fixed rules from independent sources. Updates itself every day.",
  "start_url": "./index.html#best",
  "scope": "./",
  "id": "./",
