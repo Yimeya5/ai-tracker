@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """Rebuild data/data.json (+ data/data.js) for the AI Tracker app.
 
-The app answers 4 questions: which model is best for what, what each one costs,
-what was released lately, and the big news. No AI calls anywhere: every pick is a fixed rule.
+The app answers 5 questions: which model is best for what, what each one costs, what was released lately,
+the big news, and AI agents (the best model inside an agent, agent apps and their prices, agent news).
+No AI calls anywhere: every pick is a fixed rule.
 
 Sources (only these):
   lmarena    LMArena official Hugging Face dataset (parquet, CC-BY-4.0): people's blind votes
+             (text, coding, writing, math, webdev, text-to-image, and the Agent Arena)
   aa         Artificial Analysis official free API: independent tests, prices, image arena.
              OFF by default. Only used when AA_ENABLED is "1" or "true" (needs AA_API_KEY too).
              AA's Data Platform Terms don't allow its data in a public product, so keep it off for the public app.
              When off: no AA requests, and no AA data in data.json, data.js or raw.json.
-  livebench  LiveBench latest release CSV: fresh, contamination-free tasks
-  epoch      Epoch AI Capabilities Index (CC-BY): many benchmarks combined, with error bars
+  livebench  LiveBench latest release CSV: fresh, contamination-free tasks (incl. Long Agentic and Browser)
+  epoch      Epoch AI benchmark zip (CC-BY): Capabilities Index with error bars, plus agent tests run by others:
+             APEX-Agents (Mercor), Vending-Bench 2 (Andon Labs), Remote Labor Index (Scale AI / CAIS)
   openrouter OpenRouter models API: developer prices, release dates, what each model outputs (text/image/...)
   official   each company's own news page/blog (OpenAI, Google DeepMind, Google AI, Anthropic, Mistral, xAI, Meta,
              DeepSeek): new model announcements (for New releases and Big news)
@@ -19,6 +22,9 @@ Sources (only these):
              servers (ChatGPT, Perplexity; Meta AI = free; Grok backup). Simple regex rules, polite fetching.
   news       RSS feeds from AI labs and tech news sites; Big news keeps only launches, big price changes,
              product launches/shutdowns, $1B+ funding, acquisitions and IPO filings (fixed word rules)
+  agentapps  agent apps (ChatGPT Work, Gemini Agent, Claude in Chrome, Comet, Manus, Codex, Claude Code, Jules,
+             GitHub Copilot, Cursor, Devin, Replit): prices from their own pricing pages / App Store listings, or a
+             line on the company's own page proving which Cost-tab plans include the agent
 
 Keep-last-good: every source is fetched and checked on its own. If it fails or looks wrong, the last good
 copy (saved in data/raw.json) is used and the app shows "using last good copy from <date>".
@@ -200,7 +206,9 @@ LM_BOARDS = [  # (board id, dataset config, category, label, page link)
     ("text_math", "text", "math", "Math", "https://lmarena.ai/leaderboard/text"),
     ("webdev", "webdev", "overall", "Building websites and apps", "https://lmarena.ai/leaderboard/webdev"),
     ("text_to_image", "text_to_image", "overall", "Making pictures", "https://lmarena.ai/leaderboard/text-to-image"),
+    ("agent", "agent", "overall", "Agent Arena", "https://lmarena.ai/leaderboard/agent"),
 ]
+# The Agent Arena uses other column names: score (IPS, higher = better), score_ci_lower/upper, observation_count.
 # Every row of every board is kept in raw.json: a model ranked #75 is still "covered" (with its votes),
 # not "missing". Only the picks (top few + ranks of the models shown) go into the app file.
 
@@ -216,18 +224,25 @@ def lm_board(rows_all, category):
         return None, []
     latest = max(str(r.get("leaderboard_publish_date") or "") for r in rows)
     rows = [r for r in rows if str(r.get("leaderboard_publish_date") or "") == latest]
-    rows.sort(key=lambda r: -(num(r.get("rating")) or 0))
+    agent = "rating" not in rows[0] and "score" in rows[0]           # Agent Arena columns
+    sc, lo_c, hi_c = ("score", "score_ci_lower", "score_ci_upper") if agent else ("rating", "rating_lower", "rating_upper")
+    rnd = (lambda v: round(v, 4)) if agent else round                  # agent scores are small numbers like 0.184
+    rows.sort(key=lambda r: -(num(r.get(sc)) or 0))
     seen, out = set(), []
     for r in rows:
         k = normalize(r.get("model_name"))
-        s = num(r.get("rating"))
+        s = num(r.get(sc))
         if not k or k in seen or s is None:
             continue
-        seen.add(k)
-        lo, hi = num(r.get("rating_lower")), num(r.get("rating_upper"))
-        out.append({"k": k, "n": display_name(r.get("model_name")), "o": org_name(r.get("organization")),
-                    "s": round(s), "lo": round(lo if lo is not None else s), "hi": round(hi if hi is not None else s),
-                    "votes": int(num(r.get("vote_count")) or 0)})
+        seen.add(k)                                                    # several run settings: the best one counts
+        lo, hi = num(r.get(lo_c)), num(r.get(hi_c))
+        row = {"k": k, "n": display_name(r.get("model_name")), "o": org_name(r.get("organization")),
+               "s": rnd(s), "lo": rnd(lo if lo is not None else s), "hi": rnd(hi if hi is not None else s)}
+        if agent:
+            row["obs"] = int(num(r.get("observation_count")) or 0)
+        else:
+            row["votes"] = int(num(r.get("vote_count")) or 0)
+        out.append(row)
     return latest[:10], out
 
 
@@ -467,6 +482,40 @@ def parse_epoch_csv(text):
     return sorted(best.values(), key=lambda r: -r["s"])
 
 
+# Agent tests that Epoch AI collects in the same zip (each one is read and kept on its own).
+#   (id, file in the zip, score column, minimum rows)
+EPOCH_AGENT = [
+    ("apex", "apex_agents_external.csv", "Pass@1 score", 10),
+    ("vending", "vending_bench_2_external.csv", "Score", 10),
+    ("rli", "rli_external.csv", "Score", 5),
+]
+
+
+def bench_key(version):
+    """'claude-opus-5-5_max' -> 'claude-opus-5-5': the part after '_' is the effort setting it was run with."""
+    return normalize(str(version or "").split("_")[0])
+
+
+def parse_epoch_bench(text, score_col):
+    """One Epoch benchmark CSV -> [{k, n, o, s, d}] best run per model, best first. d = the model's release date."""
+    reader = csv.DictReader(io.StringIO(text))
+    cols = {c.lower().strip(): c for c in (reader.fieldnames or []) if c}
+    c_model, c_score = cols.get("model version") or cols.get("model"), cols.get(score_col.lower())
+    c_date, c_org = cols.get("release date"), cols.get("organization")
+    if not (c_model and c_score):
+        raise ValueError(f"columns not found ({score_col})")
+    best = {}
+    for r in reader:
+        k, v = bench_key(r.get(c_model)), num(r.get(c_score))
+        if not k or v is None:
+            continue
+        rec = {"k": k, "n": display_name(str(r.get(c_model)).split("_")[0]), "o": org_name(r.get(c_org)) if c_org else "",
+               "s": round(v, 4), "d": (r.get(c_date) or "")[:10] if c_date else ""}
+        if k not in best or rec["s"] > best[k]["s"]:
+            best[k] = rec
+    return sorted(best.values(), key=lambda x: -x["s"])
+
+
 def fetch_epoch(prev=None):
     z = zipfile.ZipFile(io.BytesIO(get(EPOCH_ZIP, timeout=120).content))
     name = next((n for n in z.namelist() if n.endswith("eci_scores.csv")), None)
@@ -475,7 +524,21 @@ def fetch_epoch(prev=None):
     rows = parse_epoch_csv(z.read(name).decode("utf-8", "replace"))
     if len(rows) < 20:
         raise ValueError(f"Epoch ECI looks too short ({len(rows)} rows)")
-    return {"rows": rows}
+    old = (prev or {}).get("agent") or {}
+    agent = {}
+    for bid, fname, col, min_rows in EPOCH_AGENT:
+        try:
+            f = next((n for n in z.namelist() if n.endswith(fname)), None)
+            if not f:
+                raise ValueError(fname + " not in the zip")
+            brows = parse_epoch_bench(z.read(f).decode("utf-8", "replace"), col)
+            if len(brows) < min_rows:
+                raise ValueError(f"{fname} looks too short ({len(brows)} rows)")
+            agent[bid] = {"ok": True, "updated": NOW_ISO, "rows": brows, "newest": max(r["d"] for r in brows)}
+        except Exception as e:
+            log(f"epoch: {bid} failed: {e}")
+            agent[bid] = dict(old[bid], ok=False, err=str(e)[:160]) if old.get(bid) else {"ok": False, "updated": None, "rows": [], "err": str(e)[:160]}
+    return {"rows": rows, "agent": agent}
 
 
 # ======================================================================= OpenRouter
@@ -529,12 +592,12 @@ def fetch_openrouter(prev=None):
 # (between a third and 3x); otherwise the last good value and the date it was last checked stay.
 # A price whose last check is more than 30 days old is marked "stale" in the app and in the workflow log.
 PROJECT_URL = "https://github.com/" + (os.environ.get("GITHUB_REPOSITORY") or "")
-POLITE_UA = {"User-Agent": f"Mozilla/5.0 (compatible; ai-tracker/5; +{PROJECT_URL})"}
+POLITE_UA = {"User-Agent": f"Mozilla/5.0 (compatible; ai-tracker/6; +{PROJECT_URL})"}
 PRICE_PAUSE = 2                 # seconds between price pages
 PRICE_RETRY_WAITS = (4, 10)     # 3 tries in all
 STALE_DAYS = 30
 SEED_CHECKED = "2026-11-01"
-PRICES_CFG = 5                  # bump when the plan list changes, so old saved values aren't mixed in
+PRICES_CFG = 5                  # bump when the plan list changes in a way old saved values would be wrong (a new plan is fine)
 APPSTORE = "https://apps.apple.com/us/app/"
 LOOKUP = "https://itunes.apple.com/lookup?id={}&country=us"
 P = r"\$\s?(\d[\d,]*(?:\.\d\d)?)"   # a dollar price
@@ -544,7 +607,7 @@ PRICE_APPS = [
     {"app": "ChatGPT", "maker": "OpenAI", "free": True, "sources": [
         {"kind": "appstore", "label": "App Store price (US)", "url": APPSTORE + "chatgpt/id6448311069", "seller": r"OpenAI",
          "plans": [("Go", 8, "ChatGPT Go"), ("Plus", 19.99, "ChatGPT Plus"), ("Pro 100", 100, "ChatGPT Pro 100"),
-                   ("Pro 200", 200, "ChatGPT Pro 200")]}]},
+                   ("Pro 200", 200, "ChatGPT Pro 200"), ("Pro 500", 500, "ChatGPT Pro 500")]}]},
     {"app": "Claude", "maker": "Anthropic", "free": True, "sources": [
         {"kind": "web", "label": "Pricing page", "url": "https://claude.com/pricing",
          "plans": [("Pro", 20, r"\$\s?(\d+(?:\.\d\d)?)\s*if billed monthly"), ("Max", 100, r"\bMax\b.{0,80}?" + P + r"\s*Per month"),
@@ -628,15 +691,23 @@ def appstore_price(iap, label):
     return num(m.group(1).replace(",", "")) if m else None
 
 
-def polite_get(url):
-    """Up to 3 tries, waiting 4 s then 10 s. Raises the last error."""
+PAGE_CACHE = None   # main() sets a dict: a page read once in a run (e.g. claude.com/pricing) isn't fetched again
+
+
+def polite_get(url, label="prices"):
+    """Up to 3 tries, waiting 4 s then 10 s. Raises the last error. `label` = the part of the run, for the log."""
+    if PAGE_CACHE is not None and url in PAGE_CACHE:
+        return PAGE_CACHE[url]
     err = None
     for i in range(len(PRICE_RETRY_WAITS) + 1):
         if i:
-            log(f"prices: retry {i} for {url} in {PRICE_RETRY_WAITS[i - 1]}s ({err})")
+            log(f"{label}: retry {i} for {url} in {PRICE_RETRY_WAITS[i - 1]}s ({err})")
             sleep(PRICE_RETRY_WAITS[i - 1])
         try:
-            return get(url, timeout=30, headers=POLITE_UA)
+            r = get(url, timeout=30, headers=POLITE_UA)
+            if PAGE_CACHE is not None:
+                PAGE_CACHE[url] = r
+            return r
         except Exception as e:
             err = e
     raise err
@@ -650,9 +721,12 @@ def sane(v, old):
     return v
 
 
-def read_source(src, old_plans):
-    """Read one source. Returns (plans, ok, err). ok = the page was read and is the right listing."""
-    resp = polite_get(src["url"])
+def read_source(src, old_plans, label="prices", extra=None):
+    """Read one source. Returns (plans, ok, err). ok = the page was read and is the right listing.
+    Optional source keys: "section" (marker, length) = only read that part of the page;
+    "proof" = a regex that must be on the page (e.g. "Claude Code No Yes Yes Yes");
+    "facts" = {name: (regex, template)} small facts read from the page into extra["facts"]."""
+    resp = polite_get(src["url"], label)
     if src["kind"] == "lookup":
         res = [r for r in (resp.json().get("results") or []) if str(r.get("trackId")) == str(src["id"])]
         if not res or not re.search(src["seller"], res[0].get("sellerName") or ""):
@@ -663,6 +737,19 @@ def read_source(src, old_plans):
     text = page_text(resp.text)
     if len(text) < 200:
         return [], False, "page was empty"
+    if src.get("section"):
+        marker, length = src["section"]
+        i = text.find(marker)
+        if i < 0:
+            return [], False, f"'{marker}' not found on the page"
+        text = text[i:i + length]
+    if src.get("proof") and not re.search(src["proof"], text, flags=re.I):
+        return [], False, "the line that shows this is included is not on the page any more"
+    if src.get("facts") and extra is not None:
+        for fname, (fre, tmpl) in src["facts"].items():
+            fm = re.search(fre, text, flags=re.I)
+            if fm:
+                extra.setdefault("facts", {})[fname] = tmpl.format(*fm.groups())
     if src["kind"] == "appstore":
         if not re.search(r"Seller\s+" + src["seller"], text):
             return [], False, "not the company's own App Store listing"
@@ -706,45 +793,54 @@ def days_old(d):
         return 9999
 
 
-def fetch_prices(prev=None):
-    """Always returns every app. An app that can't be read today keeps its last good plans, source and date."""
-    old_apps = {a["app"]: a for a in ((prev or {}).get("apps") or []) if a.get("cfg") == PRICES_CFG}
+def read_apps(cfgs, prev_apps, cfg_ver, label="prices", key="app"):
+    """Read every app in `cfgs` (each source in order until one works). An app that can't be read today keeps
+    its last good plans, source, facts and date. Returns (records, number of apps read today)."""
+    old_apps = {a[key]: a for a in (prev_apps or []) if a.get("cfg") == cfg_ver}
     apps, read_ok, first = [], 0, True
-    for cfg in PRICE_APPS:
-        old = old_apps.get(cfg["app"])
+    for cfg in cfgs:
+        old = old_apps.get(cfg[key])
         base = old or seed_record(cfg)
-        tried, used = [], None
+        tried, used, extra = [], None, {}
         for src in cfg["sources"]:
             if not first:
                 sleep(PRICE_PAUSE)
             first = False
             same_src = base["src"]["url"] in (src["url"], src.get("page"))
             old_plans = {p["name"]: p for p in base["plans"]} if same_src else {}
+            extra = {}
             try:
-                plans, ok, err = read_source(src, old_plans)
+                plans, ok, err = read_source(src, old_plans, label, extra)
             except Exception as e:
                 plans, ok, err = [], False, str(e)[:160]
             tried.append({"label": src["label"], "url": src.get("page") or src["url"], "ok": ok, "err": err})
             if ok:
                 used = (src, plans)
                 break
-            log(f"prices: {cfg['app']} {src['label']} not read: {err}")
+            log(f"{label}: {cfg[key]} {src['label']} not read: {err}")
         if used:
             src, plans = used
-            rec = {"plans": plans, "src": {"kind": src["kind"], "label": src["label"], "url": src.get("page") or src["url"]}}
+            rec = {"plans": plans, "src": {"kind": src["kind"], "label": src["label"], "url": src.get("page") or src["url"]},
+                   "facts": dict((base.get("facts") or {}), **(extra.get("facts") or {}))}
             all_read = all(p["checked"] == TODAY for p in plans)
             rec["checked"] = TODAY if all_read else min(p["checked"] for p in plans)
             read_ok += 1
         else:
-            rec = {"plans": base["plans"], "src": base["src"], "checked": base["checked"]}
+            rec = {"plans": base["plans"], "src": base["src"], "checked": base["checked"], "facts": base.get("facts") or {}}
             all_read = False
         age = days_old(rec["checked"])
         for p in rec["plans"]:
             p["stale"] = days_old(p["checked"]) > STALE_DAYS
-        apps.append({"app": cfg["app"], "maker": cfg["maker"], "free": cfg["free"], "note": cfg.get("note", ""), "cfg": PRICES_CFG,
-                     "plans": rec["plans"], "src": rec["src"], "page": rec["src"]["url"], "checked": rec["checked"],
-                     "read_ok": bool(used) and all_read, "readToday": bool(used), "tried": tried,
-                     "stale": age > STALE_DAYS, "ageDays": age})
+        apps.append(dict({k: cfg[k] for k in cfg if k not in ("sources",)}, note=cfg.get("note", ""), cfg=cfg_ver,
+                         plans=rec["plans"], src=rec["src"], page=rec["src"]["url"], checked=rec["checked"], facts=rec["facts"],
+                         read_ok=bool(used) and all_read, readToday=bool(used), tried=tried,
+                         stale=age > STALE_DAYS, ageDays=age))
+    return apps, read_ok
+
+
+def fetch_prices(prev=None):
+    """Always returns every app. An app that can't be read today keeps its last good plans, source and date."""
+    apps, read_ok = read_apps(PRICE_APPS, (prev or {}).get("apps"), PRICES_CFG)
     return {"apps": apps, "pages_read": read_ok, "apps_total": len(PRICE_APPS)}
 
 
@@ -756,6 +852,123 @@ def stale_prices(prices):
                 out.append({"app": a["app"], "plan": p["name"], "usd_month": p["usd_month"], "checked": p["checked"]})
         if not a.get("plans") and a.get("stale"):
             out.append({"app": a["app"], "plan": "", "usd_month": None, "checked": a["checked"]})
+    return out
+
+
+# ======================================================================= agent apps (Agents tab)
+# Same reader as the Cost tab (polite fetching, 3 tries, believable-number check, keep last good, stale after 30 days).
+# Apps whose agent comes with a plan already on the Cost tab ("plansFrom") don't repeat those prices: the app reads a
+# line on the company's own page that proves which plans include the agent ("proof"), and shows the Cost-tab prices.
+AGENTS_CFG = 2                  # bump when the list below changes, so old saved values aren't mixed in (2: Manus plans)
+AGENT_GROUPS = [("tasks", "Does tasks for you"), ("code", "Writes code for you")]
+AGENT_APPS = [
+    # ---- does tasks for you
+    {"id": "chatgpt-work", "app": "ChatGPT Work", "maker": "OpenAI", "group": "tasks", "free": True,
+     "what": "An agent inside ChatGPT that does multi-step tasks across your files and apps.",
+     "plansFrom": "ChatGPT", "only": None,
+     "proofText": "“ChatGPT Work and Codex are included in your ChatGPT Free, Go, Plus, Pro…”",
+     "sources": [{"kind": "web", "label": "Codex pricing page", "url": "https://developers.openai.com/codex/pricing",
+                  "proof": r"ChatGPT Work and Codex are included in your ChatGPT Free", "plans": []}]},
+    {"id": "gemini-agent", "app": "Gemini Agent", "maker": "Google", "group": "tasks", "free": False,
+     "what": "Does tasks for you in the Gemini app.", "note": "Only in Google AI Ultra. US only, English only.",
+     "plansFrom": "Gemini", "only": ["Google AI Ultra"],
+     "proofText": "Google AI Ultra: “Gemini Agent (US only, English only)”",
+     "sources": [{"kind": "web", "label": "Google AI plans page", "url": "https://one.google.com/intl/en_us/about/google-ai-plans/",
+                  "proof": r"Google AI Ultra.{0,1500}?Gemini Agent \(US only, English only\)", "plans": []}]},
+    {"id": "claude-in-chrome", "app": "Claude in Chrome", "maker": "Anthropic", "group": "tasks", "free": False,
+     "what": "Reads the page you're on, then clicks, types and fills in forms for you.", "note": "Not on the Free plan.",
+     "plansFrom": "Claude", "only": ["Pro", "Max", "Ultra"],
+     "proofText": "Plan table: “Claude in Chrome: No (Free), Yes (Pro, Max, Ultra)”",
+     "sources": [{"kind": "web", "label": "Claude pricing page", "url": "https://claude.com/pricing",
+                  "proof": r"Claude in Chrome No Yes Yes Yes", "plans": []}]},
+    {"id": "comet", "app": "Comet", "maker": "Perplexity", "group": "tasks", "free": True,
+     "what": "An AI web browser that does tasks for you.",
+     "sources": [{"kind": "appstore", "label": "App Store price (US)", "url": APPSTORE + "comet-ai-browser-assistant/id6748622471",
+                  "seller": r"Perplexity AI", "plans": [("Pro", 20, "Perplexity Pro"), ("Max", 200, "Perplexity Max")]}]},
+    # Manus's own help article lists the current plans. manus.im/pricing has no prices in its HTML, and the App Store
+    # still lists old plans (Basic / Plus) next to many "Manus Pro $x" items, so it is not used.
+    {"id": "manus", "app": "Manus", "maker": "Butterfly Effect", "group": "tasks", "free": True,
+     "what": "A general agent: research, slides, websites and more.", "note": "Free plan with daily credits.",
+     "sources": [{"kind": "web", "label": "Manus help page",
+                  "url": "https://help.manus.im/en/articles/11711111-what-is-the-current-membership-pricing-for-manus",
+                  "plans": [("Pro (4,000 credits)", 20, r"Pro Plan Price 1:\s*Starting from\s*" + P + r"\s*/\s*month"),
+                            ("Pro (8,000 credits)", 40, r"Pro Plan Price 2:\s*Starting from\s*" + P + r"\s*/\s*month")],
+                  "notes": {"Pro (4,000 credits)": "from", "Pro (8,000 credits)": "from; 7-day free trial"}}]},
+    # ---- writes code for you
+    {"id": "codex", "app": "Codex", "maker": "OpenAI", "group": "code", "free": True,
+     "what": "OpenAI's coding agent, in the app, the terminal, your editor and the cloud.",
+     "sources": [{"kind": "web", "label": "Pricing page", "url": "https://developers.openai.com/codex/pricing",
+                  "plans": [("Go", 8, r"\bGo\b[^$]{0,60}" + P + r"\s*/\s*month"), ("Plus", 20, r"\bPlus\b[^$]{0,60}" + P + r"\s*/\s*month"),
+                            ("Pro", 100, r"\bPro\b[^$]{0,60}From\s*" + P + r"\s*/\s*month")],
+                  "notes": {"Pro": "from; $100, $200 or $500"}}]},
+    {"id": "claude-code", "app": "Claude Code", "maker": "Anthropic", "group": "code", "free": False,
+     "what": "Anthropic's coding agent, in the terminal, your editor, the desktop app and the web.", "note": "Not on the Free plan.",
+     "plansFrom": "Claude", "only": ["Pro", "Max", "Ultra"],
+     "proofText": "Plan table: “Claude Code: No (Free), Yes (Pro, Max, Ultra)”",
+     "sources": [{"kind": "web", "label": "Claude pricing page", "url": "https://claude.com/pricing",
+                  "proof": r"Claude Code No Yes Yes Yes", "plans": []}]},
+    {"id": "jules", "app": "Jules", "maker": "Google", "group": "code", "free": True,
+     "what": "Google's coding agent: works on your GitHub code and opens a pull request.",
+     "plansFrom": "Gemini", "only": ["Google AI Pro", "Google AI Ultra"],
+     "proofText": "A free plan with a daily task limit; more tasks with Google AI Pro or Ultra",
+     "sources": [{"kind": "web", "label": "Jules plans", "url": "https://jules.google/",
+                  "proof": r"Jules in Pro.{0,400}?Jules in Ultra", "facts": {"freeTasks": (r"(\d+) tasks per day", "Free: {} tasks a day")},
+                  "plans": []}]},
+    {"id": "copilot", "app": "GitHub Copilot", "maker": "GitHub (Microsoft)", "group": "code", "free": True,
+     "what": "Coding agent in your editor, the terminal and on GitHub.",
+     "sources": [{"kind": "web", "label": "Plans page", "url": "https://github.com/features/copilot/plans", "section": ("Pricing plans", 400),
+                  "plans": [("Pro", 10, r"\bPro\s+" + P + r"\s*per month"), ("Pro+", 39, r"\bPro\+\s*" + P + r"\s*per month"),
+                            ("Max", 100, r"\bMax\s+" + P + r"\s*per month")]}]},
+    # Cursor is part of SpaceX and sold as "The X Subscription" (one plan for Grok, Cursor and X). The proof check
+    # notices when the pricing page stops being that page (no "Grok" on it): last good prices stay, and the log says so.
+    {"id": "cursor", "app": "Cursor", "maker": "SpaceX", "group": "code", "free": True,
+     "what": "A code editor with a built-in coding agent.",
+     "note": "Sold as The X Subscription: one plan with Grok and X. Claude or GPT inside Cursor cost extra.",
+     "sources": [{"kind": "web", "label": "Pricing page", "url": "https://cursor.com/pricing", "proof": r"\bGrok\b",
+                  "plans": [("Plus", 8, r"\bPlus\b[^$]{0,25}" + P + r"\s*/\s*month"), ("Premium", 30, r"\bPremium\b[^$]{0,25}" + P + r"\s*/\s*month"),
+                            ("Super", 100, r"\bSuper\b[^$]{0,25}" + P + r"\s*/\s*month"), ("Ultra", 200, r"\bUltra\b[^$]{0,25}" + P + r"\s*/\s*month")]}]},
+    {"id": "devin", "app": "Devin", "maker": "Cognition", "group": "code", "free": True,
+     "what": "A coding agent that works on its own, on your computer or in the cloud.",
+     "sources": [{"kind": "web", "label": "Pricing page", "url": "https://devin.ai/pricing",
+                  "plans": [("Pro", 20, r"\bPro\b[^$]{0,25}" + P + r"\s*per month"), ("Max", 200, r"\bMax\b[^$]{0,25}" + P + r"\s*per month")]}]},
+    {"id": "replit", "app": "Replit Agent", "maker": "Replit", "group": "code", "free": None,
+     "what": "Builds apps and websites from a plain description.", "note": "Monthly prices (less if billed yearly).",
+     "sources": [{"kind": "web", "label": "Pricing page", "url": "https://replit.com/pricing",
+                  "plans": [("Core", 20, r"\bCore\s+" + P), ("Pro", 100, r"\bPro\s+" + P)]},
+                 {"kind": "appstore", "label": "App Store price (US)", "url": APPSTORE + "replit-vibe-code-with-ai-fast/id1614022293",
+                  "seller": r"Replit", "plans": [("Core", 20, "Replit Core")]}]},
+]
+
+
+def fetch_agentapps(prev=None):
+    """Agent apps: own prices, or the proof line for apps whose agent comes with a Cost-tab plan."""
+    apps, read_ok = read_apps(AGENT_APPS, (prev or {}).get("apps"), AGENTS_CFG, label="agent apps", key="id")
+    return {"apps": apps, "pages_read": read_ok, "apps_total": len(AGENT_APPS)}
+
+
+def build_agent_apps(raw):
+    cost = {a["app"]: a for a in (raw.get("prices") or {}).get("apps") or []}
+    out = []
+    for a in (raw.get("agentapps") or {}).get("apps") or []:
+        rec = {k: a.get(k) for k in ("id", "app", "maker", "group", "what", "free", "note")}
+        rec["freeNote"] = (a.get("facts") or {}).get("freeTasks", "")
+        own = {"label": a["src"]["label"], "url": a["src"]["url"], "checked": a["checked"], "readToday": a["readToday"],
+               "stale": a["stale"], "tried": a.get("tried") or []}
+        if a.get("plansFrom"):
+            ca = cost.get(a["plansFrom"]) or {}
+            only = a.get("only")
+            rec["plans"] = [dict(p) for p in ca.get("plans") or [] if not only or p["name"] in only]
+            rec["src"] = dict(ca.get("src") or {}, checked=ca.get("checked"), readToday=ca.get("readToday"), stale=ca.get("stale"))
+            rec["plansFrom"] = a["plansFrom"]
+            rec["proof"] = dict(own, text=a.get("proofText", ""))
+        else:
+            rec["plans"] = [dict(p) for p in a.get("plans") or []]
+            rec["src"] = own
+            rec["proof"] = None
+        paid = [p for p in rec["plans"] if p.get("usd_month")]
+        rec["cheapest"] = min(paid, key=lambda p: p["usd_month"]) if paid else None
+        rec["checked"] = rec["src"].get("checked") or a["checked"]
+        out.append(rec)
     return out
 
 
@@ -984,7 +1197,7 @@ def fetch_official(prev=None):
     cut = (NOW - timedelta(days=OFFICIAL_DAYS)).date().isoformat()
     for sid, company, label, url, kind, mode in OFFICIAL:
         try:
-            raw = polite_get(url).content   # Tab fix: polite UA + retries (ai.meta.com answers 400 to the browser UA)
+            raw = polite_get(url, "official").content   # polite UA + retries (ai.meta.com answers 400 to the browser UA)
             if kind == "rss":
                 posts = parse_rss_posts(raw)
             elif kind == "html":
@@ -1253,6 +1466,10 @@ SRC = {
     "news": {"name": "News feeds", "credit": "AI lab blogs and tech news sites", "url": "",
              "what": "Headlines from OpenAI, Google, DeepMind, NVIDIA, Hugging Face, TechCrunch, The Verge, Ars Technica, MIT Tech Review and Wired.",
              "license": "", "licenseUrl": ""},
+    "agentapps": {"name": "Agent app pricing pages", "credit": "Each agent app's own pricing page or App Store listing", "url": "",
+                  "what": "What each agent app costs (Agents tab), read every day from its own pricing page or App Store listing. "
+                          "For agents that come with a ChatGPT, Claude or Gemini plan, a line on the company's own page shows "
+                          "which plans include it.", "license": "", "licenseUrl": ""},
 }
 NOT_SURE_VOTES = 5000
 
@@ -1539,13 +1756,16 @@ def names_index(raw):
         add(m["k"], m["n"], m.get("o"))
     for m in (raw.get("epoch") or {}).get("rows") or []:
         add(m["k"], m["n"], m.get("o"))
-    for bid in ("text", "text_to_image", "webdev", "text_creative_writing", "text_coding", "text_math"):
+    for bid in ("text", "text_to_image", "webdev", "text_creative_writing", "text_coding", "text_math", "agent"):
         for m in (((raw.get("lmarena") or {}).get("boards") or {}).get(bid) or {}).get("rows") or []:
             add(m["k"], m["n"], m.get("o"))
     for m in (raw.get("openrouter") or {}).get("models") or []:
         add(m["k"], m["n"], m.get("o"))
     for m in (raw.get("livebench") or {}).get("rows") or []:
         add(m["k"], m["n"], "")
+    for b in ((raw.get("epoch") or {}).get("agent") or {}).values():
+        for m in b.get("rows") or []:
+            add(m["k"], m["n"], m.get("o"))
     return idx
 
 
@@ -1738,11 +1958,243 @@ def official_status(raw):
     return out
 
 
+# ======================================================================= Agents tab
+# "Best AI for agents" (the model inside an agent). Same idea as the Best tab, with 3 independent agent tests:
+#   LMArena Agent Arena (people's votes), LiveBench Long Agentic (hidden tasks), APEX-Agents by Mercor (via Epoch AI).
+#   Best = in the top 3 of at least 2 of the 3 tests. Every model that passes is shown (most tests first).
+#   A test whose newest result is more than 120 days old is skipped (the Sources view says so).
+#   Fewer than 2 usable tests = no model is named best.
+# Extra tests shown under See more as information only (not in the rule): LiveBench Browser, Vending-Bench 2
+# (Andon Labs, $ earned) and Remote Labor Index (Scale AI / CAIS), both via Epoch AI.
+AGENT_NEED = 2
+AGENT_MAX_AGE = 120
+AGENT_TESTS = [  # id, name, credit, page, what it measures, license, license url, unit, in the rule
+    ("arena", "LMArena Agent Arena", "LMArena (lmarena.ai)", "https://lmarena.ai/leaderboard/agent",
+     "People give the same task to two hidden agents and vote for the one that did it better.", "CC BY 4.0", CC_BY, "num", True),
+    ("lb_agentic", "LiveBench Long Agentic", "LiveBench (livebench.ai)", "https://livebench.ai/",
+     "Long, many-step tasks done with tools. New, hidden tasks every release.", "", "", "num", True),
+    ("apex", "APEX-Agents", "APEX-Agents by Mercor, via Epoch AI", "https://www.mercor.com/apex/",
+     "Real work tasks from banking, consulting and law, done by an agent. Score = share solved on the first try.",
+     "CC BY 4.0 (Epoch AI data)", CC_BY, "pct", True),
+    ("lb_browser", "LiveBench Browser", "LiveBench (livebench.ai)", "https://livebench.ai/",
+     "Tasks done in a web browser.", "", "", "num", False),
+    ("vending", "Vending-Bench 2", "Vending-Bench 2 by Andon Labs, via Epoch AI", "https://andonlabs.com/evals/vending-bench-2",
+     "An agent runs a pretend vending-machine business for a year. Score = money at the end.", "CC BY 4.0 (Epoch AI data)", CC_BY, "usd", False),
+    ("rli", "Remote Labor Index", "Remote Labor Index by Scale AI and CAIS, via Epoch AI", "https://labs.scale.com/leaderboard/rli",
+     "Real paid freelance projects. Score = share done well enough to be accepted.", "CC BY 4.0 (Epoch AI data)", CC_BY, "pct", False),
+]
+
+
+def agent_boards(raw):
+    """Every agent test as a board {id, name, ..., rows, date, ok, updated, skipped, why}. Rows best first."""
+    lm = (raw.get("lmarena") or {}).get("boards", {}).get("agent") or {}
+    lb = raw.get("livebench") or {}
+    ep = (raw.get("epoch") or {}).get("agent") or {}
+    st_lm, st_lb = bool(raw.get("lmarena")) and not lm.get("stale"), bool(lb)
+    def lbrows(cat):          # "Long Agentic" (categories.json name) or "long_agentic" (column name)
+        out = []
+        for r in lb.get("rows") or []:
+            v = next((x for c, x in (r.get("cats") or {}).items() if c.replace("_", " ") == cat and x is not None), None)
+            if v is not None:
+                out.append({"k": r["k"], "n": r["n"], "s": v})
+        return sorted(out, key=lambda x: -x["s"])
+    data = {
+        "arena": (lm.get("rows") or [], lm.get("date") or "", st_lm, (raw.get("lmarena") or {}).get("_updated")),
+        "lb_agentic": (lbrows("long agentic"), lb.get("date") or "", st_lb, lb.get("_updated")),
+        "lb_browser": (lbrows("browser"), lb.get("date") or "", st_lb, lb.get("_updated")),
+    }
+    for bid in ("apex", "vending", "rli"):
+        b = ep.get(bid) or {}
+        data[bid] = (b.get("rows") or [], b.get("newest") or "", bool(b.get("ok")), b.get("updated"))
+    cut = (NOW - timedelta(days=AGENT_MAX_AGE)).date().isoformat()
+    out = []
+    for bid, name, credit, url, what, lic, lic_url, unit, in_rule in AGENT_TESTS:
+        rows, date, ok, upd = data[bid]
+        why = ""
+        if not rows:
+            why = "no data yet"
+        elif not date or date < cut:
+            why = f"newest result is from {date or 'an unknown date'}, more than {AGENT_MAX_AGE} days ago"
+        out.append({"id": bid, "name": name, "credit": credit, "url": url, "what": what, "license": lic, "licenseUrl": lic_url,
+                    "unit": unit, "inRule": in_rule, "date": date, "ok": ok, "updated": upd, "skipped": bool(why), "skipWhy": why,
+                    "rows": rows})
+    return out
+
+
+def agent_rank(b, k):
+    idx = next((i for i, r in enumerate(b["rows"]) if r["k"] == k), None)
+    info = {"test": b["id"], "name": b["name"], "date": b["date"], "url": b["url"], "unit": b["unit"], "rank": None}
+    if idx is not None:
+        info.update(rank=idx + 1, score=b["rows"][idx]["s"], top3=idx < 3)
+    return info
+
+
+def agent_pick(raw, names=None):
+    """The rule. Returns {status, need, n, winners, candidates, why, tests}."""
+    names = names if names is not None else names_index(raw)
+    boards = agent_boards(raw)
+    use = [b for b in boards if b["inRule"] and not b["skipped"]]
+    n = len(use)
+    def who(k, b_rows):
+        nm = names.get(k) or {}
+        first = next((r for b in b_rows for r in b["rows"] if r["k"] == k), {})
+        return nm.get("n") or first.get("n") or k, nm.get("o") or first.get("o") or ""
+    cands = []
+    for b in use:
+        for r in b["rows"][:3]:
+            if r["k"] not in cands:
+                cands.append(r["k"])
+    desc = []
+    for k in cands:
+        ranks = [agent_rank(b, k) for b in use]
+        top3 = sum(1 for x in ranks if x.get("top3"))
+        ranked = [x["rank"] for x in ranks if x["rank"]]
+        nm, org = who(k, use)
+        desc.append({"k": k, "n": nm, "o": org, "top3": top3, "covered": len(ranked), "ranks": ranks,
+                     "avg": round(sum(ranked) / len(ranked), 2) if ranked else 99})
+    desc.sort(key=lambda c: (-c["top3"], c["avg"], c["n"]))
+    need = AGENT_NEED
+    if n < need:
+        win, status = [], "none"
+        why = (f"Only {n} of the 3 agent tests has fresh data right now, so no model is named best."
+               if n == 1 else "No agent test has fresh data right now, so no model is named best.")
+    else:
+        win = [c for c in desc if c["top3"] >= need]
+        status = "best" if win else "none"
+        if win:
+            why = (f"Named best because it is in the top 3 of at least {need} of the {n} independent agent tests "
+                   f"({', '.join(b['name'] for b in use)}).")
+        else:
+            c = desc[0] if desc else None
+            why = (f"No clear winner yet: no model is in the top 3 of at least {need} of the {n} agent tests."
+                   + (f" Closest: {c['n']} (top 3 in {c['top3']})." if c else ""))
+    for c in desc:
+        c.pop("avg", None)
+    return {"status": status, "need": need, "n": n, "winners": win, "candidates": [c for c in desc if c not in win][:5],
+            "why": why, "testsUsed": [b["id"] for b in use]}
+
+
+# ---------------------------------------------------------------- agent news
+# From the feeds and company pages the app already reads. Kept: a title with an agent word, newer than 14 days,
+# that isn't dropped by a rule below or by the Big news drop rules (opinion, lawsuits, rumors, partnerships,
+# money talk, safety essays, customer stories, how-tos). Newest first, up to 8, the same story once.
+AGENT_NEWS_DAYS = 14
+AGENT_NEWS_MAX = 8
+AGENT_WORDS = re.compile(r"\b(agents?|agentic|Codex|Claude Code|Cowork|computer use|ChatGPT Work|Gemini Agent|Antigravity|Jules|"
+                         r"Manus|Comet|Devin|Copilot agent)\b", re.I)
+PRODUCTS = r"(?:OpenAI|ChatGPT(?: Work| Enterprise| Edu)?|Codex|Claude(?: Code)?|Cowork|Gemini(?: Enterprise)?|(?:Google )?Antigravity|Jules|Copilot|GPT-[\d.]+[\w\- ]{0,12}|OpenAI models)"
+AGENT_DROP = [
+    ("customer story", re.compile(r"\bwith " + PRODUCTS + r"\b|\bbrings? (?:ChatGPT|Claude|Codex|Gemini|Copilot)\b|\bis building\b|"
+                                  r"\bpowered by\b|\bputs .{0,30}\bto work\b|\d+% (?:less|more|faster)\b|\b(?:triples|doubles|halves)\b", re.I)),
+    ("customer story", re.compile(r"\bwith [A-Z][\w&.\-]{1,30}$")),          # "Advancing computer use with Ironclad"
+    ("explainer", re.compile(r"\bhow\b|^Why\b|^What\b|\bexplained\b", re.I)),
+    ("first person / opinion", re.compile(r"^I\b|\bI (?:put|tried|let|gave|asked|tested|used)\b|\bmy\b|\bwe tested\b|"
+                                          r"\b(?:we|you) (?:urgently )?(?:need|must|should)\b|\bshould\b", re.I)),
+    ("policy", re.compile(r"\b(EU|EU’s|EU's|European|government|policy|plan would|bill)\b", re.I)),
+    ("rumor", re.compile(r"\bwould\b|\bsoon\b", re.I)),
+    ("essay", re.compile(r"\bnext chapter\b|\bfuture of\b|\bera of\b|\bthe case for\b|\bis agentic\b", re.I)),
+]
+
+
+VENDOR_BLOGS = ("NVIDIA", "Hugging Face")     # tutorials and marketing, unless the post launches something
+
+
+def classify_agent_news(title, source=""):
+    """(tag, reason). tag '' = dropped."""
+    t = " ".join(str(title or "").split())
+    if not AGENT_WORDS.search(t):
+        return "", "dropped: no agent word"
+    for name, rx in AGENT_DROP + DROP_RULES:
+        if rx.search(t):
+            return "", "dropped: " + name
+    if source in VENDOR_BLOGS and not LAUNCH_RE.search(t):
+        return "", "dropped: vendor blog post, not a launch"
+    if LAUNCH_RE.search(t) or re.search(r"\b(new|introducing|now)\b", t, re.I):
+        return "Launch", "agent word + launch word"
+    return "News", "agent word"
+
+
+def _agent_pool(items, official):
+    """Official page posts first, so the company's own copy wins when a feed has the same link."""
+    pool = [dict(p, k="official", d=p["d"] + "T12:00:00+00:00") for p in official or []] + [dict(i) for i in items or []]
+    seen, out = set(), []
+    for it in pool:
+        if it["u"] in seen:
+            continue
+        seen.add(it["u"])
+        out.append(it)
+    return out
+
+
+def agent_news(items, official=None, days=AGENT_NEWS_DAYS, limit=AGENT_NEWS_MAX):
+    cut = (NOW - timedelta(days=days)).date().isoformat()
+    kept = []
+    for it in _agent_pool(items, official):
+        if (it.get("d") or "")[:10] < cut or (it.get("d") or "")[:10] > TODAY:
+            continue
+        tag, why = classify_agent_news(it["t"], it.get("s", ""))
+        if tag:
+            kept.append(dict(it, tag=tag, why=why))
+    kept.sort(key=lambda x: (SRC_RANK.get(x.get("k"), 3), x["d"]))      # the company's own copy of a story first
+    uniq = []
+    for it in kept:
+        if not any(same_story(it["t"], k["t"]) for k in uniq):
+            uniq.append(it)
+    uniq.sort(key=lambda x: x["d"], reverse=True)
+    return [{"t": k["t"], "u": k["u"], "s": k["s"], "d": k["d"], "tag": k["tag"], "official": k.get("k") == "official"} for k in uniq[:limit]]
+
+
+def agent_news_report(items, official=None, days=AGENT_NEWS_DAYS):
+    """(kept, dropped) [(reason, date, source, title)] for titles with an agent word in the window: for logs and tests."""
+    cut = (NOW - timedelta(days=days)).date().isoformat()
+    kept, dropped = [], []
+    for it in _agent_pool(items, official):
+        d = (it.get("d") or "")[:10]
+        if d < cut or d > TODAY or not AGENT_WORDS.search(it["t"]):
+            continue
+        tag, why = classify_agent_news(it["t"], it.get("s", ""))
+        (kept if tag else dropped).append((tag or why, d, it.get("s", ""), it["t"]))
+    return kept, dropped
+
+
+def fmt_score(v, unit):
+    if v is None:
+        return ""
+    if unit == "pct":
+        return f"{v * 100:.1f}%"
+    if unit == "usd":
+        return f"${v:,.0f}"
+    return f"{v:g}" if abs(v) >= 1 else f"{v:.3f}"
+
+
+def build_agents(raw, news_items, official):
+    names = names_index(raw)
+    pick = agent_pick(raw, names)
+    mods, _ = mods_index(raw)
+    for c in pick["winners"] + pick["candidates"]:
+        c["fast"] = is_fast(c["n"], mods.get(c["k"]))
+        for x in c["ranks"]:
+            x["shown"] = fmt_score(x.get("score"), x["unit"])
+    tests = []
+    for b in agent_boards(raw):
+        top = [{"k": r["k"], "n": (names.get(r["k"]) or {}).get("n") or r["n"], "o": (names.get(r["k"]) or {}).get("o") or r.get("o", ""),
+                "s": r["s"], "shown": fmt_score(r["s"], b["unit"])} for r in b["rows"][:5]]
+        tests.append({k: b[k] for k in b if k != "rows"} | {"top": top, "count": len(b["rows"])})
+    return {"best": pick, "tests": tests, "rule": f"A model is named best for agents only when it is in the top 3 of at least "
+                                                    f"{AGENT_NEED} of the 3 independent agent tests.",
+            "apps": build_agent_apps(raw), "groups": [{"id": g, "label": l} for g, l in AGENT_GROUPS],
+            "news": {"items": agent_news(news_items, official), "days": AGENT_NEWS_DAYS, "max": AGENT_NEWS_MAX,
+                     "rules": "Titles about AI agents from the last 14 days. Customer stories, opinion, lawsuits, policy, "
+                              "rumors and how-tos are left out."},
+            "maxAge": AGENT_MAX_AGE, "staleDays": STALE_DAYS}
+
+
 # ======================================================================= main
 SECTIONS = [("lmarena", fetch_lmarena), ("aa", fetch_aa), ("livebench", fetch_livebench), ("epoch", fetch_epoch),
-            ("openrouter", fetch_openrouter), ("official", fetch_official), ("prices", fetch_prices), ("news", fetch_news)]
+            ("openrouter", fetch_openrouter), ("official", fetch_official), ("prices", fetch_prices), ("news", fetch_news),
+            ("agentapps", fetch_agentapps)]
 TEXT_SOURCES = ("lmarena", "aa", "livebench", "epoch")
-SOURCE_ORDER = ("lmarena", "aa", "livebench", "epoch", "openrouter", "official", "prices", "news")
+SOURCE_ORDER = ("lmarena", "aa", "livebench", "epoch", "openrouter", "official", "prices", "news", "agentapps")
 
 
 def load_json(p):
@@ -1758,6 +2210,8 @@ def fingerprint(d):
     d.pop("built", None)
     d["status"] = {k: [v.get("ok"), v.get("err"), (v.get("updated") or "")[:10]] for k, v in (d.get("status") or {}).items()}
     for x in d.get("officialSources") or []:
+        x["updated"] = (x.get("updated") or "")[:10]
+    for x in (d.get("agents") or {}).get("tests") or []:
         x["updated"] = (x.get("updated") or "")[:10]
     return json.dumps(d, sort_keys=True)
 
@@ -1791,6 +2245,8 @@ def write_raw(raw):
 
 
 def main():
+    global PAGE_CACHE
+    PAGE_CACHE = {}                   # a page is read once per run, even when two parts of the app need it
     aa_on = aa_enabled()
     prev_raw = load_json(RAW_JSON) or {}
     prev_out = load_json(OUT_JSON) or {}
@@ -1841,12 +2297,18 @@ def main():
         bad = [s["label"] for s in official_status(raw) if not s["ok"]]
         if bad:
             status["official"]["note"] = "last good copy for: " + ", ".join(bad)
-    if raw.get("prices") and status.get("prices", {}).get("ok"):
-        pr = raw["prices"]
-        status["prices"]["note"] = f"{pr.get('pages_read', 0)} of {pr.get('apps_total', 0)} apps read today"
-    stale = stale_prices(raw.get("prices"))
+    for sec in ("prices", "agentapps"):
+        if raw.get(sec) and status.get(sec, {}).get("ok"):
+            pr = raw[sec]
+            status[sec]["note"] = f"{pr.get('pages_read', 0)} of {pr.get('apps_total', 0)} apps read today"
+    if raw.get("epoch") and status.get("epoch", {}).get("ok"):
+        bad = [b for b, v in (raw["epoch"].get("agent") or {}).items() if not v.get("ok")]
+        if bad:
+            status["epoch"]["note"] = "kept last good copy for: " + ", ".join(bad)
+    stale = stale_prices(raw.get("prices")) + stale_prices(raw.get("agentapps"))
     for x in stale:
-        log(f"STALE price: {x['app']} {x['plan']} ${x['usd_month']} last checked {x['checked']} (more than {STALE_DAYS} days ago)")
+        what = f"{x['plan']} ${x['usd_month']}" if x["plan"] else "page"
+        log(f"STALE price: {x['app']} {what} last checked {x['checked']} (more than {STALE_DAYS} days ago)")
 
     picks = build_picks(raw, aa_on)
     if len(picks) < 3:
@@ -1864,6 +2326,7 @@ def main():
                     "rules": "Only new model launches, big price changes, major product launches or shutdowns by AI labs, "
                              "funding of about $1B or more, acquisitions of or by AI labs, and IPO filings."},
         "officialSources": official_status(raw),
+        "agents": build_agents(raw, news_items, official_posts(raw)),
         "stalePrices": stale, "staleDays": STALE_DAYS,
         "rule": ri["text"], "ruleInfo": ri, "fastNote": FAST_NOTE, "fastWords": list(FAST_WORDS),
     }
