@@ -61,8 +61,15 @@ jobs:
           assert d["cost"]["apps"], "no app prices"
           assert all(a["page"] and a["checked"] for a in d["cost"]["apps"]), "price without source or date"
           assert "items" in d["releases"] and "items" in d["bignews"], "missing releases or news"
-          for s in ("lmarena", "livebench", "epoch", "openrouter", "official", "prices", "news"):
+          for s in ("lmarena", "livebench", "epoch", "openrouter", "official", "prices", "news", "agentapps"):
               assert s in d["status"], "no status for " + s
+          ag = d["agents"]
+          assert all(w["top3"] >= 2 for w in ag["best"]["winners"]), "agent pick from fewer than 2 tests"
+          assert ag["best"]["status"] != "best" or ag["best"]["n"] >= 2, "agent pick with fewer than 2 usable tests"
+          assert len(ag["apps"]) >= 10, "agent apps missing"
+          assert all(a["src"].get("url") and a["checked"] for a in ag["apps"]), "agent app without source or date"
+          assert all(a["proof"] and a["proof"].get("url") for a in ag["apps"] if a.get("plansFrom")), "agent app without its proof page"
+          assert len(ag["news"]["items"]) <= 8 and all(n["u"] and n["s"] and n["d"] for n in ag["news"]["items"]), "bad agent news"
           assert all(a.get("src") and a["src"].get("url") for a in d["cost"]["apps"]), "price without its source page"
           assert all(r["u"] and r["src"] for r in d["releases"]["items"]), "release without source"
           if not d["aaEnabled"]:
@@ -86,6 +93,17 @@ jobs:
           for o in d.get("officialSources", []):
               if not o["ok"]:
                   print(f"::warning::Official page failed today: {o['label']} ({o.get('err', '')}) - using the last good copy")
+          for a in d["agents"]["apps"]:
+              pg = a["proof"] or a["src"]
+              if not pg.get("readToday"):
+                  print(f"Agent app page not read today: {a['app']} {pg.get('label', '')} (last checked {pg.get('checked')})")
+          for t in d["agents"]["tests"]:
+              if t["skipped"]:
+                  print(f"::warning::Agent test left out: {t['name']} ({t['skipWhy']})")
+              elif not t["ok"]:
+                  print(f"::warning::Agent test not updated today: {t['name']} - using the last good copy")
+          b = d["agents"]["best"]
+          print("Best for agents:", ", ".join(f"{w['n']} ({w['top3']} of {b['n']})" for w in b["winners"]) or "no clear winner")
           print(f"{len(d.get('stalePrices', []))} stale prices")
           PY
 
