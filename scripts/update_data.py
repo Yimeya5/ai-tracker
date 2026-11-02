@@ -12,9 +12,13 @@ Sources (only these):
              When off: no AA requests, and no AA data in data.json, data.js or raw.json.
   livebench  LiveBench latest release CSV: fresh, contamination-free tasks
   epoch      Epoch AI Capabilities Index (CC-BY): many benchmarks combined, with error bars
-  openrouter OpenRouter models API: developer prices and release dates
-  prices     each app's official pricing page, read with simple regex rules
-  news       RSS feeds from AI labs and tech news sites
+  openrouter OpenRouter models API: developer prices, release dates, what each model outputs (text/image/...)
+  official   each company's own news page/blog (OpenAI, Google DeepMind, Google AI, Anthropic, Mistral, xAI, Meta,
+             DeepSeek): new model announcements (for New releases and Big news)
+  prices     each app's official pricing page, or the company's own App Store listing (US) when the web page blocks
+             servers (ChatGPT, Perplexity; Meta AI = free; Grok backup). Simple regex rules, polite fetching.
+  news       RSS feeds from AI labs and tech news sites; Big news keeps only launches, big price changes,
+             product launches/shutdowns, $1B+ funding, acquisitions and IPO filings (fixed word rules)
 
 Keep-last-good: every source is fetched and checked on its own. If it fails or looks wrong, the last good
 copy (saved in data/raw.json) is used and the app shows "using last good copy from <date>".
@@ -498,8 +502,10 @@ def parse_openrouter(data):
             v = num(v)
             return None if v is None or v < 0 else round(v * 1e6, 4)
         name = m.get("name") or mid
+        mods = (m.get("architecture") or {}).get("output_modalities")
         out.append({"id": mid, "k": normalize(mid), "n": display_name(name), "o": org_name(lab), "d": dt.date().isoformat(),
                     "pin": per_m(p.get("prompt")), "pout": per_m(p.get("completion")),
+                    "mods": [str(x) for x in mods] if isinstance(mods, list) else None,
                     "u": "https://openrouter.ai/" + mid})
     out.sort(key=lambda r: r["d"], reverse=True)
     return out
@@ -513,62 +519,130 @@ def fetch_openrouter(prev=None):
 
 
 # ======================================================================= consumer app prices
-# Seed = values checked by hand on 2026-11-01 (consumer_prices_seed.json). Every day each page is read and
-# each plan price is looked for with a simple regex. A value is only replaced when the regex finds a number
-# that is close to the old one (between a third and 3x), otherwise the last good value and its date stay.
-PRICE_PAGES = [
-    {"app": "ChatGPT", "maker": "OpenAI", "page": "https://chatgpt.com/pricing/", "free": True,
-     "plans": [("Go", 8, r"\bGo\b.{0,120}?\$\s?(\d+(?:\.\d\d)?)"), ("Plus", 20, r"\bPlus\b.{0,120}?\$\s?(\d+(?:\.\d\d)?)"),
-               ("Pro", 100, r"\bPro\b.{0,120}?\$\s?(\d+(?:\.\d\d)?)")], "from": {"Pro": "tiers $100 / $200"}},
-    {"app": "Claude", "maker": "Anthropic", "page": "https://claude.com/pricing", "free": True,
-     "plans": [("Pro", 20, r"\$\s?(\d+(?:\.\d\d)?)\s*if billed monthly"), ("Max", 100, r"\bMax\b.{0,80}?\$\s?(\d+(?:\.\d\d)?)\s*Per month"),
-               ("Ultra", 200, r"\bUltra\b.{0,80}?\$\s?(\d+(?:\.\d\d)?)\s*Per month")]},
-    {"app": "Gemini", "maker": "Google", "page": "https://gemini.google/subscriptions/", "free": True,
-     "plans": [("Google AI Plus", 4.99, r"Google AI Plus.{0,300}?\$\s?(\d+(?:\.\d\d)?)\s*/\s*month"),
-               ("Google AI Pro", 19.99, r"Google AI Pro.{0,300}?\$\s?(\d+(?:\.\d\d)?)\s*/\s*month"),
-               ("Google AI Ultra", 99.99, r"Starting at:?\s*\$\s?(\d+(?:\.\d\d)?)")], "from": {"Google AI Ultra": "$99.99 or $199.99"}},
-    {"app": "Grok", "maker": "xAI", "page": "https://x.ai/pricing", "free": True,
-     "plans": [("Plus", 8, r"\bPlus\s*\$\s?(\d+(?:\.\d\d)?)\s*/\s*month"), ("Premium", 30, r"\bPremium\s*\$\s?(\d+(?:\.\d\d)?)\s*/\s*month"),
-               ("Super", 100, r"\bSuper\s*\$\s?(\d+(?:\.\d\d)?)\s*/\s*month"), ("Ultra", 200, r"\bUltra\s*\$\s?(\d+(?:\.\d\d)?)\s*/\s*month")]},
-    {"app": "Le Chat", "maker": "Mistral", "page": "https://mistral.ai/pricing", "free": True,
-     "plans": [("Pro", 14.99, r"\bPro\b.{0,200}?\$\s?(\d+(?:\.\d\d)?)\s*/\s*mo\b"), ("Team", 24.99, r"\$\s?(\d+(?:\.\d\d)?)\s*/\s*user\s*/\s*mo")],
-     "notes": {"Team": "per user"}},
-    {"app": "DeepSeek", "maker": "DeepSeek", "page": "https://www.deepseek.com/en/", "free": True, "plans": [],
-     "note": "The app is free. No paid consumer plan."},
-    {"app": "Meta AI", "maker": "Meta", "page": "https://www.meta.ai/", "free": True, "plans": [], "note": "Free. No paid plan."},
-    {"app": "Perplexity", "maker": "Perplexity", "page": "https://www.perplexity.ai/pro", "free": True,
-     "plans": [("Pro", 17, r"\bPro\b.{0,120}?\$\s?(\d+(?:\.\d\d)?)"), ("Max", 167, r"\bMax\b.{0,120}?\$\s?(\d+(?:\.\d\d)?)")],
-     "notes": {"Pro": "billed yearly", "Max": "billed yearly"}},
-    {"app": "Copilot", "maker": "Microsoft", "page": "https://www.microsoft.com/en-us/microsoft-copilot/for-individuals", "free": True,
-     "plans": [("Microsoft 365 Personal", 9.99, r"Microsoft 365 Personal.{0,300}?\$\s?(\d+\.\d\d)"),
-               ("Microsoft 365 Premium", 19.99, r"Microsoft 365 Premium.{0,300}?\$\s?(\d+\.\d\d)")]},
-]
+# Each app has one or more official sources, tried in order:
+#   web       the company's own pricing page
+#   appstore  the company's own Apple App Store listing (US). Its "In-App Purchases" list has plan names + US prices.
+#             Used for ChatGPT and Perplexity (their web pages block servers) and as Grok's backup.
+#   lookup    Apple's public lookup API (JSON). Used to confirm Meta AI is free (it has no paid plan).
+# Every page is fetched politely: a User-Agent that names this project, a short pause between pages, and up to 3 tries
+# (waiting 4 s, then 10 s). A plan's price is only replaced when the regex finds a number close to the last good value
+# (between a third and 3x); otherwise the last good value and the date it was last checked stay.
+# A price whose last check is more than 30 days old is marked "stale" in the app and in the workflow log.
+PROJECT_URL = "https://github.com/" + (os.environ.get("GITHUB_REPOSITORY") or "")
+POLITE_UA = {"User-Agent": f"Mozilla/5.0 (compatible; ai-tracker/5; +{PROJECT_URL})"}
+PRICE_PAUSE = 2                 # seconds between price pages
+PRICE_RETRY_WAITS = (4, 10)     # 3 tries in all
+STALE_DAYS = 30
 SEED_CHECKED = "2026-11-01"
-PRICE_RETRY_WAIT = 4      # seconds. Some pages (x.ai) answer 403 to quick bursts but 200 a moment later.
-sleep = time.sleep        # kept as a name so tests can skip the wait
+PRICES_CFG = 5                  # bump when the plan list changes, so old saved values aren't mixed in
+APPSTORE = "https://apps.apple.com/us/app/"
+LOOKUP = "https://itunes.apple.com/lookup?id={}&country=us"
+P = r"\$\s?(\d[\d,]*(?:\.\d\d)?)"   # a dollar price
+sleep = time.sleep              # kept as a name so tests can skip the waits
+
+PRICE_APPS = [
+    {"app": "ChatGPT", "maker": "OpenAI", "free": True, "sources": [
+        {"kind": "appstore", "label": "App Store price (US)", "url": APPSTORE + "chatgpt/id6448311069", "seller": r"OpenAI",
+         "plans": [("Go", 8, "ChatGPT Go"), ("Plus", 19.99, "ChatGPT Plus"), ("Pro 100", 100, "ChatGPT Pro 100"),
+                   ("Pro 200", 200, "ChatGPT Pro 200")]}]},
+    {"app": "Claude", "maker": "Anthropic", "free": True, "sources": [
+        {"kind": "web", "label": "Pricing page", "url": "https://claude.com/pricing",
+         "plans": [("Pro", 20, r"\$\s?(\d+(?:\.\d\d)?)\s*if billed monthly"), ("Max", 100, r"\bMax\b.{0,80}?" + P + r"\s*Per month"),
+                   ("Ultra", 200, r"\bUltra\b.{0,80}?" + P + r"\s*Per month")]}]},
+    {"app": "Gemini", "maker": "Google", "free": True, "sources": [
+        {"kind": "web", "label": "Pricing page", "url": "https://gemini.google/subscriptions/",
+         "plans": [("Google AI Plus", 4.99, r"Google AI Plus.{0,300}?" + P + r"\s*/\s*month"),
+                   ("Google AI Pro", 19.99, r"Google AI Pro.{0,300}?" + P + r"\s*/\s*month"),
+                   ("Google AI Ultra", 99.99, r"Starting at:?\s*" + P)],
+         "notes": {"Google AI Ultra": "from; $99.99 or $199.99"}}]},
+    {"app": "Grok", "maker": "xAI", "free": True, "sources": [
+        # "Premium Most popular $30 /month": allow a short badge between the plan name and its price
+        {"kind": "web", "label": "Pricing page", "url": "https://x.ai/pricing",
+         "plans": [("Plus", 8, r"\bPlus\b[^$]{0,25}" + P + r"\s*/\s*month"), ("Premium", 30, r"\bPremium\b[^$]{0,25}" + P + r"\s*/\s*month"),
+                   ("Super", 100, r"\bSuper\b[^$]{0,25}" + P + r"\s*/\s*month"), ("Ultra", 200, r"\bUltra\b[^$]{0,25}" + P + r"\s*/\s*month")]},
+        {"kind": "appstore", "label": "App Store price (US)", "url": APPSTORE + "grok/id6670324846", "seller": r"X Corp",
+         "plans": [("SuperGrok Lite", 10, "SuperGrok Lite"), ("SuperGrok", 30, "SuperGrok"), ("SuperGrok Plus", 100, "SuperGrok Plus"),
+                   ("SuperGrok Heavy", 300, "SuperGrok Heavy")]}]},
+    {"app": "Le Chat", "maker": "Mistral", "free": True, "sources": [
+        {"kind": "web", "label": "Pricing page", "url": "https://mistral.ai/pricing",
+         "plans": [("Pro", 14.99, r"\bPro\b.{0,200}?" + P + r"\s*/\s*mo\b"), ("Team", 24.99, P + r"\s*/\s*user\s*/\s*mo")],
+         "notes": {"Team": "per user"}}]},
+    {"app": "DeepSeek", "maker": "DeepSeek", "free": True, "note": "The app is free. No paid consumer plan.", "sources": [
+        {"kind": "web", "label": "Official site", "url": "https://www.deepseek.com/en/", "plans": []}]},
+    {"app": "Meta AI", "maker": "Meta", "free": True, "note": "Free. No paid plan.", "sources": [
+        {"kind": "lookup", "label": "App Store listing (US)", "url": LOOKUP.format(1558240027), "id": 1558240027,
+         "page": APPSTORE + "meta-ai/id1558240027", "seller": r"Meta Platforms", "plans": []}]},
+    {"app": "Perplexity", "maker": "Perplexity", "free": True, "sources": [
+        {"kind": "appstore", "label": "App Store price (US)", "url": APPSTORE + "perplexity-ask-anything/id1668000334", "seller": r"Perplexity AI",
+         "plans": [("Pro", 20, "Perplexity Pro"), ("Max", 200, "Perplexity Max")]}]},
+    {"app": "Copilot", "maker": "Microsoft", "free": True, "sources": [
+        {"kind": "web", "label": "Pricing page", "url": "https://www.microsoft.com/en-us/microsoft-copilot/for-individuals",
+         "plans": [("Microsoft 365 Personal", 9.99, r"Microsoft 365 Personal.{0,300}?\$\s?(\d+\.\d\d)"),
+                   ("Microsoft 365 Premium", 19.99, r"Microsoft 365 Premium.{0,300}?\$\s?(\d+\.\d\d)")]}]},
+]
 
 
-def get_price_page(url):
-    """One retry after a short pause, then give up (the caller keeps the last good prices)."""
-    try:
-        return get(url, timeout=30)
-    except Exception as e:
-        log(f"prices: {url} failed ({e}); retrying in {PRICE_RETRY_WAIT}s")
-        sleep(PRICE_RETRY_WAIT)
-        return get(url, timeout=30)
+MAX_PAGE = 2_500_000          # characters; bigger pages are cut (keeps every regex bounded)
+OPEN_BLOCK = re.compile(r"<(script|style|noscript|svg)\b", re.I)
+TAG_RE = re.compile(r"<[^<>]{0,3000}>")
+
+
+def strip_blocks(raw):
+    """Remove <script>/<style>/<noscript>/<svg> blocks with plain string scanning (linear, no backtracking)."""
+    raw = raw[:MAX_PAGE]
+    low = raw.lower()
+    out, i = [], 0
+    for m in OPEN_BLOCK.finditer(low):
+        if m.start() < i:
+            continue                              # inside a block we already removed
+        out.append(raw[i:m.start()])
+        end = low.find("</" + m.group(1), m.end())
+        if end < 0:
+            i = len(raw)                          # unclosed block: drop the rest
+            break
+        close = low.find(">", end)
+        i = len(raw) if close < 0 else close + 1
+    out.append(raw[i:])
+    return " ".join(out)
 
 
 def page_text(raw):
-    t = re.sub(r"(?is)<(script|style|noscript)\b.*?</\1>", " ", raw)
-    t = re.sub(r"<[^>]+>", " ", t)
-    return " ".join(html.unescape(t).split())
+    t = TAG_RE.sub(" ", strip_blocks(raw))
+    t = html.unescape(t).replace("‑", "-").replace(" ", " ")     # non-breaking hyphen/space
+    return " ".join(t.split())
 
 
-def read_price(text, pattern, old):
-    m = re.search(pattern, text, flags=re.I | re.S)
-    if not m:
-        return None
-    v = num(m.group(1))
+def appstore_iap(text):
+    """The 'In-App Purchases' list of an App Store page (plan names + US prices), or '' if there is none."""
+    i = text.find("In-App Purchases Yes")
+    if i < 0:
+        return ""
+    s = text[i:i + 4000]
+    end = min([j for j in (s.find("Learn More"), s.find("Copyright")) if j > 0] or [len(s)])
+    return s[:end]
+
+
+def appstore_price(iap, label):
+    """FIRST '<label> $x.xx' in the list (later duplicates are yearly items). '<label> Lite $10' doesn't match '<label>'."""
+    m = re.search(r"(?<![\w])" + re.escape(label) + r"\s+\$(\d[\d,]*\.\d\d)", iap)
+    return num(m.group(1).replace(",", "")) if m else None
+
+
+def polite_get(url):
+    """Up to 3 tries, waiting 4 s then 10 s. Raises the last error."""
+    err = None
+    for i in range(len(PRICE_RETRY_WAITS) + 1):
+        if i:
+            log(f"prices: retry {i} for {url} in {PRICE_RETRY_WAITS[i - 1]}s ({err})")
+            sleep(PRICE_RETRY_WAITS[i - 1])
+        try:
+            return get(url, timeout=30, headers=POLITE_UA)
+        except Exception as e:
+            err = e
+    raise err
+
+
+def sane(v, old):
     if v is None or v <= 0 or v > 1000:
         return None
     if old and not (old / 3 <= v <= old * 3):
@@ -576,42 +650,113 @@ def read_price(text, pattern, old):
     return v
 
 
+def read_source(src, old_plans):
+    """Read one source. Returns (plans, ok, err). ok = the page was read and is the right listing."""
+    resp = polite_get(src["url"])
+    if src["kind"] == "lookup":
+        res = [r for r in (resp.json().get("results") or []) if str(r.get("trackId")) == str(src["id"])]
+        if not res or not re.search(src["seller"], res[0].get("sellerName") or ""):
+            return [], False, "listing not found or wrong seller"
+        if (res[0].get("formattedPrice") or "").lower() != "free":
+            return [], False, "app is no longer free"
+        return [], True, ""
+    text = page_text(resp.text)
+    if len(text) < 200:
+        return [], False, "page was empty"
+    if src["kind"] == "appstore":
+        if not re.search(r"Seller\s+" + src["seller"], text):
+            return [], False, "not the company's own App Store listing"
+        iap = appstore_iap(text)
+        if not iap:
+            return [], False, "no In-App Purchases list on the page"
+    plans, found = [], 0
+    for name, seed, pat in src["plans"]:
+        op = old_plans.get(name) or {"usd_month": seed, "checked": SEED_CHECKED}
+        if src["kind"] == "appstore":
+            v = sane(appstore_price(iap, pat), op.get("usd_month"))
+        else:
+            m = re.search(pat, text, flags=re.I | re.S)
+            v = sane(num(m.group(1).replace(",", "")) if m else None, op.get("usd_month"))
+        if v is not None:
+            found += 1
+        p = {"name": name, "usd_month": v if v is not None else op.get("usd_month"),
+             "checked": TODAY if v is not None else op.get("checked", SEED_CHECKED)}
+        if (src.get("notes") or {}).get(name):
+            p["note"] = src["notes"][name]
+        plans.append(p)
+    if src["plans"] and not found:
+        return plans, False, "no prices found on the page"
+    return plans, True, ""
+
+
+def seed_record(cfg):
+    src = cfg["sources"][0]
+    plans = [{"name": n, "usd_month": s, "checked": SEED_CHECKED} for n, s, _ in src["plans"]]
+    for p in plans:
+        if (src.get("notes") or {}).get(p["name"]):
+            p["note"] = src["notes"][p["name"]]
+    return {"plans": plans, "src": {"kind": src["kind"], "label": src["label"], "url": src.get("page") or src["url"]},
+            "checked": SEED_CHECKED}
+
+
+def days_old(d):
+    try:
+        return (NOW.date() - datetime.fromisoformat(d[:10]).date()).days
+    except Exception:
+        return 9999
+
+
 def fetch_prices(prev=None):
-    """Always returns every app. Each plan keeps its last good value + date when its page or regex fails."""
-    old_apps = {a["app"]: a for a in ((prev or {}).get("apps") or [])}
-    apps, read_ok = [], 0
-    for cfg in PRICE_PAGES:
-        old = old_apps.get(cfg["app"]) or {}
-        old_plans = {p["name"]: p for p in old.get("plans") or []}
-        try:
-            text = page_text(get_price_page(cfg["page"]).text)
-            page_ok = len(text) > 200
-        except Exception as e:
-            text, page_ok = "", False
-            log(f"prices: {cfg['app']} page not readable: {e}")
-        plans = []
-        for name, seed, pattern in cfg["plans"]:
-            op = old_plans.get(name) or {"name": name, "usd_month": seed, "checked": SEED_CHECKED}
-            v = read_price(text, pattern, op.get("usd_month")) if page_ok else None
-            p = {"name": name, "usd_month": v if v is not None else op.get("usd_month"),
-                 "checked": TODAY if v is not None else op.get("checked", SEED_CHECKED)}
-            if (cfg.get("from") or {}).get(name):
-                p["from"] = True
-                p["note"] = cfg["from"][name]
-            if (cfg.get("notes") or {}).get(name):
-                p["note"] = cfg["notes"][name]
-            plans.append(p)
-        free = cfg["free"]
-        if page_ok and re.search(r"\b(free|\$0)\b", text, re.I):
-            free = True
-        all_read = page_ok and all(p["checked"] == TODAY for p in plans)
-        if page_ok:
+    """Always returns every app. An app that can't be read today keeps its last good plans, source and date."""
+    old_apps = {a["app"]: a for a in ((prev or {}).get("apps") or []) if a.get("cfg") == PRICES_CFG}
+    apps, read_ok, first = [], 0, True
+    for cfg in PRICE_APPS:
+        old = old_apps.get(cfg["app"])
+        base = old or seed_record(cfg)
+        tried, used = [], None
+        for src in cfg["sources"]:
+            if not first:
+                sleep(PRICE_PAUSE)
+            first = False
+            same_src = base["src"]["url"] in (src["url"], src.get("page"))
+            old_plans = {p["name"]: p for p in base["plans"]} if same_src else {}
+            try:
+                plans, ok, err = read_source(src, old_plans)
+            except Exception as e:
+                plans, ok, err = [], False, str(e)[:160]
+            tried.append({"label": src["label"], "url": src.get("page") or src["url"], "ok": ok, "err": err})
+            if ok:
+                used = (src, plans)
+                break
+            log(f"prices: {cfg['app']} {src['label']} not read: {err}")
+        if used:
+            src, plans = used
+            rec = {"plans": plans, "src": {"kind": src["kind"], "label": src["label"], "url": src.get("page") or src["url"]}}
+            all_read = all(p["checked"] == TODAY for p in plans)
+            rec["checked"] = TODAY if all_read else min(p["checked"] for p in plans)
             read_ok += 1
-        checked = TODAY if all_read else (min([p["checked"] for p in plans]) if plans else
-                                          (TODAY if page_ok else old.get("checked", SEED_CHECKED)))
-        apps.append({"app": cfg["app"], "maker": cfg["maker"], "page": cfg["page"], "free": free, "plans": plans,
-                     "checked": checked, "read_ok": bool(all_read), "note": cfg.get("note", "")})
-    return {"apps": apps, "pages_read": read_ok}
+        else:
+            rec = {"plans": base["plans"], "src": base["src"], "checked": base["checked"]}
+            all_read = False
+        age = days_old(rec["checked"])
+        for p in rec["plans"]:
+            p["stale"] = days_old(p["checked"]) > STALE_DAYS
+        apps.append({"app": cfg["app"], "maker": cfg["maker"], "free": cfg["free"], "note": cfg.get("note", ""), "cfg": PRICES_CFG,
+                     "plans": rec["plans"], "src": rec["src"], "page": rec["src"]["url"], "checked": rec["checked"],
+                     "read_ok": bool(used) and all_read, "readToday": bool(used), "tried": tried,
+                     "stale": age > STALE_DAYS, "ageDays": age})
+    return {"apps": apps, "pages_read": read_ok, "apps_total": len(PRICE_APPS)}
+
+
+def stale_prices(prices):
+    out = []
+    for a in (prices or {}).get("apps") or []:
+        for p in a.get("plans") or []:
+            if p.get("stale"):
+                out.append({"app": a["app"], "plan": p["name"], "usd_month": p["usd_month"], "checked": p["checked"]})
+        if not a.get("plans") and a.get("stale"):
+            out.append({"app": a["app"], "plan": "", "usd_month": None, "checked": a["checked"]})
+    return out
 
 
 # ======================================================================= news (same feeds as before)
@@ -651,7 +796,7 @@ def _date(text):
 
 
 def _clean(s, n=220):
-    s = re.sub(r"<[^>]+>", " ", html.unescape(s or ""))
+    s = TAG_RE.sub(" ", html.unescape((s or "")[:20000]))
     s = " ".join(s.split())
     return (s[: n - 1] + "…") if len(s) > n else s
 
@@ -702,35 +847,304 @@ def fetch_news(prev=None):
     return {"items": items[:120], "feeds": status}
 
 
-# ======================================================================= big news (rule scoring, no AI)
-NEWS_RULES = [
-    ("launch", 3, re.compile(r"\b(launch(es|ed)?|releas(e|es|ed)|introduc(es|ed|ing)|unveil(s|ed)?|debut(s|ed)?|rolls? out|now available|new model|announc(es|ed))\b", re.I)),
-    ("model", 2, re.compile(r"\b(GPT[- ]?\d|o\d\b|Claude|Gemini|Gemma|Grok|Llama|Muse|Mistral|DeepSeek|Qwen|Kimi|GLM|Sora|Veo|Imagen|Nano Banana|Copilot|ChatGPT|Opus|Sonnet|Haiku|model)\b", re.I)),
-    ("price", 3, re.compile(r"\b(price[sd]?|pricing|cheaper|price cut|free tier|subscription|per month|paywall|\$\d+(\.\d\d)?\s*(a|per|/)\s*month)\b", re.I)),
-    ("company", 3, re.compile(r"\b(acquir(es|ed|e)|acquisition|merger|funding|raises|raised|valuation|IPO|billion|lawsuit|sues|sued|antitrust|regulat\w*|ban(s|ned)?|CEO|layoffs?|resign\w*|partnership|investment)\b", re.I)),
-    ("big", 1, re.compile(r"\b(OpenAI|Anthropic|Google|DeepMind|Meta|Microsoft|Apple|Nvidia|xAI|Amazon|Mistral|DeepSeek|Alibaba|SpaceX)\b", re.I)),
+# ======================================================================= official release pages (company sources)
+# New models straight from each company. Every page is read on its own; a page that fails keeps its last good copy.
+#   rss      an RSS feed
+#   html     a news/blog page: each link with a headline + the date next to it
+#            (date_mode says where the date sits: "inside" the link, just "before" it, or just "after" it)
+#   deepseek DeepSeek's API change log: "Date: YYYY-MM-DD" headings followed by "<Model> Release/Update" headings
+OFFICIAL = [  # (id, company, label shown in the app, url, kind, date_mode)
+    ("openai", "OpenAI", "OpenAI News", "https://openai.com/news/rss.xml", "rss", None),
+    ("deepmind", "Google", "Google DeepMind blog", "https://deepmind.google/blog/rss.xml", "rss", None),
+    ("google", "Google", "Google AI blog", "https://blog.google/technology/ai/rss/", "rss", None),
+    ("mistral", "Mistral", "Mistral news", "https://mistral.ai/news/rss", "rss", None),
+    ("anthropic", "Anthropic", "Anthropic news", "https://www.anthropic.com/news", "html", "before"),
+    ("xai", "xAI", "xAI news", "https://x.ai/news", "html", "inside"),
+    ("meta", "Meta", "Meta AI blog", "https://ai.meta.com/blog/", "html", "after"),
+    ("deepseek", "DeepSeek", "DeepSeek API change log", "https://api-docs.deepseek.com/updates/", "deepseek", None),
 ]
-NEWS_MINUS = re.compile(r"\b(how to|tips|guide|podcast|newsletter|we tested|hands-on|review:|opinion|quiz|explained|what is|why you|best .* for)\b", re.I)
-TAGS = {"launch": "New model", "price": "Price change", "company": "Company news"}
+OFFICIAL_DAYS = 120             # posts older than this are not kept
+MON3 = {m: i + 1 for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"])}
+DATE_RE = re.compile(r"\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|"
+                     r"Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+(\d{1,2}),\s+(20\d\d)\b")
 
 
-def score_news(item):
-    t = item["t"] + " " + (item.get("x") or "")[:160]
-    score, hits = 0, []
-    for name, w, rx in NEWS_RULES:
-        if rx.search(item["t"]) or (name in ("big", "model") and rx.search(t)):
-            score += w
-            hits.append(name)
-    if "launch" in hits and "model" not in hits:
-        score -= 2                      # "launches a podcast" is not a model launch
-    if item.get("k") == "lab":
-        score += 1
-    if NEWS_MINUS.search(item["t"]):
-        score -= 4
-    tag = next((TAGS[h] for h in ("price", "launch", "company") if h in hits), "")
-    if tag == "New model" and "model" not in hits:
-        tag = "Company news" if "company" in hits else ""
-    return score, tag
+def _iso(m):
+    return f"{int(m.group(3)):04d}-{MON3[m.group(1)[:3].lower()]:02d}-{int(m.group(2)):02d}"
+
+
+def _txt(s):
+    return " ".join(html.unescape(TAG_RE.sub(" ", s[:5000])).split())
+
+
+def _element_blocks(h, open_re, close_tag, window):
+    """(start, end, inner) for each opening tag matched by open_re, closed by close_tag within `window` characters."""
+    low = h.lower()
+    for m in open_re.finditer(h):
+        end = low.find(close_tag, m.end(), m.end() + window)
+        if end >= 0:
+            yield m, end + len(close_tag), h[m.end():end]
+
+
+A_OPEN = re.compile(r"<a\b[^<>]{0,1500}>", re.I)
+HREF_RE = re.compile(r'href="([^"#]{1,600})"', re.I)
+H_OPEN = re.compile(r"<h[1-4]\b[^<>]{0,800}>", re.I)
+
+
+def parse_rss_posts(raw):
+    out = []
+    for el in ET.fromstring(raw).iter():
+        if _local(el.tag) not in ("item", "entry"):
+            continue
+        t = u = d = None
+        for c in el:
+            k = _local(c.tag)
+            if k == "title" and c.text:
+                t = " ".join(html.unescape(c.text).split())
+            elif k == "link":
+                u = c.get("href") or (c.text or "").strip() or u
+            elif k in ("pubDate", "published", "updated", "date") and not d:
+                dt = _date(c.text)
+                d = dt.date().isoformat() if dt else None
+        if t and u and d:
+            out.append({"t": t, "u": u, "d": d})
+    return out
+
+
+def parse_html_posts(raw, base, date_mode="inside"):
+    import bisect
+    h = strip_blocks(raw)
+    dates = [(m.start(), _iso(m)) for m in DATE_RE.finditer(h)]
+    pos = [p for p, _ in dates]
+    best = {}
+    for a, a_end, inner in _element_blocks(h, A_OPEN, "</a>", 6000):
+        hr = HREF_RE.search(a.group(0))
+        if not hr:
+            continue
+        href = hr.group(1)
+        hm = next(_element_blocks(inner, H_OPEN, "</h", 2000), None)
+        title = _txt(hm[2] if hm else inner)
+        if not hm:
+            title = DATE_RE.sub("", title).strip()
+        words = len(title.split())
+        if words < 1 or words > 20 or len(title) < 4:
+            continue
+        lo = bisect.bisect_left(pos, a.start() - 900)
+        hi = bisect.bisect_right(pos, a_end + 900)
+        inside, before, after = [], [], []
+        for p, d in dates[lo:hi]:
+            if a.start() <= p <= a_end:
+                inside.append(d)
+            elif p < a.start():
+                before.append((a.start() - p, d))
+            else:
+                after.append((p - a_end, d))
+        # (distance, date): a date inside the link is best; the side the page normally uses comes next;
+        # the other side only counts when nothing else is near (+300 penalty)
+        cands = [(0, d) for d in inside[:1]]
+        cands += [(dist + (0 if date_mode == "before" else 300), d) for dist, d in before]
+        cands += [(dist + (0 if date_mode == "after" else 300), d) for dist, d in after]
+        if not cands:
+            continue
+        near = min(cands)
+        url = urljoin(base, html.unescape(href))
+        score = (1 if hm else 0, words)          # prefer the link that holds a headline, then the longer text
+        cur = best.get(url)
+        if cur is None:
+            best[url] = cur = {"score": score, "t": title, "near": near}
+        else:
+            if score > cur["score"]:
+                cur.update(score=score, t=title)
+            cur["near"] = min(cur["near"], near)   # a post is often linked several times: the closest date wins
+    return [{"t": v["t"], "u": url, "d": v["near"][1]} for url, v in best.items()]
+
+
+HASH_LINK = re.compile(r'<a\b[^<>]{0,500}class="hash-link"[^<>]{0,500}>[^<]{0,50}</a>', re.I)
+H23_OPEN = re.compile(r"<h([23])\b[^<>]{0,800}>", re.I)
+
+
+def parse_deepseek_log(raw, base):
+    out, date = [], None
+    h = strip_blocks(raw)
+    for m, _, inner in _element_blocks(h, H23_OPEN, "</h", 3000):
+        t = _txt(HASH_LINK.sub("", inner)).strip("\u200b ").strip()
+        dm = re.match(r"Date:\s*(20\d\d-\d\d-\d\d)", t)
+        if dm:
+            date = dm.group(1)
+            continue
+        if date and m.group(1) == "3" and len(t) < 120:
+            anchor = re.sub(r"[^a-z0-9]+", "-", t.lower()).strip("-")
+            out.append({"t": t, "u": base + "#" + anchor, "d": date})
+    return out
+
+
+def fetch_official(prev=None):
+    old = (prev or {}).get("sources") or {}
+    srcs, ok = {}, 0
+    cut = (NOW - timedelta(days=OFFICIAL_DAYS)).date().isoformat()
+    for sid, company, label, url, kind, mode in OFFICIAL:
+        try:
+            raw = polite_get(url).content   # Tab fix: polite UA + retries (ai.meta.com answers 400 to the browser UA)
+            if kind == "rss":
+                posts = parse_rss_posts(raw)
+            elif kind == "html":
+                posts = parse_html_posts(raw.decode("utf-8", "replace"), url, mode or "inside")
+            else:
+                posts = parse_deepseek_log(raw.decode("utf-8", "replace"), url)
+            posts = [p for p in posts if cut <= p["d"] <= TODAY]
+            if not posts:
+                raise ValueError("no dated posts found on the page")
+            posts.sort(key=lambda p: p["d"], reverse=True)
+            srcs[sid] = {"ok": True, "updated": NOW_ISO, "posts": posts[:400]}   # 120 days of even a busy blog
+            ok += 1
+        except Exception as e:
+            log(f"official: {label} failed: {e}")
+            keep = old.get(sid)
+            srcs[sid] = dict(keep, ok=False, err=str(e)[:160]) if keep else {"ok": False, "updated": None, "posts": [], "err": str(e)[:160]}
+        srcs[sid].update({"company": company, "label": label, "url": url})
+    if not ok and not any(s.get("posts") for s in srcs.values()):
+        raise ValueError("no official release page could be read")
+    return {"sources": srcs}
+
+
+# A post is a model release when its title starts with a known model family + a version number
+# ("Gemini 4 Carbon: Our next frontier model", "Voxtral 3") or with "Introducing <family name>" ("Introducing Timestral").
+FAMILY = (r"(?:GPT|o\d+|Sora|Codex|Claude|Opus|Sonnet|Haiku|Gemini|Gemma|Genie|Veo|Imagen|Lyria|Nano Banana|Grok|Imagine|Llama|Muse|"
+          r"Mistral|Magistral|Devstral|Codestral|Voxtral|Ministral|Pixtral|DeepSeek|Qwen|Kimi|GLM|MiniMax|Nemotron|Phi|Command|Aya)")
+FAM_RE = re.compile(r"^(?:\w*(?:Gemma|stral)\b|" + FAMILY + r"\b)", re.I)
+VERSION_RE = re.compile(r"(?<![A-Za-z])v?\d+(?:\.\d+)*\b")
+LEAD_RE = re.compile(r"^(?:Introducing|Announcing|Meet|Say hello to|Welcome)\s+(?:the\s+)?", re.I)
+NOT_RELEASE = re.compile(r"\b(responsibl\w*|safe(?:ly|ty)|for Robotics|customers?|helps?|uses|using|how|why|partner\w*|says|"
+                         r"bringing|everywhere|bounty|challenge|grants?|hackathon|system card|Bot|Business|Enterprise|add-?ins?)\b|"
+                         r"\b(?:on|in) (?:API|Microsoft|Amazon|GitHub|Google Workspace|Gemini Enterprise|Databricks|Excel|Outlook)\b", re.I)
+SENTENCE_RE = re.compile(r"\b(is|are|was|were|has|have|will|can|lets|gets)\b", re.I)
+
+
+def release_names(title):
+    """Model names a post title announces, or [] when the post isn't a model release."""
+    t = " ".join(str(title or "").split()).rstrip(".")
+    lead = bool(LEAD_RE.match(t))
+    core = re.split(r"\s*[:—–|]\s+|,\s+", LEAD_RE.sub("", t), maxsplit=1)[0].strip()
+    core = re.sub(r"\s+(Release|Update|Launch)$", "", core, flags=re.I)
+    if not core or NOT_RELEASE.search(t) or SENTENCE_RE.search(core) or len(core.split()) > 8:
+        return []
+    core = re.split(r"\s+with\s+", core, maxsplit=1)[0]                         # "... with References": a feature
+    if not FAM_RE.match(core) or not (VERSION_RE.search(core) or lead):
+        return []
+    if not VERSION_RE.search(core) and re.search(r"\bfor\b", core, re.I):
+        return []                                                                # "Grok for Outlook": an app add-in
+    parts = [p.strip() for p in re.split(r"\s+and\s+|\s*&\s*", core) if p.strip()]
+    first = parts[0]
+    fam_prefix = re.split(r"\s(?=v?\d)", first, maxsplit=1)[0]                 # "Gemini 3.8 Flash" -> "Gemini"
+    vm = re.match(r"^(.*?\d[\w.\-]*)", first)
+    ver_prefix = vm.group(1) if vm else ""                                       # "GPT-6 Sol" -> "GPT-6"
+    names = [first]
+    for p in parts[1:]:
+        if re.match(r"^v?\d", p):
+            names.append(fam_prefix + " " + p)                                   # "... and 3.8 Flash Cyber"
+        elif FAM_RE.match(p) and (VERSION_RE.search(p) or lead):
+            names.append(p)                                                      # "Muse Image and Muse Video"
+        elif ver_prefix and re.fullmatch(r"[A-Z][\w\-]*", p):
+            names.append(ver_prefix + " " + p)                                   # "GPT-6 Sol and Luna"
+        else:
+            break
+    return names
+
+
+def rel_key(name):
+    """Key for 'same release': keeps version and date suffixes ('DeepSeek V4.1 Flash 1017' != 'DeepSeek V4.1 Flash')."""
+    s = str(name or "")
+    if ": " in s and len(s.split(": ", 1)[0].split()) <= 2:
+        s = s.split(": ", 1)[1]
+    s = re.sub(r"\(.*?\)", "", s)
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
+
+def official_posts(raw):
+    """Every kept post from every official page, with its company and page label."""
+    out = []
+    for sid, s in ((raw.get("official") or {}).get("sources") or {}).items():
+        for p in s.get("posts") or []:
+            out.append(dict(p, o=s.get("company", ""), s=s.get("label", ""), sid=sid))
+    return out
+
+
+def official_releases(raw):
+    rel = {}
+    for p in official_posts(raw):
+        for n in release_names(p["t"]):
+            k = rel_key(n)
+            cur = rel.get(k)
+            if cur is None or p["d"] < cur["d"]:          # first announcement wins
+                rel[k] = {"n": n, "o": p["o"], "d": p["d"], "u": p["u"], "src": p["s"], "post": p["t"]}
+    return list(rel.values())
+
+
+# ======================================================================= big news (rule scoring, no AI)
+# Only: new model launches, big price changes for AI apps/models, major product launches or shutdowns by AI labs,
+# big funding rounds (about $1B or more), acquisitions of or by AI labs, IPO filings.
+# Dropped first: opinion/interviews, lawsuits/regulation, rumors, partnerships, money/economy talk, safety essays,
+# customer stories, how-tos. Posts from the official release pages feed in too (as "New model" when they announce one).
+NEWS_DAYS = 30
+LAB_RE = re.compile(r"\b(OpenAI|ChatGPT|Anthropic|Claude|Google|DeepMind|Gemini|Meta|xAI|Grok|Mistral|DeepSeek|Alibaba|Qwen|Moonshot|Kimi|"
+                    r"Microsoft|Copilot|Amazon|Perplexity|Cohere|Zhipu|MiniMax|SpaceXAI)\b", re.I)
+DROP_RULES = [
+    ("opinion", re.compile(r"\b(says?|said|thinks?|warns?|argues?|wants?|calls? for|asks?|believes?|interview|opinion|op-ed|podcast|"
+                           r"explains?|according to|sympathi\w+)\b|\?", re.I)),
+    ("legal", re.compile(r"\b(lawsuits?|sues?|sued|judge|courts?|trial|regulat\w*|antitrust|legislat\w*|senate|congress|laws?|DOJ|FTC|"
+                         r"bans?|banned|fined?)\b", re.I)),
+    ("rumor", re.compile(r"\b(reportedly|report says|reports? that|sources|expected to|could|may|might|plans? to|in talks|considering|"
+                         r"weighs|rumou?rs?|leak\w*)\b", re.I)),
+    ("partnership", re.compile(r"\b(partner\w*|collaborat\w*|teams? up|alliance|joins forces|MOU)\b", re.I)),
+    ("money talk", re.compile(r"\b(earnings|revenue|quarter\w*|stocks?|shares|economy|economic|GDP|market cap|spending)\b", re.I)),
+    ("safety essay", re.compile(r"\b(safety|safely|responsib\w*|alignment|misalignment|our approach|principles|model spec|policy)\b", re.I)),
+    ("customer story", re.compile(r"\b(helps?|uses|using|customers?|ROI|case study|achieves|powers?|powering)\b|\bhow \w+ (?:is|are)\b", re.I)),
+    ("how-to", re.compile(r"\b(how to|tips|guide|newsletter|we tested|hands-on|reviews?|quiz|explained|what is|why)\b", re.I)),
+]
+LAUNCH_RE = re.compile(r"\b(launch(?:es|ed)?|releas(?:e|es|ed)|introduc(?:es|ed|ing)|unveil(?:s|ed)?|announc(?:es|ed)|debut(?:s|ed)?|"
+                       r"rolls? out|now available|ships)\b", re.I)
+MODEL_MENTION = re.compile(FAMILY + r"[\s\-]?[A-Za-z]?\d+(?:\.\d+)*", re.I)       # "GPT-6.1", "Kimi K3.1", "DeepSeek V4"
+PRICE_RE = re.compile(r"\b(price[sd]?|pricing|costs?|subscriptions?|plans?|per month|a month)\b|\$\d", re.I)
+PRICE_CHANGE = re.compile(r"\b(cuts?|lower(?:s|ed)?|raises?|raised|hikes?|hiked|increases?|increased|drops?|dropped|slash(?:es|ed)?|"
+                          r"doubles?|halves|goes (?:up|down)|now costs|free for)\b", re.I)
+SHUTDOWN_RE = re.compile(r"\b(shut(?:s|ting)? down|retir(?:es|ed|ing)|discontinu\w+|sunset\w*|deprecat\w+|kills?)\b", re.I)
+FUNDING_RE = re.compile(r"\b(raises?|raised|funding|round|valuation)\b", re.I)
+BIG_MONEY = re.compile(r"[\$€£]\s?(\d+(?:\.\d+)?)\s*(billion|bn|b|trillion|t)\b", re.I)
+ACQUIRE_RE = re.compile(r"\b(acquir(?:es|ed|e|ing)|acquisition|buys|to buy|merg(?:er|es|ed))\b", re.I)
+NOT_PRODUCT = re.compile(r"\b(mission|program(?:me)?|fund|initiative|foundation|office|team|academy|fellowship|council|institute|"
+                         r"report|study|research|event|summit)\b", re.I)
+IPO_RE = re.compile(r"\b(files?|filed|filing)\b.{0,40}\b(S-1|IPO|initial public offering)\b|\bgoes public\b|\bprices? (?:its )?IPO\b|"
+                    r"\bbegins trading\b", re.I)
+
+
+def classify_news(title, kind="news"):
+    """Returns (tag, reason). tag '' = dropped; reason says which rule decided."""
+    t = " ".join(str(title or "").split())
+    official = kind in ("lab", "official")
+    if official and release_names(t):
+        return "New model", "official release post"
+    for name, rx in DROP_RULES:
+        if rx.search(t):
+            return "", "dropped: " + name
+    head = " ".join(t.split()[:4])
+    if MODEL_MENTION.search(t) and LAUNCH_RE.search(t):
+        return "New model", "model + launch word"
+    m = BIG_MONEY.search(t)
+    if m and FUNDING_RE.search(t):                 # checked before prices: "raises $30 billion" is funding
+        amount = float(m.group(1)) * (1000 if m.group(2).lower() in ("trillion", "t") else 1)
+        if amount >= 1:
+            return "Funding", "funding of $1B or more"
+    if FUNDING_RE.search(t) and re.search(r"[\$€£]\s?\d+(?:\.\d+)?\s*(?:million|m)\b", t, re.I):
+        return "", "dropped: funding under $1B"
+    if PRICE_RE.search(t) and PRICE_CHANGE.search(t) and (LAB_RE.search(head) or re.search(r"\bAPI\b", head)):
+        return "Price change", "price change"
+    if ACQUIRE_RE.search(t) and LAB_RE.search(t):
+        return "Acquisition", "acquisition by/of an AI lab"
+    if IPO_RE.search(t):
+        return "IPO", "IPO filing"
+    if LAB_RE.search(head) and (LAUNCH_RE.search(t) or SHUTDOWN_RE.search(t)) and not NOT_PRODUCT.search(t):
+        return "Product", "AI lab product launch or shutdown"
+    return "", "dropped: not a launch, price change, funding, acquisition or IPO"
 
 
 def _words(t):
@@ -745,28 +1159,56 @@ def _names(t):
     return digits, caps
 
 
+MODEL_NAME_RE = re.compile(r"(?i:" + FAMILY + r")[\s\-]?[A-Za-z]?\d+(?:\.\d+)*(?:[ \-][A-Z][\w\-]*)?")
+
+
+def _models(t):
+    """'Gemini 4 Carbon' and 'Gemini 4 Argon' stay different; 'Genie 4 world model' and 'Genie 4: A new...' match."""
+    return {re.sub(r"[^a-z0-9.]", "", m.group(0).lower()) for m in MODEL_NAME_RE.finditer(t)}
+
+
 def same_story(a, b):
     if len(_words(a) & _words(b)) / max(1, len(_words(a) | _words(b))) >= 0.5:
+        return True
+    if _models(a) & _models(b):              # both about "Genie 4", "GPT-6.1 Terra", ...
         return True
     da, ca = _names(a)
     db, cb = _names(b)
     return bool(da & db) and bool((ca | da) & (cb | db) - (da & db))
 
 
-def big_news(items, limit=30, min_score=4):
-    scored = []
-    for it in items:
-        s, tag = score_news(it)
-        if s >= min_score and tag:
-            scored.append(dict(it, score=s, tag=tag))
-    scored.sort(key=lambda x: (-x["score"], x["d"]))
+SRC_RANK = {"official": 0, "lab": 1, "news": 2}
+
+
+def big_news(items, official=None, limit=30):
+    """items = news feed items {t,u,s,k,d}; official = official page posts {t,u,s,d}. Returns the kept list."""
+    cut = (NOW - timedelta(days=NEWS_DAYS)).isoformat()
+    pool = [dict(i) for i in items or []] + [dict(p, k="official", d=p["d"] + "T12:00:00+00:00") for p in official or []]
     kept = []
-    for it in scored:            # drop near-duplicates of a story we already kept (same story from 2 sites)
-        if any(same_story(it["t"], k["t"]) for k in kept):
+    for it in pool:
+        if (it.get("d") or "") < cut[:10]:
             continue
-        kept.append(it)
-    kept.sort(key=lambda x: x["d"], reverse=True)
-    return [{"t": k["t"], "u": k["u"], "s": k["s"], "d": k["d"], "tag": k["tag"], "x": k.get("x", "")} for k in kept[:limit]]
+        tag, why = classify_news(it["t"], it.get("k", "news"))
+        if tag:
+            kept.append(dict(it, tag=tag, why=why))
+    kept.sort(key=lambda x: (SRC_RANK.get(x.get("k"), 3), x["d"]))      # official copy of a story first
+    uniq = []
+    for it in kept:
+        if any(same_story(it["t"], k["t"]) for k in uniq):
+            continue
+        uniq.append(it)
+    uniq.sort(key=lambda x: x["d"], reverse=True)
+    return [{"t": k["t"], "u": k["u"], "s": k["s"], "d": k["d"], "tag": k["tag"], "x": k.get("x", ""), "official": k.get("k") == "official"}
+            for k in uniq[:limit]]
+
+
+def news_report(items, official=None):
+    """(kept, dropped) titles with the rule that decided, for logs and tests."""
+    kept, dropped = [], []
+    for it in [dict(i) for i in items or []] + [dict(p, k="official") for p in official or []]:
+        tag, why = classify_news(it["t"], it.get("k", "news"))
+        (kept if tag else dropped).append((tag or why, it["t"]))
+    return kept, dropped
 
 
 # ======================================================================= Artificial Analysis switch
@@ -802,8 +1244,12 @@ SRC = {
               "license": "CC BY 4.0", "licenseUrl": CC_BY, "data": EPOCH_ZIP},
     "openrouter": {"name": "OpenRouter", "credit": "OpenRouter (openrouter.ai)", "url": "https://openrouter.ai/models",
                    "what": "Developer prices per million tokens and the date each model became available.", "license": "Public API", "licenseUrl": ""},
-    "prices": {"name": "Official pricing pages", "credit": "Each company's pricing page", "url": "",
-               "what": "Monthly plan prices for the apps, read from each company's own page every day.", "license": "", "licenseUrl": ""},
+    "official": {"name": "Official company pages", "credit": "Each company's own news page or blog", "url": "",
+                 "what": "New model announcements from OpenAI, Google DeepMind, Google AI, Anthropic, Mistral, xAI, Meta and DeepSeek.",
+                 "license": "", "licenseUrl": ""},
+    "prices": {"name": "Official pricing pages", "credit": "Each company's pricing page or its own App Store listing", "url": "",
+               "what": "Monthly plan prices for the apps, read every day from each company's own pricing page, or from the "
+                       "company's own Apple App Store listing (US prices) when its web page blocks servers.", "license": "", "licenseUrl": ""},
     "news": {"name": "News feeds", "credit": "AI lab blogs and tech news sites", "url": "",
              "what": "Headlines from OpenAI, Google, DeepMind, NVIDIA, Hugging Face, TechCrunch, The Verge, Ars Technica, MIT Tech Review and Wired.",
              "license": "", "licenseUrl": ""},
@@ -815,11 +1261,33 @@ NOT_SURE_VOTES = 5000
 # It is shown next to names (dev prices, releases, Best for what's See more) and never changes a pick.
 FAST_WORDS = ("flash", "flash-lite", "lite", "mini", "nano", "haiku", "turbo", "instant", "small", "air", "bolt")
 FAST_RE = re.compile(r"(?<![a-z0-9])(" + "|".join(re.escape(w) for w in sorted(FAST_WORDS, key=len, reverse=True)) + r")(?![a-z0-9])", re.I)
-FAST_NOTE = "Fast = guessed from the model's name (Flash, Mini, Haiku…), not a speed test."
+FAST_NOTE = "Fast = guessed from the model's name (Flash, Mini, Haiku…), not a speed test. Text models only."
+# Fast is only for TEXT models. OpenRouter says what a model outputs ("output_modalities"): text models are exactly
+# ["text"]; e.g. Nano Banana is ["image", "text"]. For models not on OpenRouter, these name words rule it out:
+NOT_TEXT_WORDS = ("image", "images", "banana", "imagen", "imagine", "veo", "sora", "video", "voice", "audio", "tts", "speech",
+                  "music", "lyria", "embed", "embedding", "transcribe", "transcription", "genie", "world model")
+NOT_TEXT_RE = re.compile(r"(?<![a-z0-9])(" + "|".join(re.escape(w) for w in sorted(NOT_TEXT_WORDS, key=len, reverse=True)) +
+                         r")(?![a-z0-9])|embedding\w*", re.I)
 
 
-def is_fast(name):
-    return bool(FAST_RE.search(str(name or "")))
+def is_fast(name, mods=None):
+    """Label only, never changes a pick. mods = OpenRouter output_modalities when known."""
+    if mods is not None and list(mods) != ["text"]:
+        return False
+    n = str(name or "")
+    if NOT_TEXT_RE.search(n):
+        return False
+    return bool(FAST_RE.search(n))
+
+
+def mods_index(raw):
+    """Output modalities per model id and per release name, from OpenRouter."""
+    by_k, by_rel = {}, {}
+    for m in (raw.get("openrouter") or {}).get("models") or []:
+        if m.get("mods") is not None:
+            by_k.setdefault(m["k"], m["mods"])
+            by_rel.setdefault(rel_key(m["n"]), m["mods"])
+    return by_k, by_rel
 
 
 def board_lm(raw, bid):
@@ -1156,9 +1624,9 @@ def plain_sentence(job, res, boards=None):
     return f"In the top 3 of {w[0]['top3']} of {res['n']} independent sources: {', '.join(srcs)}."
 
 
-def slim(c):
+def slim(c, mods=None):
     out = {k: c[k] for k in ("k", "n", "o", "top3", "covered", "votes", "notSure", "why", "ranks") if k in c}
-    out["fast"] = is_fast(c.get("n"))           # label only; added after the pick is made
+    out["fast"] = is_fast(c.get("n"), (mods or {}).get(c.get("k")))     # label only; added after the pick is made
     if c.get("price"):
         out["price"] = c["price"]
     return out
@@ -1166,6 +1634,7 @@ def slim(c):
 
 def build_picks(raw, aa_on=False):
     names = names_index(raw)
+    mods, _ = mods_index(raw)
     text_votes = lm_votes(raw, "text")
     img_votes = lm_votes(raw, "text_to_image")
     picks = []
@@ -1186,13 +1655,13 @@ def build_picks(raw, aa_on=False):
             (c.get("price") or {}).get("src") == "aa" for c in res["winners"] + res["candidates"])
         picks.append({
             "id": jid, "label": label, "icon": icon, "status": res["status"], "need": res["need"], "n": res["n"],
-            "winners": [slim(c) for c in res["winners"]], "candidates": [slim(c) for c in res["candidates"]],
-            "new": [slim(c) for c in res.get("new", []) if c["k"] not in {w["k"] for w in res["winners"]}],
+            "winners": [slim(c, mods) for c in res["winners"]], "candidates": [slim(c, mods) for c in res["candidates"]],
+            "new": [slim(c, mods) for c in res.get("new", []) if c["k"] not in {w["k"] for w in res["winners"]}],
             "why": plain_sentence(jid, res, boards), "how": job_how(jid, aa_on), "usesAA": bool(uses_aa),
             "boards": [{"src": b["src"], "name": SRC[b["src"]]["name"], "board": b["board"], "date": b.get("date") or "",
                         "url": b.get("url") or "",
                         "top": [names.get(r["k"], {}).get("n", r["n"]) for r in b["rows"][:3]],
-                        "topFast": [is_fast(names.get(r["k"], {}).get("n", r["n"])) for r in b["rows"][:3]]} for b in boards],
+                        "topFast": [is_fast(names.get(r["k"], {}).get("n", r["n"]), mods.get(r["k"])) for r in b["rows"][:3]]} for b in boards],
         })
     return picks
 
@@ -1215,41 +1684,65 @@ def build_cost(raw, picks):
             if r["k"] not in keys:
                 keys.append(r["k"])
     names = names_index(raw)
+    mods, _ = mods_index(raw)
     dev = []
     for k in keys:
         p = dev_price(raw, k)
         if p:
             n = names.get(k, {}).get("n", k)
-            dev.append(dict(p, k=k, n=n, o=names.get(k, {}).get("o", ""), fast=is_fast(n)))
+            dev.append(dict(p, k=k, n=n, o=names.get(k, {}).get("o", ""), fast=is_fast(n, mods.get(k))))
     dev.sort(key=lambda d: (d["pin"] * 3 + d["pout"]) / 4)
     return {"apps": apps, "dev": dev[:40]}
 
 
 def build_releases(raw, days=60):
+    """Official company pages first (their date and link), then OpenRouter for the rest, then AA when it is on.
+    The same model is listed once (matched by name, keeping version and date suffixes apart)."""
     cut = (NOW - timedelta(days=days)).date().isoformat()
-    seen, out = set(), []
+    _, mods_rel = mods_index(raw)
+    seen_rel, seen_k, out = set(), set(), []
+    for r in official_releases(raw):
+        if r["d"] < cut or r["d"] > TODAY:
+            continue
+        rk = rel_key(r["n"])
+        seen_rel.add(rk)
+        seen_k.add(normalize(r["n"]))
+        out.append({"k": normalize(r["n"]), "n": r["n"], "o": r["o"], "d": r["d"], "u": r["u"], "src": r["src"], "official": True,
+                    "how": "date of the company's own announcement", "fast": is_fast(r["n"], mods_rel.get(rk))})
     for m in (raw.get("openrouter") or {}).get("models") or []:
-        if m["d"] < cut or m["k"] in seen:
+        rk = rel_key(m["n"])
+        if m["d"] < cut or rk in seen_rel:
             continue
-        seen.add(m["k"])
-        out.append({"k": m["k"], "n": m["n"], "o": m["o"], "d": m["d"], "u": m["u"], "src": "OpenRouter", "how": "date it became available on OpenRouter",
-                    "fast": is_fast(m["n"])})
+        seen_rel.add(rk)
+        seen_k.add(m["k"])
+        out.append({"k": m["k"], "n": m["n"], "o": m["o"], "d": m["d"], "u": m["u"], "src": "OpenRouter", "official": False,
+                    "how": "date it became available on OpenRouter", "fast": is_fast(m["n"], m.get("mods"))})
     for m in (raw.get("aa") or {}).get("llm") or []:          # empty when AA is off
-        if not m.get("rel") or m["rel"] < cut or m["rel"] > TODAY or m["k"] in seen:
+        if not m.get("rel") or m["rel"] < cut or m["rel"] > TODAY or m["k"] in seen_k or rel_key(m["n"]) in seen_rel:
             continue
-        seen.add(m["k"])
-        out.append({"k": m["k"], "n": m["n"], "o": m["o"], "d": m["rel"],
+        seen_k.add(m["k"])
+        out.append({"k": m["k"], "n": m["n"], "o": m["o"], "d": m["rel"], "official": False,
                     "u": "https://artificialanalysis.ai/models/" + m["slug"] if m.get("slug") else AA_PAGE,
                     "src": AA_CREDIT, "how": "release date listed by Artificial Analysis", "fast": is_fast(m["n"])})
-    out.sort(key=lambda r: (r["d"], r["n"]), reverse=True)
-    return {"items": out[:80], "days": days}
+    out.sort(key=lambda r: (r["d"], r["official"], r["n"]), reverse=True)
+    return {"items": out[:100], "days": days}
+
+
+def official_status(raw):
+    out = []
+    for sid, company, label, url, kind, mode in OFFICIAL:
+        s = ((raw.get("official") or {}).get("sources") or {}).get(sid) or {}
+        out.append({"id": sid, "company": company, "label": label, "url": url, "ok": bool(s.get("ok")),
+                    "updated": s.get("updated"), "err": s.get("err", "") if not s.get("ok") else "",
+                    "posts": len(s.get("posts") or [])})
+    return out
 
 
 # ======================================================================= main
 SECTIONS = [("lmarena", fetch_lmarena), ("aa", fetch_aa), ("livebench", fetch_livebench), ("epoch", fetch_epoch),
-            ("openrouter", fetch_openrouter), ("prices", fetch_prices), ("news", fetch_news)]
+            ("openrouter", fetch_openrouter), ("official", fetch_official), ("prices", fetch_prices), ("news", fetch_news)]
 TEXT_SOURCES = ("lmarena", "aa", "livebench", "epoch")
-SOURCE_ORDER = ("lmarena", "aa", "livebench", "epoch", "openrouter", "prices", "news")
+SOURCE_ORDER = ("lmarena", "aa", "livebench", "epoch", "openrouter", "official", "prices", "news")
 
 
 def load_json(p):
@@ -1264,6 +1757,8 @@ def fingerprint(d):
     d = json.loads(json.dumps(d))
     d.pop("built", None)
     d["status"] = {k: [v.get("ok"), v.get("err"), (v.get("updated") or "")[:10]] for k, v in (d.get("status") or {}).items()}
+    for x in d.get("officialSources") or []:
+        x["updated"] = (x.get("updated") or "")[:10]
     return json.dumps(d, sort_keys=True)
 
 
@@ -1342,6 +1837,16 @@ def main():
         status["lmarena"]["note"] = "kept last good copy for: " + ", ".join(lm_stale)
     if raw.get("livebench") and not raw["livebench"].get("release_found", True) and status["livebench"]["ok"]:
         status["livebench"]["note"] = "newest release id not found; used release " + raw["livebench"]["release"]
+    if raw.get("official") and status.get("official", {}).get("ok"):
+        bad = [s["label"] for s in official_status(raw) if not s["ok"]]
+        if bad:
+            status["official"]["note"] = "last good copy for: " + ", ".join(bad)
+    if raw.get("prices") and status.get("prices", {}).get("ok"):
+        pr = raw["prices"]
+        status["prices"]["note"] = f"{pr.get('pages_read', 0)} of {pr.get('apps_total', 0)} apps read today"
+    stale = stale_prices(raw.get("prices"))
+    for x in stale:
+        log(f"STALE price: {x['app']} {x['plan']} ${x['usd_month']} last checked {x['checked']} (more than {STALE_DAYS} days ago)")
 
     picks = build_picks(raw, aa_on)
     if len(picks) < 3:
@@ -1355,7 +1860,11 @@ def main():
         "picks": picks,
         "cost": build_cost(raw, picks),
         "releases": build_releases(raw),
-        "bignews": {"items": big_news(news_items), "feeds": (raw.get("news") or {}).get("feeds") or []},
+        "bignews": {"items": big_news(news_items, official_posts(raw)), "feeds": (raw.get("news") or {}).get("feeds") or [],
+                    "rules": "Only new model launches, big price changes, major product launches or shutdowns by AI labs, "
+                             "funding of about $1B or more, acquisitions of or by AI labs, and IPO filings."},
+        "officialSources": official_status(raw),
+        "stalePrices": stale, "staleDays": STALE_DAYS,
         "rule": ri["text"], "ruleInfo": ri, "fastNote": FAST_NOTE, "fastWords": list(FAST_WORDS),
     }
     blob = json.dumps(out, ensure_ascii=False, separators=(",", ":"))
