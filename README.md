@@ -1,11 +1,12 @@
 # AI Tracker
 
-A free web app (installable on a phone or tablet) that answers four questions about AI models, in plain English:
+A free web app (installable on a phone or tablet) that answers five questions about AI, in plain English:
 
 1. **Best for what**: which model is best for chat, writing, coding, math and pictures, and the cheapest good one
 2. **Cost**: can you use each AI app for free, what the paid plans cost, and developer prices per million tokens
 3. **New releases**: the newest models, from the companies' own announcements
 4. **Big news**: only the big stories (launches, price changes, big funding, acquisitions, IPO filings)
+5. **Agents** 🤖: the best AI model inside an agent, the agent apps and what they cost, and agent news
 
 Each tab shows a short simple view first. **See more** opens the full details. The **Sources** link (top of the page) lists every source, what it measures, its link and license, and whether it updated today.
 
@@ -17,16 +18,17 @@ Every number shows where it came from (source name, link and date). No AI is use
 
 | Source | What the app reads | How |
 |---|---|---|
-| **LMArena** (lmarena.ai) | People's blind votes: text overall + coding, creative writing and math, building websites and apps, text-to-image. Score, error bars, vote count. | Official Hugging Face dataset (parquet), license CC BY 4.0 |
-| **LiveBench** (livebench.ai) | Scores on new, hidden tasks: overall + categories (coding, reasoning, ...). Newest release found in the site's script bundle. | `table.csv` + `categories.json` |
-| **Epoch AI** (epoch.ai) | Epoch Capabilities Index with error bars (many benchmarks in one score). | `benchmark_data.zip`, license CC BY 4.0 |
+| **LMArena** (lmarena.ai) | People's blind votes: text overall + coding, creative writing and math, building websites and apps, text-to-image, and the **Agent Arena** (score = IPS, higher is better). Score, error bars, vote count. | Official Hugging Face dataset (parquet), license CC BY 4.0 |
+| **LiveBench** (livebench.ai) | Scores on new, hidden tasks: overall + categories (coding, reasoning, **Long Agentic**, **Browser**, ...). Newest release found in the site's script bundle. | `table.csv` + `categories.json` |
+| **Epoch AI** (epoch.ai) | Epoch Capabilities Index with error bars (many benchmarks in one score), plus agent tests run by others: **APEX-Agents** (Mercor), **Vending-Bench 2** (Andon Labs), **Remote Labor Index** (Scale AI and CAIS). | `benchmark_data.zip`, license CC BY 4.0 |
 | **OpenRouter** | Developer prices per million tokens, the date each model appeared, and what each model outputs (text, image, ...). | Public API `api/v1/models` |
 | **Official company pages** | New model announcements: OpenAI News, Google DeepMind blog, Google AI blog, Mistral news (RSS); Anthropic news, xAI news, Meta AI blog (web pages); DeepSeek API change log. | One request per page per day |
 | **Official pricing pages** | Monthly plan prices for ChatGPT, Claude, Gemini, Grok, Le Chat, DeepSeek, Meta AI, Perplexity, Copilot. | Each company's own pricing page; for ChatGPT and Perplexity (their web pages block servers) the company's own **Apple App Store listing** (US prices); Meta AI's App Store listing confirms it is free; Grok's App Store listing is the backup when x.ai/pricing fails |
 | **News feeds** | Headlines from OpenAI, Google AI, Google DeepMind, NVIDIA, Hugging Face, TechCrunch, The Verge, Ars Technica, MIT Tech Review, Wired. | RSS |
+| **Agent app pages** | Monthly prices of agent apps (Comet, Manus, Codex, GitHub Copilot, Cursor, Devin, Replit), and the line on the company's own page that shows which ChatGPT / Claude / Gemini plans include ChatGPT Work, Gemini Agent, Claude in Chrome, Claude Code and Jules. | Each app's own pricing page, help page (Manus) or App Store listing (US), same polite reader as the Cost tab |
 | **Artificial Analysis** (optional, OFF by default) | Intelligence index, prices, release dates, text-to-image arena. | Free API with a key. See below. |
 
-Credits are shown in the app: "LMArena (lmarena.ai)" and "Epoch AI (epoch.ai)" with a link to the CC BY 4.0 license, and "LiveBench (livebench.ai)" with a link (LiveBench states no data license).
+Credits are shown in the app: "LMArena (lmarena.ai)" and "Epoch AI (epoch.ai)" with a link to the CC BY 4.0 license, and "LiveBench (livebench.ai)" with a link (LiveBench states no data license). The agent tests from Epoch's zip are credited by name: "APEX-Agents by Mercor, via Epoch AI", "Vending-Bench 2 by Andon Labs, via Epoch AI", "Remote Labor Index by Scale AI and CAIS, via Epoch AI".
 
 ## How the picks work
 
@@ -55,10 +57,38 @@ The same story from several sites is shown once, from the company's own page whe
 
 - Every price shows its source ("Pricing page" or "App Store price (US)"), a link, and the date it was last confirmed.
 - App Store prices can differ from web prices by a few cents (for example ChatGPT Plus is $19.99 in the App Store).
-- Pages are fetched politely: a User-Agent naming this project (`ai-tracker/5 (+your repo URL)`), a 2-second pause between price pages, and up to 3 tries (waiting 4 s, then 10 s).
+- Pages are fetched politely: a User-Agent naming this project (`ai-tracker/6 (+your repo URL)`), a 2-second pause between price pages, and up to 3 tries (waiting 4 s, then 10 s). The log names the part of the run that retried (`prices:`, `official:`, `agent apps:`).
 - A plan's price is only replaced when the number found is believable (between a third and 3 times the last good value).
 - If a page can't be read, the **last good price stays** and the app says "price last checked <date>".
 - A price not confirmed for more than **30 days** is marked **⚠ stale** next to the price and in the Sources view. The daily workflow log lists stale prices as warnings.
+
+## Agents tab 🤖
+
+**Simple view**: the best AI for agents, one line per agent app in two groups ("Does tasks for you", "Writes code for you"), and the 4 newest agent stories. **See more**: every test's top 5, every plan, the proof lines, and up to 8 news items.
+
+**Best AI for agents** (the model inside an agent). Three independent agent tests:
+
+| Test | What it measures | Score |
+|---|---|---|
+| LMArena Agent Arena | People give the same task to two hidden agents and vote | IPS score, higher is better |
+| LiveBench Long Agentic | Long, many-step tasks with tools, new every release | 0 to 100 |
+| APEX-Agents (Mercor, via Epoch AI) | Real work tasks from banking, consulting and law | Pass@1 (share solved on the first try) |
+
+- A model is named best only when it is in the **top 3 of at least 2 of the 3** tests. Every model that passes is shown, with "top 3 in N of 3 agent tests".
+- A test whose newest result is more than **120 days** old is left out (the Sources view says why). With fewer than 2 usable tests, no model is named best ("No clear winner yet").
+- Names are matched with the same `normalize()` as the Best tab. Epoch's names like `claude-opus-5-5_max` or `gemini-4-argon_unknown` lose the run setting after `_` (`bench_key()`), and each model's best run counts.
+- Shown for information only (not in the rule): LiveBench Browser, Vending-Bench 2 (money earned running a pretend vending business) and Remote Labor Index (share of real freelance projects done well enough).
+
+**Agent apps**: what each does, whether it has a free plan, monthly US prices, source, link and date.
+
+| Does tasks for you | Writes code for you |
+|---|---|
+| ChatGPT Work (prices = ChatGPT plans), Gemini Agent (Google AI Ultra only, US only, English only), Claude in Chrome (Claude Pro/Max/Ultra), Comet (App Store), Manus (its own help page: Pro from $20 or $40 a month; the App Store still lists old plans, so it isn't used) | Codex, Claude Code (Claude Pro/Max/Ultra), Jules (free tasks a day + Google AI Pro/Ultra), GitHub Copilot, Cursor (made by SpaceX, sold as The X Subscription with Grok and X; the page must still mention Grok), Devin, Replit Agent (pricing page; App Store as backup) |
+
+- Agents that come with a ChatGPT, Claude or Gemini plan don't repeat a price: they show the Cost tab's prices for the right plans, plus the line on the company's own page that proves it (for example "Claude Code No Yes Yes Yes" in claude.com's plan table). If that line disappears, the app keeps the last good check and says "last checked <date>".
+- Same rules as the Cost tab: polite fetching, 3 tries, a price is only replaced by a believable number, the last good price stays when a page can't be read, and "⚠ stale" after 30 days. A page needed twice in one run (claude.com/pricing) is fetched once.
+
+**Agent news**: titles with an agent word (agent, agentic, Codex, Claude Code, Cowork, computer use, ChatGPT Work, Gemini Agent, Antigravity, Jules, Manus, Comet, Devin, Copilot agent) from the last 14 days, newest first, at most 8, the same story once (the company's own copy first). Dropped: customer stories ("… with ChatGPT Work", "is building", "brings Codex to …", "94% less time"), explainers ("how …"), first-person and opinion pieces, policy and lawsuits, rumors, essays, and NVIDIA / Hugging Face blog posts that don't launch anything; plus every Big news drop rule.
 
 ## ⚡ Fast label
 
@@ -78,8 +108,8 @@ Runs every day at 10:00 UTC, when you press "Run workflow", and when you change 
 
 1. Installs `requests` and `pyarrow`.
 2. Runs `scripts/update_data.py`. Each source is fetched and checked on its own; if one fails, its last good copy (kept in `data/raw.json`) is used and the app shows "using last good copy from <date>".
-3. Checks the new `data/data.json` (format, picks never from one source, every price and release has a source, no AA data when AA is off).
-4. Prints stale prices and failed pages as warnings.
+3. Checks the new `data/data.json` (format, picks never from one source, every price, release and agent app has a source, agent picks from at least 2 tests, no AA data when AA is off).
+4. Prints stale prices, failed pages and left-out agent tests as warnings, and today's best AI for agents.
 5. Makes sure the AA key is in no file.
 6. Commits `data/` only when something changed, then publishes the site to GitHub Pages (`raw.json` is not published).
 
@@ -91,7 +121,7 @@ python -m unittest discover -s tests -v     # data pipeline (uses real pages sav
 node --test                                  # app + data file (needs data/data.json; on Node 22 don't pass "tests")
 ```
 
-The Python tests run "on" 2026-11-01 (a fixed clock), so the saved pages stay valid. They include a speed test so a page can never make the daily run hang.
+The Python tests run "on" 2026-11-01 (a fixed clock), so the saved pages stay valid. They include a speed test so a page can never make the daily run hang. The LMArena Agent Arena file is saved twice: as parquet (checked only when `pyarrow` is installed) and as JSON (used by the tests). Until the daily Action has run v6 once, `data/data.json` has no `agents` part; the Node tests then use `tests/fixtures/agents_sample.json`.
 
 To build the data by hand: `python scripts/update_data.py` (add `AA_ENABLED=true AA_API_KEY=...` only for private use).
 
@@ -104,9 +134,9 @@ To build the data by hand: `python scripts/update_data.py` (add `AA_ENABLED=true
 
 ## Files
 
-- `index.html`, `app.js`, `app.css`: the app (4 tabs + Sources view)
+- `index.html`, `app.js`, `app.css`: the app (5 tabs + Sources view; short tab labels on a phone)
 - `sw.js`: offline support; app files cached, data always fetched fresh first. Change `VERSION` when the app changes.
 - `manifest.webmanifest`, `icons/`: install details
 - `scripts/update_data.py`: fetches every source and builds `data/data.json` + `data/data.js`
 - `data/raw.json`: last good copy of every source (not published)
-- `tests/`: `test_update.py` (Python), `site.test.js` (Node), `fixtures/` (real pages saved on 2026-11-01)
+- `tests/`: `test_update.py` (Python), `site.test.js` (Node), `fixtures/` (real pages saved on 2026-11-01 and 2026-11-02, gzipped)
