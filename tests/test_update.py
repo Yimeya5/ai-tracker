@@ -211,10 +211,19 @@ NEWS = {
 
 PRICE_HTML = {
     "https://x.ai/pricing": "<div>Free $0/month Get started Plus $8/month Get Plus Premium $30/month Get Premium Super $100/month Get Super Ultra $250/month</div>" + " filler" * 60,
-    "https://gemini.google/subscriptions/": "<p>Free $0 / month with a Google Account</p><p>Google AI Plus $4.99 / month Get 2x higher usage</p><p>Google AI Pro $19.99 / month Get 4x higher usage</p><p>Google AI Ultra Starting at: $99.99 / month</p>" + " filler" * 60,
+    "https://gemini.google/subscriptions/": "<p>Free $0 / month with a Google Account</p><p>Google AI Plus $4.99 / month Get 2x higher usage</p><p>Google AI Pro $19.99 / month Get 4x higher usage</p><p>Google AI Ultra Starting at: $99.99 / month</p><p>Gemini in Chrome with auto browse</p>" + " filler" * 60,
     "https://mistral.ai/pricing": "<p>Free</p><p>Pro ... $14.99 /mo</p><p>Team ... $24.99 /user/mo</p>" + " filler" * 60,
     "https://www.deepseek.com/en/": "<p>DeepSeek free chat</p>" + " filler" * 60,
 }
+
+
+# v7b: the 35 hand-checked agents. Their makers' pages aren't saved here; each fake page holds the app name and the
+# quote that was read on 2026-11-02, which is what the daily "page still up" check looks for (the proof word).
+STATIC = json.loads((REPO / "scripts" / "agents_static.json").read_text(encoding="utf-8"))
+STATIC_PAGES = {}
+for _x in STATIC:
+    STATIC_PAGES.setdefault(_x["check"]["url"], "<html><body>")
+    STATIC_PAGES[_x["check"]["url"]] += f"<h1>{_x['app']}</h1><p>{_x['evidence']}</p>"
 
 
 class Resp:
@@ -261,6 +270,7 @@ FX_URLS = {
     "https://replit.com/pricing": "web_replit_pricing.html",
     "https://apps.apple.com/us/app/comet-ai-browser-assistant/id6748622471": "appstore_comet.html",
     "https://help.manus.im/en/articles/11711111-what-is-the-current-membership-pricing-for-manus": "web_manus_help.html",
+    "https://instinct.com/": "web_instinct_home.html",
     "https://apps.apple.com/us/app/replit-vibe-code-with-ai-fast/id1614022293": "appstore_replit.html",
 }
 
@@ -285,6 +295,8 @@ def fake_get(url, timeout=None, headers=None, **kw):
         return Resp(epoch_zip())
     if url.startswith("https://openrouter.ai/api/v1/models"):
         return Resp(json.dumps(openrouter()))
+    if url in STATIC_PAGES:
+        return Resp(STATIC_PAGES[url])
     if url in PRICE_HTML:
         return Resp(PRICE_HTML[url])
     for name, items in NEWS.items():
@@ -907,8 +919,8 @@ class AgentApps(unittest.TestCase):
             self.assertTrue(apps[aid]["readToday"], aid)                                    # the proof line was found
             self.assertEqual(apps[aid]["plans"], [], aid)
         self.assertEqual(apps["jules"]["facts"]["freeTasks"], "Free: 15 tasks a day")
-        self.assertEqual(len(apps), 12)
-        self.assertEqual({a["group"] for a in apps.values()}, {"tasks", "code"})
+        self.assertEqual(len(apps), 49)
+        self.assertEqual({a["group"] for a in apps.values()}, {"tasks", "code", "assistants", "research"})
 
     def test_plans_from_the_cost_tab(self):
         raw = {"prices": self.m.fetch_prices(None), "agentapps": self.m.fetch_agentapps(None)}
@@ -1002,6 +1014,172 @@ class AgentApps(unittest.TestCase):
             return Resp(r.content.replace(b"Pricing plans", b"Plans")) if "copilot" in url else r
         self.m.get = get
         self.assertFalse(self.apps()["copilot"]["readToday"])
+
+
+class PersonalAssistants(unittest.TestCase):
+    """v7: Instinct (home page read daily, no price) and Tab (hand-checked, fixed date)."""
+    def setUp(self):
+        self.m = load(tempfile.mkdtemp())
+        self.m.get = strict_get
+        self.logs = []
+        self.m.log = lambda *a: self.logs.append(" ".join(str(x) for x in a))
+
+    def apps(self, prev=None):
+        return {a["id"]: a for a in self.m.fetch_agentapps(prev)["apps"]}
+
+    def test_instinct_from_the_home_page(self):
+        ins = self.apps()["instinct"]
+        self.assertTrue(ins["readToday"])
+        self.assertEqual((ins["access"], ins["priceText"]), ("Invite only (waitlist)", "Price not public"))
+        self.assertEqual((ins["src"]["label"], ins["checked"]), ("Instinct home page", "2026-11-01"))
+        self.assertEqual(ins["plans"], [])
+
+    def test_tab_is_hand_checked(self):
+        calls = []
+        self.m.get = lambda url, **k: (calls.append(url), strict_get(url, **k))[1]
+        tab = self.apps()["tab"]
+        self.assertNotIn("https://tab.bot", calls)                     # never fetched
+        self.assertEqual((tab["src"]["label"], tab["src"]["url"], tab["checked"]), ("tab.bot", "https://tab.bot", "2026-11-02"))
+        self.assertEqual(tab["priceText"], "Free to use; paid plans for more speed")
+        self.assertNotIn("$", json.dumps(tab))
+
+    def test_a_dollar_price_keeps_last_good_and_logs(self):
+        first = self.m.fetch_agentapps(None)
+        for a in first["apps"]:
+            if a["id"] == "instinct":
+                a["checked"] = "2026-10-30"
+        def get(url, **k):
+            if url == "https://instinct.com/":
+                return Resp(fx("web_instinct_home.html").replace(b"Try Instinct", b"Instinct Pro $29/month Try Instinct"))
+            return strict_get(url, **k)
+        self.m.get = get
+        ins = self.apps(first)["instinct"]
+        self.assertFalse(ins["readToday"])
+        self.assertEqual((ins["checked"], ins["priceText"]), ("2026-10-30", "Price not public"))
+        self.assertIn("Instinct: a price may be public now, check instinct.com", self.logs)
+
+    def test_unreadable_page_keeps_last_good(self):
+        first = self.m.fetch_agentapps(None)
+        self.m.get = boom
+        ins = self.apps(first)["instinct"]
+        self.assertFalse(ins["readToday"])
+        self.assertEqual(ins["checked"], "2026-11-01")
+        for a in first["apps"]:
+            a["checked"] = "2026-09-01"
+        old = self.apps(first)["instinct"]
+        self.assertTrue(old["stale"])                                    # 30-day rule still applies to the row
+
+    def test_never_counted_as_prices(self):
+        sec = self.m.fetch_agentapps(None)
+        self.assertEqual(sec["apps_total"], 12)                           # price counts: priced apps only
+        for a in sec["apps"]:
+            a["checked"] = "2026-09-01"
+            a["stale"] = True
+        stale = self.m.stale_prices(sec)
+        self.assertFalse({"Instinct", "Tab"} & {x["app"] for x in stale})
+        out = {a["id"]: a for a in self.m.build_agent_apps({"agentapps": self.m.fetch_agentapps(None)})}
+        self.assertIsNone(out["instinct"]["cheapest"])
+        self.assertIsNone(out["tab"]["proof"])
+        self.assertEqual(out["tab"]["src"]["checked"], "2026-11-02")
+        res = self.m.agent_pick(agent_raw(self.m))
+        self.assertEqual([w["n"] for w in res["winners"]], ["Claude Opus 5.5", "Claude Sonnet 5.5"])
+
+
+class StaticAgents(unittest.TestCase):
+    """v7b: all notable agents. 35 hand-checked rows (scripts/agents_static.json) + the 14 rows from v7."""
+    def setUp(self):
+        self.m = load(tempfile.mkdtemp())
+        self.m.get = strict_get
+        self.logs = []
+        self.m.log = lambda *a: self.logs.append(" ".join(str(x) for x in a))
+
+    def apps(self, prev=None):
+        return self.m.fetch_agentapps(prev)["apps"]
+
+    def test_49_rows_in_4_groups(self):
+        out = self.m.build_agents({"agentapps": self.m.fetch_agentapps(None)}, [], [])
+        self.assertEqual([g["id"] for g in out["groups"]], ["assistants", "tasks", "code", "research"])
+        self.assertEqual([g["label"] for g in out["groups"]], ["Personal assistants (text or call them)", "Browser and computer agents",
+                                                               "Coding agents", "Research and work agents"])
+        apps = out["apps"]
+        self.assertEqual(len(apps), 49)
+        count = {g: sum(1 for a in apps if a["group"] == g) for g in ("assistants", "tasks", "code", "research")}
+        self.assertEqual(count, {"assistants": 10, "tasks": 14, "code": 18, "research": 7})
+        ids = [a["id"] for a in apps if a["group"] == "assistants"]
+        self.assertEqual(ids[:3], ["instinct", "tab", "poke"])                  # existing rows first, then the file order
+        code = [a["id"] for a in apps if a["group"] == "code"]
+        self.assertEqual(code[:8], ["codex", "claude-code", "jules", "copilot", "cursor", "devin", "replit", "antigravity"])
+
+    def test_data_used_exactly(self):
+        apps = {a["id"]: a for a in self.apps()}
+        for x in STATIC:
+            a = apps[x["id"]]
+            for k in ("app", "maker", "group", "free", "what", "access", "priceText"):
+                self.assertEqual(a[k], x[k], x["id"] + " " + k)
+            self.assertEqual([(p["name"], p["usd_month"]) for p in a["plans"]], [(p["name"], p["usd_month"]) for p in x["plans"]])
+            self.assertEqual((a["src"]["label"], a["src"]["url"], a["checked"]), (x["source"]["label"], x["source"]["url"], "2026-11-02"))
+            self.assertNotIn("evidence", a)
+
+    def test_page_up_today(self):
+        apps = {a["id"]: a for a in self.apps()}
+        for x in STATIC:
+            self.assertTrue(apps[x["id"]]["readToday"], x["id"])
+            self.assertEqual(apps[x["id"]]["pageChecked"], "2026-11-01", x["id"])     # the test clock's today
+        self.assertFalse(any("official page not read" in l for l in self.logs))
+
+    def test_page_fails_keeps_last_good_and_logs(self):
+        first = self.m.fetch_agentapps(None)
+        self.m.get = boom
+        poke = {a["id"]: a for a in self.apps(first)}["poke"]
+        self.assertFalse(poke["readToday"])
+        self.assertEqual((poke["pageChecked"], poke["priceText"]), ("2026-11-01", "Free \u00b7 Pro $19/month \u00b7 Ultra $199/month"))
+        self.assertFalse(poke["stale"])
+        self.assertIn("Poke: official page not read today (simulated outage)", self.logs)
+
+    def test_proof_word_missing(self):
+        first = self.m.fetch_agentapps(None)
+        def get(url, **k):
+            if url == "https://lovable.dev/pricing":
+                return Resp("<html><body>Something else entirely</body></html>")
+            return strict_get(url, **k)
+        self.m.get = get
+        lov = {a["id"]: a for a in self.apps(first)}["lovable"]
+        self.assertFalse(lov["readToday"])
+        self.assertIn("Lovable: official page not read today (the proof word is not on the page)", self.logs)
+
+    def test_31_days_unread_is_stale_but_kept(self):
+        first = self.m.fetch_agentapps(None)
+        for a in first["apps"]:
+            if a.get("static"):
+                a["pageChecked"] = "2026-10-01"
+        self.m.get = boom
+        kiro = {a["id"]: a for a in self.apps(first)}["kiro"]
+        self.assertTrue(kiro["stale"] and all(p["stale"] for p in kiro["plans"]))
+        self.assertEqual(len(kiro["plans"]), 4)                                      # kept, with its plans
+        self.assertEqual(kiro["pageChecked"], "2026-10-01")
+
+    def test_never_counted_as_prices(self):
+        sec = self.m.fetch_agentapps(None)
+        self.assertEqual(sec["apps_total"], 12)
+        for a in sec["apps"]:
+            a["stale"] = True
+            for p in a["plans"]:
+                p["stale"] = True
+        names = {x["app"] for x in self.m.stale_prices(sec)}
+        self.assertFalse(names & {x["app"] for x in STATIC})
+        self.assertFalse(names & {"Instinct", "Tab"})
+        self.assertIn("Cursor", names)                                                # priced rows are still counted
+
+    def test_best_for_agents_unchanged(self):
+        raw = agent_raw(self.m)
+        without = self.m.build_agents(dict(raw, agentapps={"apps": []}), [], [])
+        withall = self.m.build_agents(dict(raw, agentapps=self.m.fetch_agentapps(None)), [], [])
+        self.assertEqual(without["best"], withall["best"])
+        self.assertEqual(without["tests"], withall["tests"])
+
+    def test_devin_note(self):
+        devin = {a["id"]: a for a in self.apps()}["devin"]
+        self.assertEqual(devin["note"], "Windsurf is now part of Devin (windsurf.com opens Devin's pricing page).")
 
 
 AGENT_FEEDS = [("feed_OpenAI.xml", "OpenAI", "lab"), ("feed_TechCrunch.xml", "TechCrunch", "news"),
@@ -1167,8 +1345,8 @@ class Pipeline(unittest.TestCase):
         ag = d["agents"]
         self.assertEqual(ag["best"]["status"], "best")
         self.assertEqual([w["n"] for w in ag["best"]["winners"]], ["Claude Opus 5.5", "Claude Sonnet 5.5"])
-        self.assertEqual(len(ag["apps"]), 12)
-        self.assertTrue(all(a["src"]["url"].startswith("https://") and a["checked"] and a["group"] in ("tasks", "code") for a in ag["apps"]))
+        self.assertEqual(len(ag["apps"]), 49)
+        self.assertTrue(all(a["src"]["url"].startswith("https://") and a["checked"] and a["group"] in ("tasks", "code", "assistants", "research") for a in ag["apps"]))
         self.assertEqual({t["id"] for t in ag["tests"]}, {"arena", "lb_agentic", "apex", "lb_browser", "vending", "rli"})
         self.assertTrue(all(n["u"] and n["s"] and n["d"] for n in ag["news"]["items"]))
         self.assertTrue(d["status"]["agentapps"]["ok"])

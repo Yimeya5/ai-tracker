@@ -39,7 +39,7 @@ test("manifest is installable", () => {
 
 test("service worker: new version, data from the network first", () => {
   const s = read("sw.js");
-  assert.match(s, /const VERSION = "v6-2026-11-02"/);
+  assert.match(s, /const VERSION = "v7b-2026-11-02"/);
   assert.match(s, /\/data\//);
   assert.match(s, /fetch\(req, \{ cache: "no-store" \}\)/);
 });
@@ -293,7 +293,7 @@ test("v6 data: agents part has the right shape (every item has a source, link an
   for (const t of ag.tests) assert.ok(t.name && t.credit && /^https:\/\//.test(t.url) && Array.isArray(t.top), t.id);
   assert.ok(ag.apps.length >= 10);
   for (const a of ag.apps) {
-    assert.ok(a.app && a.what && ["tasks", "code"].includes(a.group), a.app);
+    assert.ok(a.app && a.what && ["tasks", "code", "assistants", "research"].includes(a.group), a.app);
     assert.ok(a.src && /^https:\/\//.test(a.src.url) && a.src.label && a.checked, "agent app without source/date: " + a.app);
     if (a.plansFrom) assert.ok(a.proof && /^https:\/\//.test(a.proof.url) && a.proof.checked, "no proof line for " + a.app);
   }
@@ -307,7 +307,7 @@ test("v6 Agents tab, simple view: best model, one line per app in 2 groups, a fe
   assert.match(h, /Best AI for agents/);
   for (const w of d.agents.best.winners) assert.ok(h.includes(w.n), w.n);
   assert.match(h, /top 3 in \d of \d agent tests/);
-  assert.match(h, /Does tasks for you/); assert.match(h, /Writes code for you/);
+  for (const g of d.agents.groups) assert.ok(h.includes(g.label), g.label);
   for (const a of d.agents.apps) assert.ok(h.includes("<b>" + a.app + "</b>"), a.app);
   assert.match(h, /(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d/);
   assert.match(h, /data-more="agents"/);
@@ -373,4 +373,137 @@ test("v6 leftovers: credits read 'Data from each company's…' (small e)", () =>
   const all = ["releases", "news", "cost", "agents"].map((t) => A.view(t, false) + A.view(t, true)).join("");
   assert.doesNotMatch(all, /Data from (<a[^>]*>)?Each /);
   assert.match(all, /each company's/);
+});
+
+// ------------------------------------------------------------------ v7: personal assistants
+test("v7 Personal assistants group: simple view and See more, source link + date, no price numbers", () => {
+  const d = data();
+  assert.ok(d.agents.groups.some((g) => g.id === "assistants"), "sample/data has the new group");
+  const A = loadApp(d), simple = A.view("agents", false), more = A.view("agents", true);
+  for (const h of [simple, more]) {
+    assert.match(h, /Personal assistants \(text or call them\)/);
+    assert.match(h, /<b>Instinct<\/b>/); assert.match(h, /<b>Tab<\/b>/);
+    assert.match(h, /Invite only \(waitlist\) · Price not public/);
+    assert.match(h, /Invite or waitlist \(private beta\) · Free to use; paid plans for more speed/);
+    assert.match(h, /href="https:\/\/instinct\.com\/"[^>]*>Instinct home page<\/a>/);
+    assert.match(h, /href="https:\/\/tab\.bot"[^>]*>tab\.bot<\/a>, checked Nov 2/);
+  }
+  assert.ok(simple.indexOf("Personal assistants") < simple.indexOf("Coding agents"), "v7b: assistants are the first group");
+  assert.ok(simple.indexOf("<b>Instinct</b>") < simple.indexOf("<b>Tab</b>"), "alphabetical");
+  assert.match(more, /A personal assistant you text or call/);
+  assert.match(more, /Access: Invite only \(waitlist\) · Price: Price not public/);
+  const rowOf = (name) => simple.split("<b>" + name + "</b>")[1].split("</li>")[0];
+  for (const name of ["Instinct", "Tab"]) assert.doesNotMatch(rowOf(name), /\$\d|Free ✓|Free\?|Paid</, "no prices or free badges on " + name);
+  assert.doesNotMatch(simple + more, /undefined|NaN|Something went wrong/);
+});
+
+test("v7: an old v6 data.json (no Personal assistants group) still renders the Agents tab", () => {
+  const d = JSON.parse(JSON.stringify(data()));
+  d.agents.groups = d.agents.groups.filter((g) => g.id !== "assistants");
+  d.agents.apps = d.agents.apps.filter((a) => a.group !== "assistants").map((a) => { const x = Object.assign({}, a); delete x.access; delete x.priceText; return x; });
+  const A = loadApp(d);
+  for (const h of [A.view("agents", false), A.view("agents", true), A.view("sources", false)]) {
+    assert.doesNotMatch(h, /undefined|NaN|Something went wrong/);
+    assert.doesNotMatch(h, /Personal assistants/);
+  }
+  assert.match(A.view("agents", false), /Coding agents/);
+});
+
+test("v7: both themes - assistant rows use only existing theme-colored classes", () => {
+  const js = read("app.js");
+  const fn = js.split("function assistantRow")[1].split("function agentAppRow")[0];
+  assert.doesNotMatch(fn, /style=|#[0-9a-f]{3,6}\b/i);
+  assert.match(read("app.css"), /:root\[data-theme="dark"\]/);
+});
+
+// ------------------------------------------------------------------ v7b: all notable agents (49 rows, 4 groups)
+const GROUP_LABELS = ["Personal assistants (text or call them)", "Browser and computer agents", "Coding agents", "Research and work agents"];
+
+test("v7b: 4 groups in order, collapsed by default, with counts", () => {
+  const d = data(), A = loadApp(d), h = A.view("agents", false);
+  assert.deepStrictEqual(d.agents.groups.map((g) => g.label), GROUP_LABELS);
+  assert.equal(d.agents.apps.length, 49);
+  const counts = {};
+  for (const a of d.agents.apps) counts[a.group] = (counts[a.group] || 0) + 1;
+  let last = -1;
+  for (const g of d.agents.groups) {
+    const re = new RegExp('<details class="agrp" id="ag-' + g.id + '"><summary><span>' + g.label.replace(/[()]/g, "\\$&") + ' <span class="cnt">\\(' + counts[g.id] + "\\)</span>");
+    assert.match(h, re, g.id + " collapsed with count");
+    assert.ok(h.indexOf('id="ag-' + g.id + '"') > last, "group order"); last = h.indexOf('id="ag-' + g.id + '"');
+  }
+  assert.match(h, /49 agents in 4 groups\. Tap a group to open it\./);
+  assert.doesNotMatch(h, /class="agrp"[^>]* open/, "all closed at first");
+});
+
+test("v7b: opening a group shows its rows: name · maker, price line, badge, source + date", () => {
+  const d = data(), A = loadApp(d);
+  const h = A.view("agents", false);
+  const code = h.split('id="ag-code"')[1].split("</details>")[0];
+  for (const a of d.agents.apps.filter((x) => x.group === "code")) assert.ok(code.includes("<b>" + a.app + "</b>"), a.app);
+  const lov = code.split("<b>Lovable</b>")[1].split("</li>")[0];
+  assert.match(lov, /· Lovable<\/span>/);
+  assert.match(lov, /Free · Pro \$25\/month · Business \$50\/month/);
+  assert.match(lov, /href="https:\/\/lovable\.dev\/pricing"[^>]*>[^<]+<\/a>, checked Nov 2/);
+  assert.match(lov, /Free ✓/);
+  const factory = code.split("<b>Factory (Droids)</b>")[1].split("</li>")[0];
+  assert.match(factory, />Paid</);
+  const alexa = h.split("<b>Alexa+</b>")[1].split("</li>")[0];
+  assert.match(alexa, /Free\?/);
+  assert.match(h.split("<b>Devin</b>")[0].split('id="ag-code"')[1] + "", /Codex/, "existing rows first in Coding agents");
+});
+
+test("v7b: See more shows what, access, every plan, source and 'page still up'", () => {
+  const d = JSON.parse(JSON.stringify(data()));
+  const A = loadApp(d), more = A.view("agents", true);
+  for (const g of d.agents.groups) assert.match(more, new RegExp('id="ag-' + g.id + '-more"'));
+  const poke = more.split("<b>Poke</b>")[1].split("</li>")[0];
+  assert.match(poke, /A personal assistant you text\./);
+  assert.match(poke, /Access: Open to all/);
+  assert.match(poke, /Pro: <b>\$19\/mo<\/b>/); assert.match(poke, /Ultra: <b>\$199\/mo<\/b>/);
+  assert.match(poke, /Poke pricing page<\/a>, checked Nov 2/);
+  assert.match(poke, /Page still up: /);
+  assert.match(more, /Windsurf is now part of Devin/);
+  const kiro = d.agents.apps.find((a) => a.id === "kiro");
+  kiro.check.readToday = false; kiro.check.checked = "2026-09-20"; kiro.stale = true; kiro.check.stale = true;
+  const k = loadApp(d).view("agents", true).split("<b>Kiro</b>")[1].split("</li>")[0];
+  assert.match(k, /Page last read Sep 20/);
+  assert.match(k, /⚠ stale/);
+});
+
+test("v7b: an old v7 data.json (no research group, no hand-checked rows) still renders", () => {
+  const d = JSON.parse(JSON.stringify(data()));
+  d.agents.groups = [{ id: "tasks", label: "Does tasks for you" }, { id: "code", label: "Writes code for you" }, { id: "assistants", label: "Personal assistants (text or call them)" }];
+  d.agents.apps = d.agents.apps.filter((a) => !a.static);
+  const A = loadApp(d);
+  for (const h of [A.view("agents", false), A.view("agents", true), A.view("sources", false)]) assert.doesNotMatch(h, /undefined|NaN|Something went wrong/);
+  assert.match(A.view("agents", false), /14 agents in 3 groups/);
+  assert.doesNotMatch(A.view("agents", false), /Research and work agents/);
+});
+
+test("v7b: hand-checked rows never touch Best for agents or the stale price list", () => {
+  const d = data();
+  for (const s of d.stalePrices || []) assert.ok(!d.agents.apps.some((a) => a.static && a.app === s.app), s.app);
+  for (const w of d.agents.best.winners) assert.ok(!d.agents.apps.some((a) => a.app === w.n));
+});
+
+test("v7b: both themes, every group open, nothing wider than 390 px", { skip: (() => { try { require.resolve("playwright"); return false; } catch (e) { return "playwright not installed"; } })() }, async () => {
+  const { chromium } = require("playwright");
+  const d = data(), A = loadApp(d);
+  const html = (A.view("agents", false) + A.view("agents", true) + A.view("sources", false)).replace(/<details class="agrp"/g, '<details open class="agrp"');
+  const b = await chromium.launch();
+  try {
+    for (const theme of ["light", "dark"]) {
+      const p = await b.newPage({ viewport: { width: 390, height: 844 } });
+      await p.setContent('<!doctype html><html data-theme="' + theme + '"><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>' + read("app.css") +
+        '</style></head><body><main class="page"><div class="view">' + html + "</div></main></body></html>");
+      const r = await p.evaluate(() => {
+        const wide = [...document.querySelectorAll("body *")].filter((e) => e.getBoundingClientRect().right > 390.5).map((e) => e.tagName + "." + e.className);
+        return { wide: wide.slice(0, 5), sw: document.documentElement.scrollWidth, bg: getComputedStyle(document.body).backgroundColor };
+      });
+      assert.deepStrictEqual(r.wide, [], theme + ": too wide");
+      assert.ok(r.sw <= 390, theme + " scroll width " + r.sw);
+      assert.equal(r.bg, theme === "dark" ? "rgb(15, 19, 26)" : "rgb(246, 245, 241)");
+      await p.close();
+    }
+  } finally { await b.close(); }
 });
