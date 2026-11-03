@@ -1,0 +1,1026 @@
+[
+ {
+  "id": "poke",
+  "app": "Poke",
+  "maker": "The Interaction Company (part of Cognition)",
+  "group": "assistants",
+  "free": true,
+  "what": "A personal assistant you text. Connects your email and calendar and runs tasks and reminders in the background.",
+  "access": "Open to all",
+  "priceText": "Free · Pro $19/month · Ultra $199/month",
+  "plans": [
+   {
+    "name": "Pro",
+    "usd_month": 19
+   },
+   {
+    "name": "Ultra",
+    "usd_month": 199
+   }
+  ],
+  "source": {
+   "label": "Poke pricing page",
+   "url": "https://poke.com/pricing",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://poke.com/pricing",
+   "proof": "Poke"
+  },
+  "evidence": "Free $0/month Free Forever … Pro $19/month … Ultra $199/month"
+ },
+ {
+  "id": "martin",
+  "app": "Martin",
+  "maker": "DCWU Inc.",
+  "group": "assistants",
+  "free": false,
+  "what": "A personal assistant you reach by text, phone, WhatsApp, email or Slack. Handles calendar, email, reminders and can make calls.",
+  "access": "Open to all (7-day free trial)",
+  "priceText": "Basic $35/month · Pro $49/month (less if billed yearly: $21 / $30)",
+  "plans": [
+   {
+    "name": "Basic",
+    "usd_month": 35
+   },
+   {
+    "name": "Pro",
+    "usd_month": 49
+   }
+  ],
+  "source": {
+   "label": "Martin pricing page",
+   "url": "https://www.trymartin.com/pricing",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://www.trymartin.com/pricing",
+   "proof": "Martin"
+  },
+  "evidence": "Pro $30 / month, billed yearly or $49 / month, billed monthly … Basic $21 / month, billed yearly or $35 / month, billed monthly. 7 days free. App Store (DCWU Inc.): Martin Basic Monthly $35.00, Martin Pro Monthly $49.00"
+ },
+ {
+  "id": "pally",
+  "app": "Pally",
+  "maker": "Pally Technologies",
+  "group": "assistants",
+  "free": true,
+  "what": "A personal assistant you text on iMessage, WhatsApp or Telegram. Books, buys, makes calls, has its own number and email.",
+  "access": "Open to all",
+  "priceText": "Free (usage limit refills weekly) · Cloud Mac add-on $95/month",
+  "plans": [
+   {
+    "name": "Cloud Mac add-on",
+    "usd_month": 95
+   }
+  ],
+  "source": {
+   "label": "Pally pricing page",
+   "url": "https://pally.com/pricing",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://pally.com/pricing",
+   "proof": "Pally"
+  },
+  "evidence": "Pally, the AI assistant you text, is free, with almost unlimited usage limits … Cloud Mac is a paid add-on for $95 a month. (Last updated October 27, 2026)"
+ },
+ {
+  "id": "folk",
+  "app": "folk",
+  "maker": "folk",
+  "group": "assistants",
+  "free": true,
+  "what": "A personal assistant you text on iMessage, WhatsApp or Telegram. Research, reminders, money tracking, phone calls.",
+  "access": "Open to all",
+  "priceText": "Free (100 messages a day)",
+  "plans": [],
+  "source": {
+   "label": "folk pricing page",
+   "url": "https://www.folk.com/pricing",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://www.folk.com/pricing",
+   "proof": "folk"
+  },
+  "evidence": "folk is free … $0/mo … daily message limits apply. 100 messages a day … phone calls with folk - 10 minutes a week"
+ },
+ {
+  "id": "tomo",
+  "app": "Tomo",
+  "maker": "Mapo Labs",
+  "group": "assistants",
+  "free": true,
+  "what": "A personal assistant in iMessage that can also join group chats. Reminders, planning, calendar and email.",
+  "access": "Open to all",
+  "priceText": "Free · Tomo Pro $19.99/month",
+  "plans": [
+   {
+    "name": "Tomo Pro",
+    "usd_month": 19.99
+   }
+  ],
+  "source": {
+   "label": "App Store (US), Mapo Labs",
+   "url": "https://apps.apple.com/us/app/tomo-your-personal-ai/id6757726935",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://www.tomo.ai/",
+   "proof": "Tomo"
+  },
+  "evidence": "App Store in-app purchases: Tomo Pro $19.99, Tomo Pro $119.99 (yearly). tomo.ai: 'Meet your personal agent … Text Tomo' (no prices on site)"
+ },
+ {
+  "id": "lindy",
+  "app": "Lindy",
+  "maker": "Lindy",
+  "group": "assistants",
+  "free": true,
+  "what": "An AI assistant you text on iMessage or use in Slack and email. Handles inbox, meetings and follow-ups.",
+  "access": "Open to all ($50 free credits for 7 days)",
+  "priceText": "Free trial · Team from $49.99/month",
+  "plans": [
+   {
+    "name": "Team",
+    "usd_month": 49.99
+   }
+  ],
+  "source": {
+   "label": "Lindy pricing page",
+   "url": "https://www.lindy.ai/pricing",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://www.lindy.ai/pricing",
+   "proof": "Lindy"
+  },
+  "evidence": "Free … $0, $50 in credits for free … Free credits last 7 days. Team: Buy the credits you need. $49.99/mo 5,000 credits (note: lindy.ai home page shows a $29.99/3,000-credit tier; the pricing page starts at $49.99)"
+ },
+ {
+  "id": "alexa-plus",
+  "app": "Alexa+",
+  "maker": "Amazon",
+  "group": "assistants",
+  "free": null,
+  "what": "Amazon's AI assistant you talk to on Echo devices and the Alexa app. Books, orders and controls your home.",
+  "access": "Open to all",
+  "priceText": "$19.99/month, free with Amazon Prime",
+  "plans": [
+   {
+    "name": "Alexa+",
+    "usd_month": 19.99
+   }
+  ],
+  "source": {
+   "label": "About Amazon (Amazon's news site)",
+   "url": "https://www.aboutamazon.com/news/devices/new-alexa-generative-artificial-intelligence",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://www.aboutamazon.com/news/devices/new-alexa-generative-artificial-intelligence",
+   "proof": "Alexa\\+"
+  },
+  "evidence": "Alexa+ costs $19.99 per month, but all Amazon Prime members get it for free. App Store (AMZN Mobile LLC): Alexa+ Standard Monthly $19.99"
+ },
+ {
+  "id": "ohai",
+  "app": "Ohai",
+  "maker": "Ohai.ai",
+  "group": "assistants",
+  "free": true,
+  "what": "A household assistant you text or talk to. Family calendar, chores, meals and reminders.",
+  "access": "Open to all",
+  "priceText": "Free · Premium $14.99 · Premium Plus $24.99 (App Store)",
+  "plans": [
+   {
+    "name": "Premium",
+    "usd_month": 14.99
+   },
+   {
+    "name": "Premium Plus",
+    "usd_month": 24.99
+   }
+  ],
+  "source": {
+   "label": "App Store (US), Ohai.ai",
+   "url": "https://apps.apple.com/us/app/ohai-ai-household-assistant/id6477802468",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://www.ohai.ai/",
+   "proof": "Ohai|Household"
+  },
+  "evidence": "App Store in-app purchases: Premium $14.99, Premium Plus $24.99, Premium Group $39.99. ohai.ai: 'Your Household Manager. Just text or talk to get things done. Try it for free'"
+ },
+ {
+  "id": "chatgpt-dots",
+  "app": "ChatGPT dots",
+  "maker": "OpenAI",
+  "group": "tasks",
+  "free": false,
+  "what": "Always-on agents with their own cloud computer. Work toward your goals 24/7 in ChatGPT, Slack or Teams.",
+  "access": "ChatGPT Pro",
+  "priceText": "In ChatGPT Pro, from $100/month",
+  "plans": [
+   {
+    "name": "ChatGPT Pro",
+    "usd_month": 100
+   }
+  ],
+  "source": {
+   "label": "ChatGPT pricing page",
+   "url": "https://chatgpt.com/pricing",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://apps.apple.com/us/app/chatgpt/id6448311069",
+   "proof": "ChatGPT"
+  },
+  "evidence": "Pro … From $100/month … 'Dot, your always-on agent'. openai.com/index/introducing-dots (Sep 29 2026): 'Dots are remarkably capable, always-on agents … they have their own cloud computer'. (chatgpt.com and openai.com block plain reads; read in a browser Nov 2. Daily check uses OpenAI's App Store listing: ChatGPT Pro 100 $100.00)"
+ },
+ {
+  "id": "claude-cowork",
+  "app": "Claude Cowork",
+  "maker": "Anthropic",
+  "group": "tasks",
+  "free": false,
+  "what": "Hand Claude a task with your files (organize folders, build reports) and it works on it, now built into Claude.",
+  "access": "Claude Pro, Max, Ultra",
+  "priceText": "Pro $20/month · Max $100 · Ultra $200",
+  "plans": [
+   {
+    "name": "Pro",
+    "usd_month": 20
+   },
+   {
+    "name": "Max",
+    "usd_month": 100
+   },
+   {
+    "name": "Ultra",
+    "usd_month": 200
+   }
+  ],
+  "source": {
+   "label": "Claude Cowork page",
+   "url": "https://claude.com/product/cowork",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://claude.com/product/cowork",
+   "proof": "Cowork"
+  },
+  "evidence": "'Claude Cowork is now just Claude. Rolling out to Pro, Max, and Ultra' … Pro $17 per month with annual discount, $20 if billed monthly … Max $100 per month. claude.com/pricing: 'Hand off and schedule tasks No Yes Yes Yes', Ultra $200 per month"
+ },
+ {
+  "id": "gemini-chrome",
+  "app": "Gemini in Chrome (auto browse)",
+  "maker": "Google",
+  "group": "tasks",
+  "free": false,
+  "what": "Gemini browses in Chrome for you to complete tasks.",
+  "access": "Google AI Pro or Ultra",
+  "priceText": "Google AI Pro $19.99/month · Ultra $199.99",
+  "plans": [
+   {
+    "name": "Google AI Pro",
+    "usd_month": 19.99
+   },
+   {
+    "name": "Google AI Ultra",
+    "usd_month": 199.99
+   }
+  ],
+  "source": {
+   "label": "Google AI plans page",
+   "url": "https://gemini.google/subscriptions/",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://gemini.google/subscriptions/",
+   "proof": "auto browse"
+  },
+  "evidence": "Google AI Pro $19.99/month … 'Gemini in Chrome: Access Chrome auto browse to help complete tasks for you'; Google AI Ultra $199.99"
+ },
+ {
+  "id": "perplexity-computer",
+  "app": "Perplexity Computer",
+  "maker": "Perplexity",
+  "group": "tasks",
+  "free": false,
+  "what": "A digital worker that browses, researches, builds and runs long tasks in the background.",
+  "access": "Perplexity Pro or Max",
+  "priceText": "Pro $20/month · Max $200/month",
+  "plans": [
+   {
+    "name": "Pro",
+    "usd_month": 20
+   },
+   {
+    "name": "Max",
+    "usd_month": 200
+   }
+  ],
+  "source": {
+   "label": "Perplexity Pro page",
+   "url": "https://www.perplexity.ai/pro",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://apps.apple.com/us/app/perplexity-ask-anything/id1668000334",
+   "proof": "Perplexity"
+  },
+  "evidence": "perplexity.ai/pro (browser, Nov 2): Pro $17/month when billed annually 'Expanded Computer access … Deep research'; Max $167/month billed annually 'Maximum Computer usage'. App Store (Perplexity AI Inc.): Perplexity Pro $20.00, Perplexity Max $200.00. perplexity.ai blocks plain reads; daily check uses the App Store listing."
+ },
+ {
+  "id": "opera-neon",
+  "app": "Opera Neon",
+  "maker": "Opera",
+  "group": "tasks",
+  "free": false,
+  "what": "An AI browser that does tasks on websites for you.",
+  "access": "Subscription",
+  "priceText": "$19.90/month",
+  "plans": [
+   {
+    "name": "Neon",
+    "usd_month": 19.9
+   }
+  ],
+  "source": {
+   "label": "Opera Neon site",
+   "url": "https://www.operaneon.com/",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://www.operaneon.com/",
+   "proof": "Neon"
+  },
+  "evidence": "'Subscribe to Neon to activate agentic functionalities and top world LLMs. See everything Neon unlocks for $19.90/month'"
+ },
+ {
+  "id": "genspark",
+  "app": "Genspark",
+  "maker": "Genspark",
+  "group": "tasks",
+  "free": true,
+  "what": "An all-in-one AI workspace with agents that make slides, docs, sites and do research.",
+  "access": "Open to all",
+  "priceText": "Free · Plus $24.99/month (App Store)",
+  "plans": [
+   {
+    "name": "Plus",
+    "usd_month": 24.99
+   }
+  ],
+  "source": {
+   "label": "App Store (US), genspark inc",
+   "url": "https://apps.apple.com/us/app/genspark-ai-workspace/id6739554054",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://apps.apple.com/us/app/genspark-ai-workspace/id6739554054",
+   "proof": "Genspark"
+  },
+  "evidence": "App Store in-app purchases: Genspark Plus Plan $24.99 … Plus Monthly 21K Credits $49.99 … Genspark Pro Plan $249.99. genspark.ai/pricing needs a login."
+ },
+ {
+  "id": "fellou",
+  "app": "Fellou",
+  "maker": "Fellou",
+  "group": "tasks",
+  "free": true,
+  "what": "An AI browser that runs web tasks for you, including scheduled ones.",
+  "access": "Open to all",
+  "priceText": "Free · Plus $19/month · Pro $39.90 · Ultra $199.90",
+  "plans": [
+   {
+    "name": "Plus",
+    "usd_month": 19.0
+   },
+   {
+    "name": "Pro",
+    "usd_month": 39.9
+   },
+   {
+    "name": "Ultra",
+    "usd_month": 199.9
+   }
+  ],
+  "source": {
+   "label": "Fellou pricing page",
+   "url": "https://fellou.ai/pricing",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://fellou.ai/",
+   "proof": "Fellou"
+  },
+  "evidence": "(browser, Nov 2) Free $0/month … Plus $19.0/month … Pro $39.9/month … Ultra $199.9/month (yearly: $16/$32/$160 a month)"
+ },
+ {
+  "id": "dia",
+  "app": "Dia",
+  "maker": "The Browser Company",
+  "group": "tasks",
+  "free": true,
+  "what": "An AI browser for work: reads your tabs, writes, and does tasks across your tools.",
+  "access": "Open to all (Mac, Windows)",
+  "priceText": "Free · Better Answers $10/month · Better Days $100/month",
+  "plans": [
+   {
+    "name": "Better Answers",
+    "usd_month": 10
+   },
+   {
+    "name": "Better Days",
+    "usd_month": 100
+   }
+  ],
+  "source": {
+   "label": "Dia plans page",
+   "url": "https://www.diabrowser.com/plans",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://www.diabrowser.com/plans",
+   "proof": "Dia"
+  },
+  "evidence": "Better Browser … Free … Better Answers $10/month … Better Days $100/month"
+ },
+ {
+  "id": "grok-bot",
+  "app": "Grok Bot",
+  "maker": "SpaceXSI (SpaceX)",
+  "group": "tasks",
+  "free": false,
+  "what": "Always-on agents with their own computer. They sign in to your tools and finish work for you.",
+  "access": "Subscription (Mac app)",
+  "priceText": "Premium $30/month · Super $100 · Ultra $200",
+  "plans": [
+   {
+    "name": "Premium",
+    "usd_month": 30
+   },
+   {
+    "name": "Super",
+    "usd_month": 100
+   },
+   {
+    "name": "Ultra",
+    "usd_month": 200
+   }
+  ],
+  "source": {
+   "label": "Grok Bot page",
+   "url": "https://x.ai/bot",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://apps.apple.com/us/app/grok-bot/id6794501026",
+   "proof": "Grok Bot"
+  },
+  "evidence": "Premium $30/month Billed monthly … Grok Bot's own computer … Super $100/month … Ultra $200/month. Launched Aug 11 2026 (x.ai/news/introducing-grok-bot)."
+ },
+ {
+  "id": "antigravity",
+  "app": "Google Antigravity",
+  "maker": "Google",
+  "group": "code",
+  "free": true,
+  "what": "Google's agent-first coding app and CLI (replaced Gemini CLI).",
+  "access": "Open to all",
+  "priceText": "Free · more with Google AI Pro ($19.99) or Ultra",
+  "plans": [
+   {
+    "name": "Google AI Pro",
+    "usd_month": 19.99
+   },
+   {
+    "name": "Google AI Ultra",
+    "usd_month": 199.99
+   }
+  ],
+  "source": {
+   "label": "Antigravity pricing page",
+   "url": "https://antigravity.google/pricing",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://antigravity.google/pricing",
+   "proof": "Antigravity"
+  },
+  "evidence": "For Individuals $0/month … Google AI Pro: More rate limits … Google AI Ultra: Even more rate limits. geminicli.com: 'Gemini CLI was replaced by Antigravity CLI on June 18th, 2026'"
+ },
+ {
+  "id": "lovable",
+  "app": "Lovable",
+  "maker": "Lovable",
+  "group": "code",
+  "free": true,
+  "what": "Builds websites and web apps from a chat, no coding needed.",
+  "access": "Open to all",
+  "priceText": "Free · Pro $25/month · Business $50/month",
+  "plans": [
+   {
+    "name": "Pro",
+    "usd_month": 25
+   },
+   {
+    "name": "Business",
+    "usd_month": 50
+   }
+  ],
+  "source": {
+   "label": "Lovable pricing page",
+   "url": "https://lovable.dev/pricing",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://lovable.dev/pricing",
+   "proof": "Lovable"
+  },
+  "evidence": "(browser, Nov 2) Free $0 … Pro $25/month 100 monthly credits … Business $50/month. Prices are drawn by JavaScript (not in the plain HTML)."
+ },
+ {
+  "id": "bolt",
+  "app": "Bolt",
+  "maker": "Bolt",
+  "group": "code",
+  "free": true,
+  "what": "Builds websites and apps from a plain description, with hosting.",
+  "access": "Open to all",
+  "priceText": "Free · Pro $25/month · Teams $30/member",
+  "plans": [
+   {
+    "name": "Pro",
+    "usd_month": 25
+   },
+   {
+    "name": "Teams",
+    "usd_month": 30
+   }
+  ],
+  "source": {
+   "label": "Bolt pricing page",
+   "url": "https://bolt.new/pricing",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://bolt.new/pricing",
+   "proof": "Bolt"
+  },
+  "evidence": "$0/month Free forever … Pro $25/month Billed monthly … Teams $30/month Per member, billed monthly"
+ },
+ {
+  "id": "v0",
+  "app": "v0",
+  "maker": "Vercel",
+  "group": "code",
+  "free": true,
+  "what": "Vercel's app builder: describe an app or site and it builds and deploys it.",
+  "access": "Open to all",
+  "priceText": "Free · Plus from $30/user/month · Business $100",
+  "plans": [
+   {
+    "name": "Plus",
+    "usd_month": 30
+   },
+   {
+    "name": "Business",
+    "usd_month": 100
+   }
+  ],
+  "source": {
+   "label": "v0 pricing page",
+   "url": "https://v0.app/pricing",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://v0.app/pricing",
+   "proof": "v0"
+  },
+  "evidence": "Free $0/month … 7 message/day limit … Plus $30 $90 /user/month (a tier picker; $30 is the lowest) … Business $100/user/month"
+ },
+ {
+  "id": "base44",
+  "app": "Base44",
+  "maker": "Wix",
+  "group": "code",
+  "free": true,
+  "what": "Builds apps from a chat, with database and hosting built in.",
+  "access": "Open to all",
+  "priceText": "Free · paid plans from $16/month (billed yearly)",
+  "plans": [
+   {
+    "name": "Starter",
+    "usd_month": 16
+   },
+   {
+    "name": "Builder",
+    "usd_month": 40
+   },
+   {
+    "name": "Pro",
+    "usd_month": 80
+   },
+   {
+    "name": "Elite",
+    "usd_month": 160
+   }
+  ],
+  "source": {
+   "label": "Base44 pricing page",
+   "url": "https://base44.com/pricing",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://base44.com/pricing",
+   "proof": "Base44"
+  },
+  "evidence": "Start for free … (Yearly view) Starter $16/mo, Builder $40/mo, Pro $80/mo, Elite $160/mo, billed annually. © 2026 Wix"
+ },
+ {
+  "id": "kiro",
+  "app": "Kiro",
+  "maker": "AWS (Amazon)",
+  "group": "code",
+  "free": true,
+  "what": "Amazon's coding editor and agent that plans from specs, then writes the code.",
+  "access": "Open to all",
+  "priceText": "Free · Pro $20/month · Pro+ $40 · Pro Max $100 · Power $200",
+  "plans": [
+   {
+    "name": "Pro",
+    "usd_month": 20
+   },
+   {
+    "name": "Pro+",
+    "usd_month": 40
+   },
+   {
+    "name": "Pro Max",
+    "usd_month": 100
+   },
+   {
+    "name": "Power",
+    "usd_month": 200
+   }
+  ],
+  "source": {
+   "label": "Kiro pricing page",
+   "url": "https://kiro.dev/pricing/",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://kiro.dev/pricing/",
+   "proof": "Kiro"
+  },
+  "evidence": "KIRO FREE $0 per month 50 credits … KIRO PRO $20 per user/month … PRO+ $40 … PRO MAX $100 … POWER $200"
+ },
+ {
+  "id": "factory",
+  "app": "Factory (Droids)",
+  "maker": "Factory",
+  "group": "code",
+  "free": false,
+  "what": "Coding agents ('Droids') on desktop, in the terminal and in the cloud.",
+  "access": "Subscription",
+  "priceText": "Pro $20/month · Plus $100 · Max $200",
+  "plans": [
+   {
+    "name": "Pro",
+    "usd_month": 20
+   },
+   {
+    "name": "Plus",
+    "usd_month": 100
+   },
+   {
+    "name": "Max",
+    "usd_month": 200
+   }
+  ],
+  "source": {
+   "label": "Factory pricing page",
+   "url": "https://factory.ai/pricing",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://factory.ai/pricing",
+   "proof": "Factory"
+  },
+  "evidence": "Pro $20/mo Complete software development agents for individuals … Plus $100/mo … Max $200/mo"
+ },
+ {
+  "id": "warp",
+  "app": "Warp",
+  "maker": "Warp",
+  "group": "code",
+  "free": true,
+  "what": "A terminal with a built-in coding agent, plus cloud agents.",
+  "access": "Open to all",
+  "priceText": "Free · Build $20/month · Max $200/month",
+  "plans": [
+   {
+    "name": "Build",
+    "usd_month": 20
+   },
+   {
+    "name": "Max",
+    "usd_month": 200
+   }
+  ],
+  "source": {
+   "label": "Warp pricing page",
+   "url": "https://www.warp.dev/pricing",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://www.warp.dev/pricing",
+   "proof": "Warp"
+  },
+  "evidence": "$0/month … Build Monthly plan $20/month … $20 of agent usage included … Max Monthly plan $200/month"
+ },
+ {
+  "id": "augment",
+  "app": "Augment Code",
+  "maker": "Harness",
+  "group": "code",
+  "free": false,
+  "what": "Coding agents that understand big codebases; in your editor, the terminal and the cloud.",
+  "access": "Subscription (flat price per team)",
+  "priceText": "Standard $20/month · Business $100/month",
+  "plans": [
+   {
+    "name": "Standard",
+    "usd_month": 20
+   },
+   {
+    "name": "Business",
+    "usd_month": 100
+   }
+  ],
+  "source": {
+   "label": "Augment pricing page",
+   "url": "https://www.augmentcode.com/pricing",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://www.augmentcode.com/pricing",
+   "proof": "Augment"
+  },
+  "evidence": "STANDARD $20/month flat, no per-seat charge … up to 50 seats … BUSINESS $100/month flat. Footer: © 2026 Harness, Inc"
+ },
+ {
+  "id": "amp",
+  "app": "Amp",
+  "maker": "Amp",
+  "group": "code",
+  "free": true,
+  "what": "A coding agent that keeps working in the cloud after you close your laptop.",
+  "access": "Open to all",
+  "priceText": "Free (bring your own AI plan) · Individual $20/month",
+  "plans": [
+   {
+    "name": "Individual",
+    "usd_month": 20
+   }
+  ],
+  "source": {
+   "label": "Amp pricing page",
+   "url": "https://ampcode.com/pricing",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://ampcode.com/pricing",
+   "proof": "Amp"
+  },
+  "evidence": "Hobby Free … Use your ChatGPT, Claude & other subs … Individual $20/mo"
+ },
+ {
+  "id": "cline",
+  "app": "Cline",
+  "maker": "Cline",
+  "group": "code",
+  "free": true,
+  "what": "An open-source coding agent for VS Code and the terminal. You pay only for the AI you use.",
+  "access": "Open to all (open source)",
+  "priceText": "Free · pay only for AI use",
+  "plans": [],
+  "source": {
+   "label": "Cline pricing page",
+   "url": "https://cline.bot/pricing",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://cline.bot/pricing",
+   "proof": "Cline"
+  },
+  "evidence": "'Cline is free for individual developers. Pay only for AI inference on a usage basis - no subscriptions'"
+ },
+ {
+  "id": "chatgpt-deep-research",
+  "app": "ChatGPT deep research",
+  "maker": "OpenAI",
+  "group": "research",
+  "free": true,
+  "what": "Researches a question across many sources and writes a report with citations.",
+  "access": "All ChatGPT plans (limited on Free)",
+  "priceText": "Free (limited) · Plus $20/month · Pro from $100",
+  "plans": [
+   {
+    "name": "Plus",
+    "usd_month": 20
+   },
+   {
+    "name": "Pro",
+    "usd_month": 100
+   }
+  ],
+  "source": {
+   "label": "ChatGPT pricing page",
+   "url": "https://chatgpt.com/pricing",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://apps.apple.com/us/app/chatgpt/id6448311069",
+   "proof": "ChatGPT"
+  },
+  "evidence": "Free $0 'Limited deep research' … Plus $20/month 'Expanded deep research' … Pro From $100/month 'Maximum deep research' (browser, Nov 2)"
+ },
+ {
+  "id": "gemini-deep-research",
+  "app": "Gemini Deep Research",
+  "maker": "Google",
+  "group": "research",
+  "free": true,
+  "what": "Makes a research plan, searches the web and your files, and writes a detailed report.",
+  "access": "All Gemini plans",
+  "priceText": "Free · more with Google AI Plus $4.99, Pro $19.99, Ultra $199.99",
+  "plans": [
+   {
+    "name": "Google AI Plus",
+    "usd_month": 4.99
+   },
+   {
+    "name": "Google AI Pro",
+    "usd_month": 19.99
+   },
+   {
+    "name": "Google AI Ultra",
+    "usd_month": 199.99
+   }
+  ],
+  "source": {
+   "label": "Google AI plans page",
+   "url": "https://gemini.google/subscriptions/",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://gemini.google/overview/deep-research/",
+   "proof": "Deep Research"
+  },
+  "evidence": "Free $0/month … Gemini app … Deep Research … Google AI Plus $4.99/month … Google AI Pro $19.99/month … Ultra $199.99"
+ },
+ {
+  "id": "m365-researcher",
+  "app": "Microsoft 365 Copilot (Researcher)",
+  "maker": "Microsoft",
+  "group": "research",
+  "free": false,
+  "what": "Researcher agent in Copilot: digs through the web and your work files, mail and meetings for deep answers.",
+  "access": "Microsoft 365 Premium (home) or Copilot add-on (business)",
+  "priceText": "Microsoft 365 Premium $19.99/month",
+  "plans": [
+   {
+    "name": "Microsoft 365 Premium",
+    "usd_month": 19.99
+   }
+  ],
+  "source": {
+   "label": "Microsoft Support article",
+   "url": "https://support.microsoft.com/en-us/microsoft-365-copilot/get-started-with-researcher-in-microsoft-365-copilot",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://support.microsoft.com/en-us/microsoft-365-copilot/get-started-with-researcher-in-microsoft-365-copilot",
+   "proof": "Researcher"
+  },
+  "evidence": "'Researcher is currently available to Microsoft 365 Premium and Pro subscribers and to Microsoft 365 business and enterprise users with a Microsoft 365 Copilot add-on license.' Price: App Store (Microsoft Corporation) Microsoft 365 Premium Monthly $19.99; microsoft.com/en-us/microsoft-365/premium shows $19.99"
+ },
+ {
+  "id": "notion-agent",
+  "app": "Notion Agent",
+  "maker": "Notion",
+  "group": "research",
+  "free": false,
+  "what": "Does multi-step work in Notion using your pages, connected apps and the web; custom agents run on their own.",
+  "access": "Notion Business (trial on Free and Plus)",
+  "priceText": "Business $20/member/month · custom agents $10 per 1,000 credits",
+  "plans": [
+   {
+    "name": "Business",
+    "usd_month": 20
+   }
+  ],
+  "source": {
+   "label": "Notion pricing page",
+   "url": "https://www.notion.com/pricing",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://www.notion.com/pricing",
+   "proof": "Notion Agent"
+  },
+  "evidence": "Business $20 per member/month … 'Does work for you. Completes complex, multi-step tasks using context from Notion, your connected apps, and the web. Notion Agent' … Custom Agents: 'Free to try, then $10 per 1,000 monthly Notion credits'"
+ },
+ {
+  "id": "elicit",
+  "app": "Elicit",
+  "maker": "Elicit",
+  "group": "research",
+  "free": true,
+  "what": "A research agent for scientific papers: finds, reads and summarizes studies into reports.",
+  "access": "Open to all",
+  "priceText": "Free · Plus $11/month · Pro $39/month (billed yearly)",
+  "plans": [
+   {
+    "name": "Plus",
+    "usd_month": 11
+   },
+   {
+    "name": "Pro",
+    "usd_month": 39
+   }
+  ],
+  "source": {
+   "label": "Elicit pricing page",
+   "url": "https://elicit.com/pricing",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://elicit.com/pricing",
+   "proof": "Elicit"
+  },
+  "evidence": "Basic Free 'Limited usage for Research Agent and Research Reports' … Plus $11 per user/month, billed as $132 annually … Pro $39 per user/month, billed as $468 annually"
+ },
+ {
+  "id": "consensus",
+  "app": "Consensus",
+  "maker": "Consensus",
+  "group": "research",
+  "free": true,
+  "what": "Searches peer-reviewed research and writes cited answers and literature reviews.",
+  "access": "Open to all",
+  "priceText": "Free · Pro $12/month · Deep $45/month",
+  "plans": [
+   {
+    "name": "Pro",
+    "usd_month": 12
+   },
+   {
+    "name": "Deep",
+    "usd_month": 45
+   }
+  ],
+  "source": {
+   "label": "Consensus pricing page",
+   "url": "https://consensus.app/pricing/",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://consensus.app/pricing/",
+   "proof": "Consensus|Pricing"
+  },
+  "evidence": "(browser, Nov 2) Free $0/mo … Pro $12/mo, $144 annually … Deep $45/mo, $540 annually"
+ },
+ {
+  "id": "zapier-agents",
+  "app": "Zapier Agents",
+  "maker": "Zapier",
+  "group": "research",
+  "free": true,
+  "what": "Build AI teammates that do work across 9,000+ apps on command or on a schedule.",
+  "access": "Open to all",
+  "priceText": "Free (400 activities/month) · Pro $33.33/month (billed yearly)",
+  "plans": [
+   {
+    "name": "Agents Pro",
+    "usd_month": 33.33
+   }
+  ],
+  "source": {
+   "label": "Zapier pricing page",
+   "url": "https://zapier.com/pricing",
+   "checked": "2026-11-02"
+  },
+  "check": {
+   "url": "https://zapier.com/agents",
+   "proof": "Agents"
+  },
+  "evidence": "Agents Free Forever 'Run automated behaviors up to 400 times per month' … Agents Pro $400 billed annually $33.33/month, 1,500 activities"
+ }
+]

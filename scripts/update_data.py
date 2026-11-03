@@ -745,6 +745,9 @@ def read_source(src, old_plans, label="prices", extra=None):
         text = text[i:i + length]
     if src.get("proof") and not re.search(src["proof"], text, flags=re.I):
         return [], False, "the line that shows this is included is not on the page any more"
+    if src.get("noPrice") and re.search(r"\$\s?\d", text):
+        log(src["noPrice"])                    # e.g. "Instinct: a price may be public now, check instinct.com"
+        return [], False, "a $ price is on the page now (not guessed; last good kept)"
     if src.get("facts") and extra is not None:
         for fname, (fre, tmpl) in src["facts"].items():
             fm = re.search(fre, text, flags=re.I)
@@ -803,6 +806,10 @@ def read_apps(cfgs, prev_apps, cfg_ver, label="prices", key="app"):
         base = old or seed_record(cfg)
         tried, used, extra = [], None, {}
         for src in cfg["sources"]:
+            if src["kind"] == "static":            # hand-checked entry: not fetched, keeps its own check date
+                tried.append({"label": src["label"], "url": src["url"], "ok": True, "err": ""})
+                used = (src, [])
+                break
             if not first:
                 sleep(PRICE_PAUSE)
             first = False
@@ -824,6 +831,8 @@ def read_apps(cfgs, prev_apps, cfg_ver, label="prices", key="app"):
                    "facts": dict((base.get("facts") or {}), **(extra.get("facts") or {}))}
             all_read = all(p["checked"] == TODAY for p in plans)
             rec["checked"] = TODAY if all_read else min(p["checked"] for p in plans)
+            if src["kind"] == "static":
+                rec["checked"] = src["checked"]
             read_ok += 1
         else:
             rec = {"plans": base["plans"], "src": base["src"], "checked": base["checked"], "facts": base.get("facts") or {}}
@@ -845,8 +854,11 @@ def fetch_prices(prev=None):
 
 
 def stale_prices(prices):
+    """Stale prices of priced apps (personal assistants have no price, so they are never counted here)."""
     out = []
     for a in (prices or {}).get("apps") or []:
+        if a.get("group") == "assistants" or a.get("static"):
+            continue
         for p in a.get("plans") or []:
             if p.get("stale"):
                 out.append({"app": a["app"], "plan": p["name"], "usd_month": p["usd_month"], "checked": p["checked"]})
@@ -859,8 +871,9 @@ def stale_prices(prices):
 # Same reader as the Cost tab (polite fetching, 3 tries, believable-number check, keep last good, stale after 30 days).
 # Apps whose agent comes with a plan already on the Cost tab ("plansFrom") don't repeat those prices: the app reads a
 # line on the company's own page that proves which plans include the agent ("proof"), and shows the Cost-tab prices.
-AGENTS_CFG = 2                  # bump when the list below changes, so old saved values aren't mixed in (2: Manus plans)
-AGENT_GROUPS = [("tasks", "Does tasks for you"), ("code", "Writes code for you")]
+AGENTS_CFG = 4                  # bump when the list below changes, so old saved values aren't mixed in (4: all agents, 4 groups)
+AGENT_GROUPS = [("assistants", "Personal assistants (text or call them)"), ("tasks", "Browser and computer agents"),
+                ("code", "Coding agents"), ("research", "Research and work agents")]
 AGENT_APPS = [
     # ---- does tasks for you
     {"id": "chatgpt-work", "app": "ChatGPT Work", "maker": "OpenAI", "group": "tasks", "free": True,
@@ -929,6 +942,7 @@ AGENT_APPS = [
                             ("Super", 100, r"\bSuper\b[^$]{0,25}" + P + r"\s*/\s*month"), ("Ultra", 200, r"\bUltra\b[^$]{0,25}" + P + r"\s*/\s*month")]}]},
     {"id": "devin", "app": "Devin", "maker": "Cognition", "group": "code", "free": True,
      "what": "A coding agent that works on its own, on your computer or in the cloud.",
+     "note": "Windsurf is now part of Devin (windsurf.com opens Devin's pricing page).",
      "sources": [{"kind": "web", "label": "Pricing page", "url": "https://devin.ai/pricing",
                   "plans": [("Pro", 20, r"\bPro\b[^$]{0,25}" + P + r"\s*per month"), ("Max", 200, r"\bMax\b[^$]{0,25}" + P + r"\s*per month")]}]},
     {"id": "replit", "app": "Replit Agent", "maker": "Replit", "group": "code", "free": None,
@@ -937,24 +951,94 @@ AGENT_APPS = [
                   "plans": [("Core", 20, r"\bCore\s+" + P), ("Pro", 100, r"\bPro\s+" + P)]},
                  {"kind": "appstore", "label": "App Store price (US)", "url": APPSTORE + "replit-vibe-code-with-ai-fast/id1614022293",
                   "seller": r"Replit", "plans": [("Core", 20, "Replit Core")]}]},
+    # ---- personal assistants (text or call them). No public prices: these rows never count as prices anywhere.
+    {"id": "instinct", "app": "Instinct", "maker": "Instinct", "group": "assistants", "free": None,
+     "what": "A personal assistant you text or call. Connects to your apps, and can order, book and send things for you.",
+     "access": "Invite only (waitlist)", "priceText": "Price not public",
+     "sources": [{"kind": "web", "label": "Instinct home page", "url": "https://instinct.com/", "proof": r"text or call",
+                  "noPrice": "Instinct: a price may be public now, check instinct.com", "plans": []}]},
+    {"id": "tab", "app": "Tab", "maker": "Tab", "group": "assistants", "free": None,
+     "what": "A personal assistant you text on iMessage or WhatsApp. Does errands, research, phone calls, email and calendar.",
+     "access": "Invite or waitlist (private beta)", "priceText": "Free to use; paid plans for more speed",
+     "sources": [{"kind": "static", "label": "tab.bot", "url": "https://tab.bot", "checked": "2026-11-02", "plans": []}]},
 ]
+
+
+# ---- every other notable agent: hand-checked entries in scripts/agents_static.json (checked by hand on the date in
+# "source.checked"). Their prices are never parsed. Every day the app only checks that the maker's page is still up:
+# check.url loads (polite reader, 3 tries) and the proof word is on it. If not, the row stays as it is and the log says
+# so; after 30 days without a good check the row is marked stale (but kept). Never counted as prices anywhere.
+STATIC_AGENTS_FILE = Path(__file__).resolve().parent / "agents_static.json"
+
+
+def static_agent_cfgs(path=None):
+    out = []
+    for x in json.loads(Path(path or STATIC_AGENTS_FILE).read_text(encoding="utf-8")):
+        out.append({"id": x["id"], "app": x["app"], "maker": x["maker"], "group": x["group"], "free": x.get("free"),
+                    "what": x["what"], "access": x.get("access", ""), "priceText": x.get("priceText", ""), "static": True,
+                    "sources": [{"kind": "checked", "label": x["source"]["label"], "url": x["source"]["url"],
+                                 "checked": x["source"]["checked"], "checkUrl": x["check"]["url"], "proof": x["check"]["proof"],
+                                 "plans": [(p["name"], p["usd_month"], None) for p in x.get("plans") or []]}]})
+    return out
+
+
+AGENT_APPS = AGENT_APPS + static_agent_cfgs()
+
+
+def check_static(cfg, old):
+    """Daily 'page still up' check of a hand-checked agent. Returns the app record."""
+    src = cfg["sources"][0]
+    err = ""
+    try:
+        text = page_text(polite_get(src["checkUrl"], "agent apps").text)
+        ok = bool(re.search(src["proof"], text, flags=re.I))
+        if not ok:
+            err = "the proof word is not on the page"
+    except Exception as e:
+        ok, err = False, str(e)[:160]
+    page_checked = TODAY if ok else ((old or {}).get("pageChecked") or src["checked"])
+    if not ok:
+        log(f"{cfg['app']}: official page not read today ({err})")
+    stale = days_old(page_checked) > STALE_DAYS
+    plans = [{"name": n, "usd_month": v, "checked": src["checked"], "stale": stale} for n, v, _ in src["plans"]]
+    return dict({k: cfg[k] for k in cfg if k != "sources"}, note=cfg.get("note", ""), cfg=AGENTS_CFG, plans=plans,
+                src={"kind": "checked", "label": src["label"], "url": src["url"]}, page=src["url"], checked=src["checked"],
+                pageChecked=page_checked, checkUrl=src["checkUrl"], facts={}, read_ok=ok, readToday=ok,
+                tried=[{"label": "Official page", "url": src["checkUrl"], "ok": ok, "err": err}],
+                stale=stale, ageDays=days_old(page_checked))
 
 
 def fetch_agentapps(prev=None):
     """Agent apps: own prices, or the proof line for apps whose agent comes with a Cost-tab plan."""
-    apps, read_ok = read_apps(AGENT_APPS, (prev or {}).get("apps"), AGENTS_CFG, label="agent apps", key="id")
-    return {"apps": apps, "pages_read": read_ok, "apps_total": len(AGENT_APPS)}
+    old = {a["id"]: a for a in ((prev or {}).get("apps") or []) if a.get("cfg") == AGENTS_CFG}
+    read, _ = read_apps([c for c in AGENT_APPS if not c.get("static")], (prev or {}).get("apps"), AGENTS_CFG, label="agent apps", key="id")
+    by_id = {a["id"]: a for a in read}
+    apps = []
+    for c in AGENT_APPS:
+        if c.get("static"):
+            sleep(PRICE_PAUSE)
+            apps.append(check_static(c, old.get(c["id"])))
+        else:
+            apps.append(by_id[c["id"]])
+    priced = [a for a in apps if a["group"] != "assistants" and not a.get("static")]      # counts are about prices only
+    return {"apps": apps, "pages_read": sum(1 for a in priced if a["readToday"]), "apps_total": len(priced)}
 
 
 def build_agent_apps(raw):
     cost = {a["app"]: a for a in (raw.get("prices") or {}).get("apps") or []}
     out = []
     for a in (raw.get("agentapps") or {}).get("apps") or []:
-        rec = {k: a.get(k) for k in ("id", "app", "maker", "group", "what", "free", "note")}
+        rec = {k: a.get(k) for k in ("id", "app", "maker", "group", "what", "free", "note", "access", "priceText", "static")}
         rec["freeNote"] = (a.get("facts") or {}).get("freeTasks", "")
         own = {"label": a["src"]["label"], "url": a["src"]["url"], "checked": a["checked"], "readToday": a["readToday"],
                "stale": a["stale"], "tried": a.get("tried") or []}
-        if a.get("plansFrom"):
+        if a.get("static"):
+            rec["plans"] = [dict(p) for p in a.get("plans") or []]
+            rec["src"] = dict(own, checked=a["checked"])
+            rec["check"] = {"label": "Official page", "url": a.get("checkUrl") or a["src"]["url"], "checked": a.get("pageChecked"),
+                            "readToday": a["readToday"], "stale": a["stale"], "tried": a.get("tried") or []}
+            rec["proof"] = None
+        elif a.get("plansFrom"):
             ca = cost.get(a["plansFrom"]) or {}
             only = a.get("only")
             rec["plans"] = [dict(p) for p in ca.get("plans") or [] if not only or p["name"] in only]
