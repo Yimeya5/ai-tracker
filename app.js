@@ -293,17 +293,44 @@
     if (a.free === false) return '<span class="muted">Paid</span>';
     return '<span class="muted" title="The pricing page doesn\'t list a free plan">Free?</span>';
   }
+  function nameMaker(a) { return "<b>" + esc(a.app) + '</b> <span class="mk">· ' + esc(a.maker) + "</span>"; }
   function agentSimpleRow(a) {
     var s = a.src || {}, only = list(a.plans);
-    var bits = [esc(a.maker)];
+    var bits = [];
     if (a.plansFrom && a.free === false && only.length === 1) bits.push("only with " + esc(only[0].name));
     else if (a.plansFrom) bits.push("with " + esc(a.plansFrom) + " plans");
     var price = agentPrice(a);
     if (price) bits.push(price);
-    bits.push(ext(s.url, esc(s.label || "Pricing page")) + (s.readToday ? ", " + esc(day(s.checked || a.checked)) : ', <span class="warn">last checked ' + esc(day(s.checked || a.checked)) + "</span>") + staleMark(s.stale));
-    return '<li><span class="rn"><b>' + esc(a.app) + "</b><small>" + bits.join(" · ") + '</small></span><span class="rv">' + agentFree(a) + "</span></li>";
+    var src = ext(s.url, esc(s.label || "Pricing page")) + (s.readToday ? ", " + esc(day(s.checked || a.checked)) : ', <span class="warn">last checked ' + esc(day(s.checked || a.checked)) + "</span>") + staleMark(s.stale);
+    return '<li><span class="rn">' + nameMaker(a) + (bits.length ? "<small>" + bits.join(" · ") + "</small>" : "") + '<small class="checked">' + src + '</small></span><span class="rv">' + agentFree(a) + "</span></li>";
+  }
+  // Hand-checked agents (scripts/agents_static.json): price text exactly as checked by hand, never parsed.
+  // The daily check only confirms the maker's page is still up ("page still up: <date>").
+  function staticRow(a, full) {
+    var s = a.src || {}, c = a.check || {};
+    var h = '<li><span class="rn">' + nameMaker(a) + "<small>" + esc(a.priceText || "") + "</small>";
+    if (full) {
+      h += "<small>" + esc(a.what || "") + "</small><small>Access: " + esc(a.access || "") + "</small>";
+      if (list(a.plans).length) h += '<span class="plans">' + list(a.plans).map(function (p) {
+        return '<span class="plan">' + esc(p.name) + ": <b>" + esc(monthly(p.usd_month)) + "</b></span>";
+      }).join("") + "</span>";
+    }
+    h += '<small class="checked">' + ext(s.url, esc(s.label || "Official page")) + ", checked " + esc(day(a.checked)) + staleMark(a.stale || c.stale) + "</small>";
+    if (full) h += '<small class="checked">' + (c.readToday ? "Page still up: " + esc(day(c.checked)) : '<span class="warn">Page last read ' + esc(day(c.checked)) + "</span>") + "</small>";
+    return h + '</span><span class="rv">' + agentFree(a) + "</span></li>";
+  }
+  // Personal assistants (text or call them): no public prices, so they show access + a plain price line instead.
+  function assistantRow(a, full) {
+    var s = a.src || {};
+    var src = ext(s.url, esc(s.label || "Home page")) + (s.readToday ? ", checked " + esc(day(s.checked || a.checked))
+      : ', <span class="warn">last checked ' + esc(day(s.checked || a.checked)) + "</span>") + staleMark(s.stale);
+    var h = '<li><span class="rn">' + nameMaker(a) + "<small>" + esc(a.access || "") + " · " + esc(a.priceText || "") + "</small>";
+    if (full) h += "<small>" + esc(a.what || "") + "</small><small>Access: " + esc(a.access || "") + " · Price: " + esc(a.priceText || "") + "</small>";
+    return h + '<small class="checked">' + (full ? "Source: " : "") + src + "</small></span></li>";
   }
   function agentAppRow(a, full) {
+    if (a.static) return staticRow(a, full);
+    if (a.group === "assistants") return assistantRow(a, full);
     if (!full) return agentSimpleRow(a);
     var s = a.src || {}, pf = a.proof;
     var bits = [esc(a.maker)];
@@ -330,12 +357,20 @@
     }
     return h + '</span><span class="rv">' + agentFree(a) + "</span></li>";
   }
+  // One collapsible section per group, "Label (N)", closed until tapped (open/closed is remembered like other cards).
   function agentGroups(full) {
-    var apps = list(AG().apps), h = "";
+    var apps = list(AG().apps), h = "", groups = [];
     list(AG().groups).forEach(function (g) {
       var rows = apps.filter(function (a) { return a.group === g.id; });
-      if (!rows.length) return;
-      h += '<h4 class="grp">' + esc(g.label) + "</h4>" + '<ul class="rows card">' + rows.map(function (a) { return agentAppRow(a, full); }).join("") + "</ul>";
+      if (rows.length) groups.push({ g: g, rows: rows });
+    });
+    var n = groups.reduce(function (t, x) { return t + x.rows.length; }, 0);
+    if (groups.length) h += '<p class="note">' + n + " agents in " + groups.length + " groups. Tap a group to open it.</p>";
+    groups.forEach(function (x) {
+      var id = "ag-" + x.g.id + (full ? "-more" : "");
+      h += '<details class="agrp" id="' + esc(id) + '"' + (state.open[id] ? " open" : "") + "><summary><span>" + esc(x.g.label) +
+        ' <span class="cnt">(' + x.rows.length + ')</span></span><span class="chev" aria-hidden="true"></span></summary>' +
+        '<ul class="rows card">' + x.rows.map(function (a) { return agentAppRow(a, full); }).join("") + "</ul></details>";
     });
     return h;
   }
@@ -440,14 +475,15 @@
           "<small>" + line + "</small></span></li>";
       }).join("") + "</ul>";
       var aps = list(ag.apps);
-      h += "<h3>Agent app pages</h3><ul class=\"rows card\">" + aps.map(function (a) {
-        var pg = a.proof || a.src || {};
+      h += '<details class="agrp" id="src-agentpages"' + (state.open["src-agentpages"] ? " open" : "") + '><summary><span>Agent app pages <span class="cnt">(' + aps.length +
+        ')</span></span><span class="chev" aria-hidden="true"></span></summary><ul class="rows card">' + aps.map(function (a) {
+        var pg = a.check || a.proof || a.src || {};
         var line = pg.readToday ? '<span class="ok">✓ Read today</span>' : '<span class="warn">⚠ Failed today</span>';
         var failed = list(pg.tried).filter(function (t) { return !t.ok; }).map(function (t) { return t.label + ": " + t.err; });
         return '<li><span class="rn"><b>' + esc(a.app) + "</b><small>" + ext(pg.url, esc(pg.label || "Pricing page")) + " · last checked " + esc(day(pg.checked)) + staleMark(pg.stale) +
           (a.plansFrom ? " · prices from the " + esc(a.plansFrom) + " row above" : "") + "</small>" +
           "<small>" + line + (failed.length ? ' · <span class="muted">' + esc(failed.join("; ")) + "</span>" : "") + "</small></span></li>";
-      }).join("") + "</ul>";
+      }).join("") + "</ul></details>";
     }
     var feeds = list(D.bignews && D.bignews.feeds);
     if (feeds.length) {

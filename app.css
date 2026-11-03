@@ -154,6 +154,13 @@ details[open] > summary .chev{transform:rotate(45deg) translate(-2px,-2px)}
 .abest .rows{padding:0}
 .abest .why{margin:6px 0 12px}
 b.big{font-size:21px;font-weight:800;letter-spacing:-.01em}
+details.agrp{margin-top:12px}
+.agrp > summary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px;padding:12px 20px;
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);font-weight:700;font-size:17px}
+.agrp[open] > summary{margin-bottom:8px}
+.agrp .cnt{color:var(--muted);font-weight:600}
+.agrp .rows small.checked{overflow-wrap:anywhere}
+.mk{font-size:15px;color:var(--muted);font-weight:400}
 h4.grp{font-size:15px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin:18px 0 8px}
 .card.pad{padding:14px 20px;margin-top:12px}
 .card.pad.cand{border-top:1px solid var(--line)}
