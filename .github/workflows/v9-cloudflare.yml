@@ -1,0 +1,55 @@
+name: Daily data to v9 test site (Cloudflare)
+
+# Copies today's data/ into the v9 test site and uploads it to
+# Cloudflare Pages (https://ai-tracker-3x2.pages.dev).
+# Runs after "Update AI Tracker" finishes, once a day at 10:40 UTC as a backup,
+# and when you press "Run workflow". It never changes GitHub Pages or the repo.
+on:
+  workflow_run:
+    workflows: ["Update AI Tracker"]
+    types: [completed]
+  schedule:
+    - cron: "40 10 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v9-cloudflare
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion != 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Build the v9 site with today's data
+        run: |
+          set -e
+          mkdir -p _v9
+          cp cloudflare-v9/index.html cloudflare-v9/app.css cloudflare-v9/app.js cloudflare-v9/sw.js cloudflare-v9/manifest.webmanifest _v9/
+          cp -r icons data _v9/
+          rm -f _v9/data/history.json _v9/data/raw.json
+          python3 - <<'PY'
+          import json
+          d = json.load(open("_v9/data/data.json"))
+          assert d.get("v") == 3, "old data format"
+          assert len(d["picks"]) >= 3, "too few picks"
+          print("data ok, built", d["built"])
+          PY
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Upload to Cloudflare Pages (project ai-tracker)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: e3297acbf73a853b2df4579773899e9b
+        run: npx --yes wrangler@4 pages deploy _v9 --project-name ai-tracker --branch main --commit-dirty=true
