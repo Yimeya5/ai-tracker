@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<title>AI Tracker: which AI is best for what, what it costs, and what's new</title>
+<meta name="description" content="Which AI model is best for each job, what each one costs, the newest releases, the big news and AI agents. Picked by fixed rules from independent sources. Updates itself every day.">
+<meta name="theme-color" content="#0f131a" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f5f1" media="(prefers-color-scheme: light)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="AI Tracker">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top page">
+  <div class="title">
+    <h1>AI Tracker</h1>
+    <p class="stamp"><span id="stamp" aria-live="polite">Loading…</span> · <button type="button" class="linkbtn" id="srcbtn" data-tab="sources">Sources</button></p>
+  </div>
+  <div class="actions">
+    <button id="refresh" class="icon-btn" type="button" aria-label="Check for new data" title="Check for new data"><span aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg></span></button>
+    <button id="theme" class="icon-btn" type="button" aria-label="Switch between light and dark" title="Light / dark"><span aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor"/></svg></span></button>
+  </div>
+</header>
+<nav class="tabs" id="tabs" aria-label="Main">
+  <div class="pill">
+    <button type="button" data-tab="best" aria-current="page" aria-label="Best for what"><span class="ti" aria-hidden="true">🏆</span><span class="long">Best for what</span><span class="short" aria-hidden="true">Best</span></button>
+    <button type="button" data-tab="cost" aria-label="Cost"><span class="ti" aria-hidden="true">💲</span><span class="long">Cost</span><span class="short" aria-hidden="true">Cost</span></button>
+    <button type="button" data-tab="releases" aria-label="New releases"><span class="ti" aria-hidden="true">🆕</span><span class="long">New releases</span><span class="short" aria-hidden="true">New</span></button>
+    <button type="button" data-tab="news" aria-label="Big news"><span class="ti" aria-hidden="true">📰</span><span class="long">Big news</span><span class="short" aria-hidden="true">News</span></button>
+    <button type="button" data-tab="agents" aria-label="Agents"><span class="ti" aria-hidden="true">🤖</span><span class="long">Agents</span><span class="short" aria-hidden="true">Agents</span></button>
+    <button type="button" data-tab="ask" aria-label="Ask them all"><span class="ti" aria-hidden="true">💬</span><span class="long">Ask</span><span class="short" aria-hidden="true">Ask</span></button>
+  </div>
+</nav>
+<main id="main" class="page" tabindex="-1">
+  <div id="view" class="view"><p class="sub">Loading…</p></div>
+</main>
+<div id="offline" class="offline" role="status" hidden>You're offline. Showing the last saved copy.</div>
+<script src="data/data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
