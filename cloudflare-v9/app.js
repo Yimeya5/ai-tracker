@@ -7,7 +7,7 @@
   // ---- settings for "Ask all 4 here" (see worker/README.md). Leave ASK_API empty and the Ask tab is the free v8 tab.
   var CONFIG = {
     ASK_API: "https://ai-tracker-ask.ai-tracker-ask.workers.dev",            // the Worker URL, e.g. "https://ai-tracker-ask.<you>.workers.dev"
-    PAY_LINK: "",           // the Stripe Payment Link URL ($5 for 60 questions)
+    PAY_LINK: "https://buy.stripe.com/test_fZu8wRan4foLbQwdEU2wU00",           // the Stripe Payment Link URL ($5 for 60 questions)
     FREE: 3, PACK: 60, PRICE: 5   // only for the wording; the Worker decides
   };
   var hasDom = typeof document !== "undefined";
