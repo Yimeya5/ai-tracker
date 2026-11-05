@@ -1,10 +1,10 @@
 // AI Pro service worker.
 // Data (data/*) = network first, saved copy when offline, so the app never shows old data while online.
 // App files = saved copy first for speed, refreshed in the background on every visit.
-const VERSION = "v14b-2026-11-05";
+const VERSION = "v15-2026-11-05";
 const SHELL = "ait-shell-" + VERSION;
 const DATA = "ait-data";
-const SHELL_FILES = ["./", "./app.css", "./app.js", "./manifest.webmanifest",
+const SHELL_FILES = ["./", "./app.css", "./app.js", "./tips.js", "./manifest.webmanifest",
   "./icons/icon-180.png", "./icons/icon-192.png", "./icons/icon-512.png",
   "./terms.html", "./refund.html", "./privacy.html"];
 const OPTIONAL = ["./terms.html", "./refund.html", "./privacy.html"];   // saved when present; never block the install

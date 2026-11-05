@@ -18,12 +18,13 @@
     best: "The top AI for each task.",
     cost: "Free and paid plans for each AI.",
     releases: "The latest AI models.",
-    agents: "AIs that do tasks for you."
+    agents: "AIs that do tasks for you.",
+    race: "Give one task to 2 to 4 AIs and see who finishes first."
   };
   var hasDom = typeof document !== "undefined";
   var D = root.AI_DATA || null;
 
-  var TABS = ["best", "cost", "releases", "news", "agents", "ask"];
+  var TABS = ["best", "cost", "releases", "news", "agents", "ask", "race"];
   var VIEWS_ALL = TABS.concat(["sources"]);
   var state = { tab: "best", more: false, open: {} };
 
@@ -177,9 +178,38 @@
 
   // ---------------------------------------------------------------- views: Best for what
   // the first screen: a clear way into Ask (only when Ask is set up)
+  // the "Explore — 10 free credits" banner is for new visitors only: hidden once free credits were spent on this
+  // device (ait.freeCreditsUsed, saved from every balance the helper sends) or a paid code was saved
+  function ctaOn() {
+    if (!CONFIG.ASK_API || stored("ait.code")) return false;
+    if ((parseInt(stored("ait.freeCreditsUsed") || "0", 10) || 0) > 0) return false;
+    return !(pro.left && (pro.left.paid_left != null || (pro.left.free_left != null && pro.left.free_left < CONFIG.FREE)));
+  }
   function askCta() {
-    return CONFIG.ASK_API ? '<a class="askcta" href="#ask" data-tab="ask"><span aria-hidden="true">💬</span> <b>' + esc(CONFIG.ASK_NAME) + "</b> — " + CONFIG.FREE +
+    return ctaOn() ? '<a class="askcta" href="#ask" data-tab="ask"><span aria-hidden="true">💬</span> <b>' + esc(CONFIG.ASK_NAME) + "</b> — " + CONFIG.FREE +
       ' free credits <span class="go" aria-hidden="true">›</span></a>' : "";
+  }
+  // ---- AI tip of the week (tips.js: window.AI_TIPS). One tip per week, changing every Monday: weeks are counted
+  // from Monday 5 Jan 1970 on the visitor's own calendar, so ISO week 53 -> week 1 simply moves on to the next tip.
+  function tipsList() { var t = root.AI_TIPS; return Array.isArray(t) ? t.filter(function (x) { return typeof x === "string" && x; }) : []; }
+  function weekNumber(d) {                                  // weeks since Mon 1970-01-05 (local date, no DST trouble)
+    var day = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 864e5;
+    return Math.floor((day - 4) / 7);
+  }
+  function isoWeek(d) {                                     // {year, week} as in ISO 8601 (weeks start Monday)
+    var t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    var dow = t.getUTCDay() || 7;
+    t.setUTCDate(t.getUTCDate() + 4 - dow);                 // the Thursday of this week decides the year
+    var y = t.getUTCFullYear();
+    return { year: y, week: Math.ceil(((t - Date.UTC(y, 0, 1)) / 864e5 + 1) / 7) };
+  }
+  function tipFor(d) { var t = tipsList(); return t.length ? t[((weekNumber(d) % t.length) + t.length) % t.length] : ""; }
+  function tipHtml(d) {
+    var t = tipsList(), tip = tipFor(d);
+    if (!tip) return "";
+    return '<aside class="tip card" aria-labelledby="tiph"><p class="tiphead" id="tiph"><span aria-hidden="true">💡</span> AI tip of the week</p>' +
+      '<p class="tiptext">' + esc(tip) + "</p>" +
+      '<details class="tipall"><summary>See all tips</summary><ol>' + t.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ol></details></aside>";
   }
   // simple views name no sources; the credits (and CC BY attribution) are one tap away on the Sources page
   function plainCredits() {
@@ -187,7 +217,7 @@
   }
   function vBest() {
     var picks = list(D.picks);
-    var h = "<h2>Best for what</h2><p class=\"sub\">" + esc(SUBS.best) + "</p>" + askCta();       // the full rule is under See more
+    var h = "<h2>Best for what</h2><p class=\"sub\">" + esc(SUBS.best) + "</p>" + askCta() + tipHtml(new Date());   // the full rule is under See more
     h += staleList(["lmarena", "aa", "livebench", "epoch"]);
     if (list(D.picks).some(function (p) { return p.usesAA; })) h += aaNote();
     h += '<div class="stack">' + (picks.map(function (p) { return pickCard(p, "p-"); }).join("") || '<p class="note">No picks yet.</p>') + "</div>";
@@ -663,9 +693,9 @@
   // the live line under the question: short and calm, one line on a phone. "Uses 4 credits · You have 10 credits"
   // (each half never breaks inside; at 360 px the halves may stack), plus
   // "(+2 per AI if it needs the web)" only when the rule says it will search, and the non-default models' names.
-  function costLineHtml(cp, pick, models, choice, wc, bal) {
+  function costLineHtml(cp, pick, models, choice, wc, bal, id) {
     var chosen = (models || PRO_AIS).filter(function (m) { return pick.indexOf(m.id) >= 0 && !isDefault(m, chosenOption(m, choice)); });
-    return '<p class="costline" id="askcost" aria-live="polite"><span class="cl">Uses <b>' + esc(nCredits(cp.base)) + "</b></span>" +
+    return '<p class="costline" id="' + (id || "askcost") + '" aria-live="polite"><span class="cl">Uses <b>' + esc(nCredits(cp.base)) + "</b></span>" +
       ' · <span class="cl">You have <b>' + esc(nCredits(bal.total)) + "</b></span>" +
       (cp.hint ? '<small class="webhint">(+' + esc(String(wc)) + " per AI if it needs the web)</small>" : "") +
       (chosen.length ? '<small class="costnames">' + esc(pickNames(chosen.map(function (m) { return m.id; }), models, choice)) + "</small>" : "") +
@@ -708,14 +738,7 @@
         ' <span id="copymsg" aria-live="polite"></span></p>';
     }
     if (pro.notice) h += '<p class="note bad" role="status">' + esc(pro.notice) + "</p>";
-    if ((short || pro.short || bal.total === 0) && !pro.busy) {
-      h += '<div class="outbox card"><p><b>' + (bal.total === 0 ? "You have no credits left." : "Not enough credits for this question.") + "</b> " +
-        (bal.total === 0 ? "" : "Untick some AIs, or ") + (CONFIG.PAY_LINK ? (bal.total === 0 ? "G" : "g") + "et " + CONFIG.PACK + " credits for $" + CONFIG.PRICE + "." : "") + "</p>" +
-        (CONFIG.PAY_LINK ? '<a class="paybtn" href="' + safeUrl(CONFIG.PAY_LINK) + '">Get ' + CONFIG.PACK + " credits for $" + CONFIG.PRICE + "</a>" : "") +
-        '<p class="note">Have a code?</p><div class="codebar"><input id="askcode" type="text" autocomplete="off" spellcheck="false" placeholder="AP-XXXX-XXXX-XXXX" maxlength="20" aria-label="Your code">' +
-        '<button type="button" class="linkbtn" id="askapply">Apply code</button></div><p class="note" id="codemsg" aria-live="polite">' + esc(pro.codeMsg) + "</p>" +
-        '<p class="note">Free: open your question in each AI\'s own website (buttons below).</p></div>';
-    }
+    if ((short || pro.short || bal.total === 0) && !pro.busy) h += outboxHtml(bal, false);
     if (pro.asked && (pro.answers || pro.busy)) {
       var by = {};
       models.forEach(function (m) { by[m.id] = m; });
@@ -730,6 +753,15 @@
       }).join("") + "</div>" + '<p class="note fastmodel">Answered by each company\'s fast model, unless you pick another (▾).</p>';
     }
     return h;
+  }
+  // the buy / code box when the credits aren't enough (Explore and Race)
+  function outboxHtml(bal, forRace) {
+    return '<div class="outbox card"><p><b>' + (bal.total === 0 ? "You have no credits left." : "Not enough credits for this " + (forRace ? "race." : "question.")) + "</b> " +
+      (bal.total === 0 ? "" : "Untick some AIs, or ") + (CONFIG.PAY_LINK ? (bal.total === 0 ? "G" : "g") + "et " + CONFIG.PACK + " credits for $" + CONFIG.PRICE + "." : "") + "</p>" +
+      (CONFIG.PAY_LINK ? '<a class="paybtn" href="' + safeUrl(CONFIG.PAY_LINK) + '">Get ' + CONFIG.PACK + " credits for $" + CONFIG.PRICE + "</a>" : "") +
+      '<p class="note">Have a code?</p><div class="codebar"><input id="askcode" type="text" autocomplete="off" spellcheck="false" placeholder="AP-XXXX-XXXX-XXXX" maxlength="20" aria-label="Your code">' +
+      '<button type="button" class="linkbtn" id="askapply">Apply code</button></div><p class="note" id="codemsg" aria-live="polite">' + esc(pro.codeMsg) + "</p>" +
+      (forRace ? "" : '<p class="note">Free: open your question in each AI\'s own website (buttons below).</p>') + "</div>";
   }
   // ---- the model picker: a bottom sheet on phones, a small centered dialog on wide screens.
   // It lives outside #view (so redraws don't close it); per-model credits are shown only here.
@@ -771,8 +803,13 @@
   }
   function chooseModel(id, model) {
     setChoice(id, model);
-    var pick = getPick();
-    if (pick.indexOf(id) < 0) setPick(pick.concat(id));                 // choosing a model also ticks that AI
+    if (state.tab === "race") {                                          // on Race: tick it there (up to 4)
+      var rp = getRacePick();
+      if (rp.indexOf(id) < 0 && rp.length < RACE_MAX) setRacePick(rp.concat(id));
+    } else {
+      var pick = getPick();
+      if (pick.indexOf(id) < 0) setPick(pick.concat(id));               // choosing a model also ticks that AI
+    }
     pro.short = false;
     askRedraw();
     var wrap = document.getElementById("modelsheet");
@@ -860,6 +897,152 @@
       '<p class="credits">For the buttons above: some AIs ask you to log in first, and this app never sees that question or those answers.</p>';
     else h += '<p class="credits">Some AIs ask you to log in first. This app never sees your question or answers.</p>';
     return h;
+  }
+
+  // ---------------------------------------------------------------- Race (v15)
+  // 2-4 AIs get the same task. Each AI is its OWN /ask (one model), all sent at once with one race_id, so the helper
+  // counts them as one ask for its burst guard. Each lane fills the moment its answer arrives: place + seconds.
+  // Credits are exactly as in Explore (per AI, + web credits when the web rule fires), shown before Start.
+  var RACE_MIN = 2, RACE_MAX = 4, RACE_DEFAULT = ["chatgpt", "claude"];
+  var PLACES = ["1st", "2nd", "3rd", "4th"];
+  var race = { q: "", pick: null, busy: false, lanes: null, id: null, notice: "", short: false, timer: null, shownShort: false, charged: null };
+  function getRacePick() {
+    if (!race.pick) { var raw = null; try { raw = JSON.parse(stored("ait.racepick")); } catch (e) {} race.pick = Array.isArray(raw) ? raw : RACE_DEFAULT; }
+    return cleanPick(race.pick, proModels()).slice(0, RACE_MAX);
+  }
+  function setRacePick(ids) { race.pick = cleanPick(ids, proModels()).slice(0, RACE_MAX); store("ait.racepick", JSON.stringify(race.pick)); }
+  // a random race id: 16 characters of A-Z a-z 0-9 _ - (the helper accepts 16-64)
+  function newRaceId() {
+    var abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-", out = "", bytes = null;
+    try { bytes = root.crypto.getRandomValues(new Uint8Array(16)); } catch (e) {}
+    for (var i = 0; i < 16; i++) out += abc[(bytes ? bytes[i] : Math.floor(Math.random() * 256)) % 64];
+    return out;
+  }
+  function raceLabel(n, cost, held) {
+    if (n < RACE_MIN) return "Pick at least 2 AIs";
+    return "Start race (" + (held > cost ? "up to " + nCredits(held) : nCredits(cost)) + ")";
+  }
+  function raceChip(m, pick, choice) {
+    var on = pick.indexOf(m.id) >= 0, full = !on && pick.length >= RACE_MAX, o = chosenOption(m, choice), many = m.options && m.options.length > 1;
+    return '<span class="chip' + (on ? " on" : "") + (full ? " full" : "") + '"><label class="chipl"><input type="checkbox" data-rpick="' + esc(m.id) + '"' +
+      (on ? " checked" : "") + (full || race.busy ? " disabled" : "") + "><span><b>" + esc(m.name) + "</b>" +
+      (isDefault(m, o) ? "" : '<small class="clabel">' + esc(o.label) + "</small>") + "</span></label>" +
+      (many ? '<button type="button" class="chipmodel" data-models="' + esc(m.id) + '" aria-haspopup="dialog" aria-label="Choose ' + esc(m.name) + ' model"' +
+        (race.busy ? " disabled" : "") + '><span aria-hidden="true">▾</span></button>' : "") + "</span>";
+  }
+  function laneSecs(ms) { return (ms < 1000 ? (ms / 1000).toFixed(2) : (ms / 1000).toFixed(1)) + " s"; }
+  function laneHtml(l) {
+    var done = l.ms != null, state2 = !done ? "running" : l.error ? "failed" : "done";
+    var srcs = done && !l.error ? webSources(l.sources) : [];
+    return '<section class="lane card ' + state2 + '" data-lane="' + esc(l.id) + '"><div class="lhead"><b>' + esc(l.name) + "</b>" +
+      (l.label ? '<span class="amodel"> · ' + esc(l.label) + "</span>" : "") +
+      (l.searched && !l.error ? ' <span class="searched">🌐 Searched the web</span>' : "") +
+      '<span class="lright">' + (l.place ? '<span class="lplace p' + l.place + '">' + PLACES[l.place - 1] + "</span>" : "") +
+      '<span class="ltime">' + (done ? laneSecs(l.ms) : "0.0 s") + "</span></span></div>" +
+      '<div class="lbar" aria-hidden="true"><i></i></div>' +
+      (done ? '<p class="ltext' + (l.error ? " bad" : "") + '" dir="' + textDir(l.error || l.text) + '">' + esc(l.error || l.text) + "</p>"
+        : '<p class="ltext muted">Working…</p>') +
+      (srcs.length ? '<p class="asrcs"><span class="asrcl">Sources</span>' + srcs.map(function (x) {
+        return '<a href="' + esc(x.url) + '" target="_blank" rel="noopener noreferrer">' + esc(x.title) + "</a>"; }).join("") + "</p>" : "") + "</section>";
+  }
+  function vRace() {
+    var h = "<h2>Race</h2><p class=\"sub\">" + esc(SUBS.race) + "</p>";
+    if (!CONFIG.ASK_API) return h + '<p class="note">Race needs the app\'s answer helper, which isn\'t set up here. Use Explore to open your question in each AI.</p>';
+    var models = proModels(), pick = getRacePick(), wc = webCredits(), bal = balance(), choice = getChoice();
+    var cp = costPreview(race.q, pick, models, choice, wc, Date.now()), short = pick.length >= RACE_MIN && bal.total < cp.held;
+    race.shownShort = short;
+    h += '<div class="askbox card racebox"><label for="raceq" class="sr">The task</label>' +
+      '<textarea id="raceq" dir="' + textDir(race.q) + '" rows="3" maxlength="1500" placeholder="Type one task for all of them…" autocomplete="off"' +
+      (race.busy ? " disabled" : "") + ">" + esc(race.q) + "</textarea>" +
+      '<p class="note bad askqmsg" id="raceqmsg" aria-live="polite"></p>' +
+      '<div class="pickhead"><h3 id="rpickh">Pick 2 to 4 AIs</h3><span class="pickq"><button type="button" class="linkbtn" id="rpicknone"' + (race.busy ? " disabled" : "") +
+      ">Untick all</button></span></div>" +
+      '<div class="chips racechips" role="group" aria-labelledby="rpickh">' + models.map(function (m) { return raceChip(m, pick, choice); }).join("") + "</div>" +
+      costLineHtml(cp, pick, models, choice, wc, bal, "racecost") +
+      '<button type="button" class="askfour" id="racego"' + (race.busy || pick.length < RACE_MIN || short ? " disabled" : "") + ">" +
+      (race.busy ? "Racing…" : esc(raceLabel(pick.length, cp.base, cp.held))) + "</button>";
+    if (race.charged != null && !race.busy) h += '<p class="note askleft">Charged ' + esc(nCredits(race.charged)) + " for this race.</p>";
+    if (race.notice) h += '<p class="note bad" role="status">' + esc(race.notice) + "</p>";
+    if ((short || race.short || bal.total === 0) && !race.busy) h += outboxHtml(bal, true);
+    h += "</div>";
+    if (race.lanes) h += '<div class="lanes" id="lanes">' + race.lanes.map(laneHtml).join("") + "</div>";
+    h += '<p class="credits">Each AI gets your task through this app\'s helper, all at the same moment. Times include the trip over the internet. Your task is not saved.</p>';
+    return h;
+  }
+  function raceSay(text) { var el = document.getElementById("raceqmsg"); if (el) el.textContent = text; }
+  function laneUpdate(l) {
+    var el = document.querySelector('[data-lane="' + l.id + '"]');
+    if (el) el.outerHTML = laneHtml(l);
+  }
+  function raceTick() {
+    if (!race.lanes) return;
+    var now = Date.now();
+    race.lanes.forEach(function (l) {
+      if (l.ms != null) return;
+      var el = document.querySelector('[data-lane="' + l.id + '"] .ltime');
+      if (el) el.textContent = ((now - l.t0) / 1000).toFixed(1) + " s";
+    });
+  }
+  // what one lane shows when its ask didn't give an answer (the other lanes go on)
+  function laneError(r) {
+    if (!r) return "Couldn't connect.";
+    var j = r.json || {};
+    if (r.status === 402 && j.reason === "not_enough") return "Not enough credits for this AI.";
+    if (r.status === 402 && j.reason === "daily_cap") return "Today's free credits are used up.";
+    if (j.reason === "disabled" || j.error === "disabled") return "Answers are paused right now.";
+    if (r.status === 429) return "Too quick: wait a few seconds, then start again.";
+    if (r.status === 400 && (j.error === "unknown_model" || j.error === "bad_models")) { setModels(j.models); return "This model isn't available. Pick another (▾)."; }
+    return "Something went wrong on our side.";
+  }
+  function startRace() {
+    var q = race.q.trim(), pick = getRacePick();
+    if (race.busy) return;
+    if (!q) { raceSay("Type a task first."); var b = document.getElementById("raceq"); if (b) b.focus(); return; }
+    if (pick.length < RACE_MIN) return;
+    var models = proModels(), choice = getChoice(), by = {}, code = stored("ait.code"), id = newRaceId(), t0 = Date.now(), placed = 0, open = pick.length;
+    models.forEach(function (m) { by[m.id] = m; });
+    race.busy = true; race.id = id; race.notice = ""; race.short = false; race.charged = 0;
+    race.lanes = pick.map(function (aid) {
+      var m = by[aid], o = chosenOption(m, choice);
+      return { id: aid, name: m.name, label: isDefault(m, o) ? "" : o.label, model: o.model, t0: t0, ms: null, place: null, text: "", error: "", searched: false, sources: null };
+    });
+    askRedraw();
+    race.timer = setInterval(raceTick, 100);
+    race.lanes.forEach(function (l) {
+      var body = { question: q, models: [l.id], race_id: id };
+      if (l.label) { body.choice = {}; body.choice[l.id] = l.model; }
+      if (code) body.code = code;
+      askApi("/ask", body, 150000).then(function (r) { return r; }, function () { return null; }).then(function (r) {
+        if (race.id !== id) return;                                         // an older race
+        l.ms = Date.now() - l.t0;
+        var a = r && r.status === 200 && r.json.answers && r.json.answers[0];
+        if (a && !a.error) {
+          l.place = ++placed; l.text = plainAnswer(a.sources ? stripMarks(a.text) : a.text) + (a.cut ? " (cut short)" : "");
+          l.searched = a.searched === true; l.sources = a.sources || null;
+        } else l.error = a ? a.error + " — credits returned" : laneError(r);
+        if (r && r.json) { setLeft(r.json); if (r.status === 200 && r.json.charged != null) race.charged += r.json.charged; }
+        if (r && r.status === 402 && r.json.reason === "not_enough") race.short = true;
+        laneUpdate(l);
+        if (--open === 0) { race.busy = false; clearInterval(race.timer); race.timer = null; askRedraw(); }
+      });
+    });
+  }
+  // live cost line while the task is typed (the web rule depends on the words); redraw only when "enough" flips
+  function raceCostUpdate() {
+    if (!hasDom || !CONFIG.ASK_API || state.tab !== "race" || race.busy) return;
+    var line = document.getElementById("racecost"), btn = document.getElementById("racego");
+    if (!line || !btn) return;
+    var models = proModels(), pick = getRacePick(), wc = webCredits(), bal = balance(), choice = getChoice();
+    var cp = costPreview(race.q, pick, models, choice, wc, Date.now()), short = pick.length >= RACE_MIN && bal.total < cp.held;
+    if (short !== race.shownShort) {
+      var box = document.getElementById("raceq"), a = box ? box.selectionStart : null, b = box ? box.selectionEnd : null;
+      askRedraw("#raceq");
+      var nb = document.getElementById("raceq");
+      if (nb && a != null) { try { nb.setSelectionRange(a, b); } catch (e) {} }
+      return;
+    }
+    line.outerHTML = costLineHtml(cp, pick, models, choice, wc, bal, "racecost");
+    btn.textContent = raceLabel(pick.length, cp.base, cp.held);
   }
 
   // ---------------------------------------------------------------- Sources view
@@ -974,11 +1157,12 @@
       '. <a href="#sources">All sources and update status</a></p>';
   }
 
-  var VIEWS = { best: vBest, cost: vCost, releases: vReleases, news: vNews, agents: vAgents, ask: vAsk, sources: vSources };
+  var VIEWS = { best: vBest, cost: vCost, releases: vReleases, news: vNews, agents: vAgents, ask: vAsk, race: vRace, sources: vSources };
   var MORE = { best: vBestMore, cost: vCostMore, releases: vReleasesMore, news: vNewsMore, agents: vAgentsMore };
 
   function viewHtml(tab, more) {
     if (tab === "ask") return vAsk();                          // works without any data
+    if (tab === "race") return vRace();
     if (!D) return '<h2>No data yet</h2><p class="sub">' + (typeof navigator !== "undefined" && navigator.onLine === false
       ? "You're offline and nothing is saved yet. Connect once to load it." : "Connect to the internet once and reopen the app.") + "</p>";
     if (D.v !== 3 || !D.picks) return '<h2>Updating…</h2><p class="sub">The data is being rebuilt in a new format. Try again in a few minutes.</p>';
@@ -1001,7 +1185,8 @@
     chosenOption: chosenOption, cleanChoice: cleanChoice, getChoice: getChoice, setChoice: setChoice, pickNames: pickNames,
     modelSheetHtml: modelSheetHtml,
     proAIs: PRO_AIS, nCredits: nCredits, askLabel: askLabel, webSources: webSources, stripMarks: stripMarks, mainIds: mainIds,
-    setModels: setModels, setWebCredits: setWebCredits, moreOpen: moreOpen, needsWeb: needsWeb, costPreview: costPreview, subs: SUBS, plainAnswer: plainAnswer, updateDecision: updateDecision, day: day, setQuestion: function (q) { askQ = String(q == null ? "" : q); },
+    setModels: setModels, setWebCredits: setWebCredits, moreOpen: moreOpen, needsWeb: needsWeb, costPreview: costPreview, subs: SUBS, race: race, newRaceId: newRaceId, getRacePick: getRacePick, setRacePick: setRacePick,
+    laneHtml: laneHtml, ctaOn: ctaOn, tipFor: tipFor, isoWeek: isoWeek, weekNumber: weekNumber, tipHtml: tipHtml, setLeft: setLeft, plainAnswer: plainAnswer, updateDecision: updateDecision, day: day, setQuestion: function (q) { askQ = String(q == null ? "" : q); },
     view: viewHtml, views: VIEWS, more: MORE };
 
   if (!hasDom) return;
@@ -1117,7 +1302,10 @@
     document.body.removeChild(ta);
     return ok;
   }
-  document.addEventListener("input", function (e) { if (e.target && e.target.id === "askq") askSetQ(e.target.value); });
+  document.addEventListener("input", function (e) {
+    if (e.target && e.target.id === "askq") askSetQ(e.target.value);
+    if (e.target && e.target.id === "raceq") { race.q = e.target.value; e.target.setAttribute("dir", textDir(race.q)); raceSay(""); raceCostUpdate(); }
+  });
 
   // ---- Ask the AIs: the only calls to the helper (CONFIG.ASK_API). JSON in/out; nothing is stored but the code and the ticks.
   // rejects (=> "Couldn't connect") when there is no connection or no answer in time
@@ -1132,7 +1320,7 @@
     }, function (e) { if (timer) clearTimeout(timer); throw e; });
   }
   function askRedraw(focusSel) {
-    if (state.tab !== "ask") return;
+    if (state.tab !== "ask" && state.tab !== "race") return;
     var y = window.scrollY; render(); window.scrollTo(0, y);
     if (focusSel) { var f = document.querySelector(focusSel); if (f) f.focus(); }
   }
@@ -1236,9 +1424,13 @@
     var code = stored("ait.code");
     askApi("/status" + (code ? "?code=" + encodeURIComponent(code) : "")).then(function (r) {
       if (r.status !== 200) return;
+      var cta = ctaOn();
       setLeft(r.json); setModels(r.json.models); setWebCredits(r.json.web_credits);
       if (r.json.enabled === false) pro.notice = PAUSED;
       if (!pro.busy) askRedraw();
+      if (cta && !ctaOn() && state.tab === "best" && !state.more) {         // free credits already spent: drop the banner
+        var y = window.scrollY; render(); window.scrollTo(0, y);
+      }
     }, function () {});
   }
   // model picker: Escape closes it; Tab stays inside it while it is open
@@ -1255,6 +1447,14 @@
   });
   document.addEventListener("change", function (e) {
     if (e.target && e.target.name === "mopt" && pro.sheet) { chooseModel(pro.sheet, e.target.value); return; }
+    var rp = e.target && e.target.getAttribute && e.target.getAttribute("data-rpick");
+    if (rp) {
+      var rids = [];
+      document.querySelectorAll("[data-rpick]").forEach(function (x) { if (x.checked) rids.push(x.getAttribute("data-rpick")); });
+      setRacePick(rids); race.short = false;
+      askRedraw('[data-rpick="' + rp + '"]');
+      return;
+    }
     var p = e.target && e.target.getAttribute && e.target.getAttribute("data-pick");
     if (!p) return;
     var ids = [];
@@ -1270,6 +1470,8 @@
     var mb = e.target.closest("[data-models]");
     if (mb) { e.preventDefault(); openSheet(mb.getAttribute("data-models")); return; }
     if (e.target.closest("#askfour")) { askPro(); return; }
+    if (e.target.closest("#racego")) { startRace(); return; }
+    if (e.target.closest("#rpicknone")) { setRacePick([]); race.short = false; askRedraw("#rpicknone"); return; }
     if (e.target.closest("#pickall")) { setPick(mainIds(proModels())); pro.short = false; askRedraw("#pickall"); return; }       // the 5 main ones
     if (e.target.closest("#moreais")) { pro.moreOpen = !moreOpen(getPick(), proModels()); askRedraw("#moreais"); return; }
     if (e.target.closest("#picknone")) { setPick([]); pro.short = false; askRedraw("#picknone"); return; }

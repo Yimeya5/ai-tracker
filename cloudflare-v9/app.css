@@ -61,7 +61,7 @@ button{font:inherit;color:inherit}
 /* tabs: bottom bar on phone */
 .tabs{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--card);border-top:1px solid var(--line);
   padding:6px max(6px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(6px,env(safe-area-inset-left,0px))}
-.tabs .pill{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:2px;max-width:620px;margin:0 auto}
+.tabs .pill{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px;max-width:620px;margin:0 auto}
 .tabs button{border:0;background:none;cursor:pointer;color:var(--muted);border-radius:16px;min-height:62px;min-width:0;
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:13.5px;line-height:1.15;padding:6px 2px;text-align:center}
 .tabs .ti{font-size:22px;line-height:1}
@@ -312,7 +312,7 @@ h4.grp{font-size:15px;font-weight:700;letter-spacing:.05em;text-transform:upperc
   .top{padding-top:calc(30px + env(safe-area-inset-top,0px))}
   .tabs{position:sticky;top:0;bottom:auto;background:var(--bg);border-top:0;
     padding:calc(12px + env(safe-area-inset-top,0px)) max(20px,env(safe-area-inset-right,0px)) 12px max(20px,env(safe-area-inset-left,0px))}
-  .tabs .pill{max-width:760px;grid-template-columns:repeat(6,auto);justify-content:space-between;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:6px;box-shadow:var(--shadow)}
+  .tabs .pill{max-width:760px;grid-template-columns:repeat(7,auto);justify-content:space-between;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:6px;box-shadow:var(--shadow)}
   .tabs button{flex-direction:row;gap:7px;min-height:50px;border-radius:999px;font-size:16px;padding:6px 14px;white-space:nowrap}
   .tabs .ti{font-size:19px}
   .wide-only{display:inline-flex}
@@ -350,3 +350,37 @@ h4.grp{font-size:15px;font-weight:700;letter-spacing:.05em;text-transform:upperc
   padding:6px 16px;border-radius:999px;background:var(--card);color:var(--text);border:1px solid var(--line);box-shadow:0 4px 18px rgba(0,0,0,.18);
   font-size:15px;white-space:nowrap}
 .swupdate .linkbtn{margin:-12px 0;padding:12px 4px}
+
+/* ---- v15: AI tip of the week (home screen) */
+.tip{margin:12px 0 0;padding:14px 16px;box-shadow:none}
+.tiphead{margin:0;font-size:14px;font-weight:700;color:var(--muted);letter-spacing:.01em}
+.tiptext{margin:6px 0 0;font-size:16.5px;line-height:1.45}
+.tipall{margin-top:6px}
+.tipall > summary{display:flex;align-items:center;min-height:44px;cursor:pointer;color:var(--accent);font-weight:600;font-size:15px;list-style:none}
+.tipall > summary::-webkit-details-marker{display:none}
+.tipall ol{margin:0 0 4px;padding-left:22px;font-size:15px;line-height:1.45}
+.tipall li{margin:6px 0}
+
+/* ---- v15: Race */
+.racechips .chip.full{opacity:.55}
+.lanes{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;margin-top:14px}
+.lane{padding:14px 16px;box-shadow:none;min-width:0;overflow-wrap:anywhere}
+.lhead{display:flex;align-items:center;flex-wrap:wrap;gap:4px 6px;min-width:0}
+.lhead b{font-size:17px}
+.lright{display:inline-flex;align-items:center;gap:8px;margin-left:auto;white-space:nowrap}
+.ltime{font-variant-numeric:tabular-nums;color:var(--muted);font-size:15px;min-width:52px;text-align:right}
+.lplace{padding:2px 9px;border-radius:999px;font-size:13.5px;font-weight:700;background:var(--soft);color:var(--accent)}
+.lplace.p1{background:var(--new-soft);color:var(--new)}
+.lbar{height:4px;margin:10px 0 0;border-radius:4px;background:var(--line);overflow:hidden}
+.lbar i{display:block;height:100%;width:100%;background:var(--accent);transform-origin:left;transform:scaleX(1)}
+.lane.running .lbar i{width:35%;animation:lanego 1.2s ease-in-out infinite alternate}
+.lane.failed .lbar i{background:var(--warn)}
+@keyframes lanego{from{transform:translateX(-40%)}to{transform:translateX(220%)}}
+@media (prefers-reduced-motion:reduce){.lane.running .lbar i{animation:none;width:100%;opacity:.4}}
+.ltext{margin:10px 0 0;white-space:pre-wrap;line-height:1.5}
+.ltext.muted{color:var(--muted)}
+.ltext.bad{color:var(--warn)}
+@media (min-width:700px){
+  .lanes{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .racechips{grid-template-columns:repeat(4,minmax(0,1fr))}
+}
