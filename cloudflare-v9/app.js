@@ -58,7 +58,7 @@
     var p = String(iso).slice(0, 10).split("-");
     if (p.length < 3 || !+p[1]) return "";
     var y = +p[0], thisYear = new Date().getFullYear();
-    return MON[+p[1] - 1] + " " + (+p[2]) + (y && y !== thisYear ? ", " + y : "");
+    return MON[+p[1] - 1] + "\u00a0" + (+p[2]) + (y && y !== thisYear ? ",\u00a0" + y : "");     // no-break spaces: a date never splits
   }
   function money(v) {
     if (v == null) return "";
@@ -558,7 +558,12 @@
     if (!heb && !lat) return "auto";
     return heb > lat ? "rtl" : "ltr";
   }
-  function plainAnswer(s) { return String(s || "").replace(/\*\*([^*\n]+)\*\*/g, "$1").replace(/__([^_\n]+)__/g, "$1").replace(/^#{1,6}\s+/gm, ""); }
+  // answers are shown as plain text: **bold**, __bold__ and # headings lose their marks, and a Markdown link
+  // [text](https://…) becomes just "text" (the sources are listed under the card anyway)
+  function plainAnswer(s) {
+    return String(s || "").replace(/\[([^\[\]\n]{1,300})\]\(\s*https?:\/\/[^\s()]{1,2000}(?:\([^\s()]{0,200}\)[^\s()]{0,500})*\s*\)/g, "$1")
+      .replace(/\*\*([^*\n]+)\*\*/g, "$1").replace(/__([^_\n]+)__/g, "$1").replace(/^#{1,6}\s+/gm, "");
+  }
   function nCredits(n) { return n + (n === 1 ? " credit" : " credits"); }
   function proModels() { return pro.models && pro.models.length ? pro.models : PRO_AIS; }
   // pure: what a selection costs (unknown ids cost nothing and are ignored). With web on, every AI that doesn't
@@ -605,7 +610,7 @@
   // Web search is automatic (v13): the helper decides per question with the same rule. This copy is ONLY for the cost
   // preview under the question; the helper's decision is the one that counts. Keep these 3 lists equal to
   // worker/src/index.js (a test compares them). English: whole words; Hebrew / Yiddish: plain substrings.
-  var WEB_WORDS_EN = ["news", "headline", "headlines", "today", "tonight", "yesterday", "tomorrow", "this week", "this month", "this year", "last week", "last night", "latest", "newest", "current", "currently", "now", "right now", "recent", "recently", "breaking", "update", "updates", "price", "prices", "cost of", "stock", "stocks", "share price", "market", "bitcoin", "crypto", "exchange rate", "score", "scores", "who won", "who is winning", "results", "standings", "weather", "forecast", "temperature", "election", "elections", "poll", "polls", "what happened"];
+  var WEB_WORDS_EN = ["news", "headline", "headlines", "today", "tonight", "yesterday", "tomorrow", "this week", "this month", "this year", "last week", "last night", "latest", "newest", "current", "currently", "now", "right now", "recent", "recently", "breaking", "updates", "price", "prices", "cost of", "stock", "stocks", "share price", "market", "bitcoin", "crypto", "exchange rate", "score", "scores", "who won", "who is winning", "results", "standings", "weather", "forecast", "temperature", "election", "elections", "poll", "polls", "what happened"];
   var WEB_WORDS_HE = ["חדשות", "היום", "אתמול", "מחר", "השבוע", "עכשיו", "כרגע", "מחיר", "מזג האוויר", "תחזית", "בחירות", "מי ניצח", "מה קרה", "תוצאות", "עדכני", "האחרון"];
   var WEB_WORDS_YI = ["נייעס", "היינט", "נעכטן", "מארגן", "די וואך", "יעצט", "איצט", "פרייז", "וועטער", "וואלן", "ווער האט געוואונען", "וואס איז געשען", "רעזולטאטן", "לעצטע"];
   var WEB_RE = new RegExp("\\b(?:" + WEB_WORDS_EN.map(function (w) { return w.replace(/ /g, "\\s+"); }).join("|") + ")\\b", "i");
@@ -614,7 +619,7 @@
     if (WEB_RE.test(q)) return true;
     if (WEB_WORDS_HE.concat(WEB_WORDS_YI).some(function (w) { return q.indexOf(w) >= 0; })) return true;
     var year = new Date(now).getUTCFullYear();
-    return (q.match(/\b\d{4}\b/g) || []).some(function (y) { return Number(y) >= year; });
+    return (q.match(/\b\d{4}\b/g) || []).some(function (y) { return Number(y) >= year && Number(y) <= year + 5; });   // not "3000 words"
   }
   // pure: the cost preview. base = without web; held = what the helper holds before asking (base + web for each AI that
   // doesn't search by itself, when the question needs the web); hint = say "+2 per AI if it needs the web".
@@ -655,12 +660,13 @@
     if (!n) return "Tick at least one AI";
     return "Ask " + n + (n === 1 ? " AI" : " AIs") + " (" + (held > cost ? "up to " + nCredits(held) : nCredits(cost)) + ")";
   }
-  // the live line under the question: short and calm. "This question: 4 credits · You have 10 credits", plus
+  // the live line under the question: short and calm, one line on a phone. "Uses 4 credits · You have 10 credits"
+  // (each half never breaks inside; at 360 px the halves may stack), plus
   // "(+2 per AI if it needs the web)" only when the rule says it will search, and the non-default models' names.
   function costLineHtml(cp, pick, models, choice, wc, bal) {
     var chosen = (models || PRO_AIS).filter(function (m) { return pick.indexOf(m.id) >= 0 && !isDefault(m, chosenOption(m, choice)); });
-    return '<p class="costline" id="askcost" aria-live="polite">This question: <b>' + esc(nCredits(cp.base)) + "</b>" +
-      " · You have <b>" + esc(nCredits(bal.total)) + "</b>" +
+    return '<p class="costline" id="askcost" aria-live="polite"><span class="cl">Uses <b>' + esc(nCredits(cp.base)) + "</b></span>" +
+      ' · <span class="cl">You have <b>' + esc(nCredits(bal.total)) + "</b></span>" +
       (cp.hint ? '<small class="webhint">(+' + esc(String(wc)) + " per AI if it needs the web)</small>" : "") +
       (chosen.length ? '<small class="costnames">' + esc(pickNames(chosen.map(function (m) { return m.id; }), models, choice)) + "</small>" : "") +
       (bal.paid > 0 ? '<small class="split">' + bal.free + " free + " + bal.paid + " paid</small>" : "") + "</p>";
@@ -821,9 +827,11 @@
         box.textContent = "";
         box.hidden = !srcs.length;
         if (srcs.length) {
-          box.appendChild(document.createTextNode("Sources: "));
-          srcs.forEach(function (s, i) {
-            if (i) box.appendChild(document.createTextNode(" · "));
+          // a small list: the label, then one link per line (no separators), each ending in "…" when too long
+          var lab = document.createElement("span");
+          lab.className = "asrcl"; lab.textContent = "Sources";
+          box.appendChild(lab);
+          srcs.forEach(function (s) {
             var l = document.createElement("a");
             l.href = s.url; l.target = "_blank"; l.rel = "noopener noreferrer"; l.textContent = s.title;
             box.appendChild(l);
@@ -839,7 +847,7 @@
       : "<h2>Ask them all</h2><p class=\"sub\">Type once, then open your question in each AI. Free: each AI's own website, nothing goes through this app.</p>";
     h += '<div class="askbox card"><label for="askq" class="sr">Your question</label>' +
       '<textarea id="askq" dir="' + textDir(askQ) + '" rows="4" maxlength="1500" placeholder="Type your question…" autocomplete="off">' + esc(askQ) + "</textarea>" +
-      '<div class="askbar"><button type="button" class="linkbtn" id="askclear">Clear question</button>' +
+      '<div class="askbar' + (askQ ? "" : " isempty") + '"><button type="button" class="linkbtn" id="askclear"' + (askQ ? "" : " hidden") + ">Clear question</button>" +
       '<button type="button" class="openall wide-only" id="askall">Open all</button></div>' +
       '<p class="note bad askqmsg" id="askqmsg" aria-live="polite"></p>' + (CONFIG.ASK_API ? proHtml() : "") + "</div>";
     if (CONFIG.ASK_API) h += '<h2 class="orh">Or open it in each AI (free)</h2>';
@@ -993,7 +1001,7 @@
     chosenOption: chosenOption, cleanChoice: cleanChoice, getChoice: getChoice, setChoice: setChoice, pickNames: pickNames,
     modelSheetHtml: modelSheetHtml,
     proAIs: PRO_AIS, nCredits: nCredits, askLabel: askLabel, webSources: webSources, stripMarks: stripMarks, mainIds: mainIds,
-    setModels: setModels, setWebCredits: setWebCredits, moreOpen: moreOpen, needsWeb: needsWeb, costPreview: costPreview, subs: SUBS, setQuestion: function (q) { askQ = String(q == null ? "" : q); },
+    setModels: setModels, setWebCredits: setWebCredits, moreOpen: moreOpen, needsWeb: needsWeb, costPreview: costPreview, subs: SUBS, plainAnswer: plainAnswer, updateDecision: updateDecision, day: day, setQuestion: function (q) { askQ = String(q == null ? "" : q); },
     view: viewHtml, views: VIEWS, more: MORE };
 
   if (!hasDom) return;
@@ -1026,18 +1034,41 @@
     var sb = document.getElementById("srcbtn");
     if (sb) { if (state.tab === "sources") sb.setAttribute("aria-current", "page"); else sb.removeAttribute("aria-current"); }
   }
-  function setHash(h) { if (location.hash !== h) { try { history.replaceState(null, "", h); } catch (e) {} } }
-  function go(tab, more, keepScroll) {
+  // Tabs replace the history entry. "See more" ADDS one (marked aitMore), so the phone's Back returns to the
+  // simple view; "‹ Back to the simple view" then just goes back (the history doesn't grow).
+  function setHash(h, push) {
+    if (location.hash === h) return;
+    try { if (push) history.pushState({ aitMore: 1 }, "", h); else history.replaceState(null, "", h); } catch (e) {}
+  }
+  function go(tab, more, keepScroll, push) {
     state.tab = VIEWS_ALL.indexOf(tab) >= 0 ? tab : "best";
     state.more = !!more && !!MORE[state.tab];
-    setHash("#" + state.tab + (state.more ? "-more" : ""));
+    setHash("#" + state.tab + (state.more ? "-more" : ""), !!push && state.more);
     render();
     if (!keepScroll) window.scrollTo(0, 0);
+  }
+
+  // ---- new version: reload by itself only when nothing would be lost
+  function lastSwReload() { try { return +sessionStorage.getItem("ait.swreload") || 0; } catch (e) { return 0; } }
+  function updateDecision(now, last) {
+    if (last && now - last < 60000) return "notice";                    // reloaded for an update a moment ago: no loop
+    var a = hasDom && document.activeElement, typing = a && /^(INPUT|TEXTAREA)$/.test(a.tagName) && a.value;
+    return askQ.trim() || pro.busy || pro.sheet || sessionId || typing || (hasDom && document.querySelector("#paidbox")) ? "notice" : "reload";
+  }
+  function showUpdateNotice() {
+    if (document.getElementById("swupdate")) return;
+    var n = document.createElement("div");
+    n.id = "swupdate"; n.className = "swupdate"; n.setAttribute("role", "status");
+    n.innerHTML = 'New version ready · <button type="button" class="linkbtn" id="swreload">Refresh</button>';
+    document.body.appendChild(n);
+    document.getElementById("swreload").addEventListener("click", function () { location.reload(); });
   }
 
   // ---- Ask them all: links are rebuilt on every keystroke; nothing is stored or sent by the app
   function askSetQ(q) {
     askQ = q;
+    var cl = hasDom && document.getElementById("askclear");
+    if (cl) { cl.hidden = !askQ; cl.parentNode.classList.toggle("isempty", !askQ); }   // only when there is something to clear
     askCostUpdate();
     var box = document.getElementById("askq");
     if (box) box.setAttribute("dir", textDir(askQ));
@@ -1279,8 +1310,15 @@
     var t = e.target.closest("[data-tab],[data-more],[data-less]");
     if (!t) return;
     if (t.hasAttribute("data-tab")) go(t.getAttribute("data-tab"));
-    else if (t.hasAttribute("data-more")) { e.preventDefault(); go(t.getAttribute("data-more"), true); }
-    else if (t.hasAttribute("data-less")) go(state.tab, false);
+    else if (t.hasAttribute("data-more")) { e.preventDefault(); go(t.getAttribute("data-more"), true, false, true); }
+    else if (t.hasAttribute("data-less")) {
+      if (history.state && history.state.aitMore) history.back();      // same as the phone's Back (popstate below)
+      else go(state.tab, false);
+    }
+  });
+  window.addEventListener("popstate", function () {
+    var r = routeFor(location.hash);
+    if (r && (r.tab !== state.tab || r.more !== state.more)) go(r.tab, r.more);
   });
   document.addEventListener("toggle", function (e) {
     var d = e.target;
@@ -1288,7 +1326,7 @@
   }, true);
   window.addEventListener("hashchange", function () {
     var r = routeFor(location.hash);
-    if (r) go(r.tab, r.more);
+    if (r && (r.tab !== state.tab || r.more !== state.more)) go(r.tab, r.more);
   });
 
   // theme: follows the system until the button is used
@@ -1336,5 +1374,17 @@
 
   if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
     navigator.serviceWorker.register("sw.js").catch(function () {});
+    // A new version took over (after a deploy). Not on the first visit (no controller before). Reload once by itself
+    // when that loses nothing; otherwise a small "New version ready · Refresh". Never a loop: at most one automatic
+    // reload per 60 s (sessionStorage), and a second change in the same page only shows the notice.
+    var hadSw = !!navigator.serviceWorker.controller, swDone = false;
+    navigator.serviceWorker.addEventListener("controllerchange", function () {
+      if (!hadSw || swDone) { hadSw = true; return; }
+      swDone = true;
+      if (updateDecision(Date.now(), lastSwReload()) === "reload") {
+        try { sessionStorage.setItem("ait.swreload", String(Date.now())); } catch (e) {}
+        location.reload();
+      } else showUpdateNotice();
+    });
   }
 })(typeof window !== "undefined" ? window : this);

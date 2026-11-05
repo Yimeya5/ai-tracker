@@ -1,10 +1,10 @@
 // AI Pro service worker.
 // Data (data/*) = network first, saved copy when offline, so the app never shows old data while online.
 // App files = saved copy first for speed, refreshed in the background on every visit.
-const VERSION = "v13-2026-11-05";
+const VERSION = "v14b-2026-11-05";
 const SHELL = "ait-shell-" + VERSION;
 const DATA = "ait-data";
-const SHELL_FILES = ["./", "./index.html", "./app.css", "./app.js", "./manifest.webmanifest",
+const SHELL_FILES = ["./", "./app.css", "./app.js", "./manifest.webmanifest",
   "./icons/icon-180.png", "./icons/icon-192.png", "./icons/icon-512.png",
   "./terms.html", "./refund.html", "./privacy.html"];
 const OPTIONAL = ["./terms.html", "./refund.html", "./privacy.html"];   // saved when present; never block the install
@@ -13,9 +13,30 @@ const OPTIONAL = ["./terms.html", "./refund.html", "./privacy.html"];   // saved
 const DATA_FILES = ["./data/data.js", "./data/data.json"];
 function dataKey(u) { const url = new URL(u, self.location); return url.origin + url.pathname; }
 
+// Pages: Cloudflare Pages answers /terms.html with a 308 to /terms (and /index.html with one to /). A browser refuses
+// a REDIRECTED response for a page, so every page is saved as a clean (non-redirected) copy under one key:
+// /terms.html and /terms -> /terms (same for refund, privacy); /index.html -> /. No ?query in keys.
+function pageKey(u) {
+  const url = new URL(u, self.location);
+  const path = url.pathname.replace(/\/index\.html$/, "/").replace(/\/(terms|refund|privacy)\.html$/, "/$1");
+  return url.origin + path;
+}
+const HOME = () => pageKey(new URL("./", self.registration.scope).href);
+function clean(res) {
+  if (!res.redirected) return Promise.resolve(res);
+  return res.blob().then((b) => new Response(b, { status: res.status, statusText: res.statusText, headers: res.headers }));
+}
+function save(cache, key, res) { return clean(res).then((c) => cache.put(key, c)); }
+
 self.addEventListener("install", (e) => {
-  const shell = caches.open(SHELL).then((c) => c.addAll(SHELL_FILES.filter((f) => !OPTIONAL.includes(f)))
-    .then(() => Promise.all(OPTIONAL.map((f) => c.add(f).catch(() => null)))));
+  const shell = caches.open(SHELL).then((c) => {
+    const get = (f) => fetch(f, { cache: "no-cache" }).then((res) => {
+      if (!res.ok) throw new Error(f + " " + res.status);
+      return save(c, pageKey(f), res);
+    });
+    return Promise.all(SHELL_FILES.filter((f) => !OPTIONAL.includes(f)).map(get))
+      .then(() => Promise.all(OPTIONAL.map((f) => get(f).catch(() => null))));
+  });
   const data = caches.open(DATA).then((c) => Promise.all(DATA_FILES.map((f) =>
     fetch(f, { cache: "no-store" }).then((res) => (res.ok ? c.put(dataKey(f), res) : null)).catch(() => null))));
   e.waitUntil(Promise.all([shell, data]).then(() => self.skipWaiting()));
@@ -48,11 +69,18 @@ self.addEventListener("fetch", (e) => {
     return;
   }
 
+  // app files and pages: the saved clean copy first, refreshed in the background. A redirect itself (a page's
+  // "opaqueredirect") is never saved; the page it leads to is, under its own key.
+  const key = pageKey(req.url), nav = req.mode === "navigate";
   e.respondWith(
-    caches.match(req, { ignoreSearch: true }).then((hit) => {
+    caches.match(key).then((hit) => {
       const net = fetch(req)
-        .then((res) => { if (res.ok) { const copy = res.clone(); caches.open(SHELL).then((c) => c.put(req, copy)); } return res; })
-        .catch(() => hit || caches.match("./index.html"));
+        .then((res) => {
+          if (res.ok && res.type === "basic") { const copy = res.clone(); caches.open(SHELL).then((c) => save(c, key, copy)); }
+          return res;
+        })
+        .catch(() => hit || (nav ? caches.match(HOME()) : undefined) || Response.error())
+        .then((res) => res || Response.error());
       return hit || net;
     })
   );

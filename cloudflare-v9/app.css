@@ -48,6 +48,7 @@ button{font:inherit;color:inherit}
 .stamp{margin:6px 0 0;font-size:15px;color:var(--muted);white-space:nowrap}     /* "Updated 8h ago · Sources" stays on one line */
 .stamp .dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--good);margin-right:8px;vertical-align:1px}
 .stamp .dot.old{background:var(--warn)}
+.linkbtn[hidden]{display:none}
 .linkbtn{border:0;background:none;padding:12px 4px;margin:-12px -2px;color:var(--accent);font-weight:650;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
 .linkbtn[aria-current="page"]{text-decoration:none;color:var(--text)}
 .actions{display:flex;gap:10px;flex:none}
@@ -163,6 +164,7 @@ b.big{font-size:21px;font-weight:800;letter-spacing:-.01em}
 .askbox textarea:focus{outline:3px solid var(--accent);outline-offset:1px}
 .askbox + .note{margin-top:10px}
 .askbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px;min-height:44px}
+.askbar.isempty{min-height:0;margin-top:0}                 /* empty box on a phone: nothing visible in the bar, so no gap */
 .openall{display:none;align-items:center;justify-content:center;min-height:46px;padding:0 20px;border-radius:14px;border:0;
   background:var(--accent);color:var(--on-accent);font-weight:700;cursor:pointer}
 .wide-only{display:none}
@@ -212,7 +214,9 @@ html.sheetopen{overflow:hidden}
   .sheetwrap{align-items:center}
   .sheet{max-width:420px;border-radius:20px;padding-bottom:16px}
 }
-.costline{margin:12px 0 0;text-align:center;font-size:16.5px}
+.costline{margin:12px 0 0;text-align:center;font-size:15.5px}
+/* "Uses 4 credits" and "You have 352 credits" never break inside; they fit one line at 390 px, at 360 px they may stack */
+.costline .cl{white-space:nowrap}
 /* "More AIs" (Llama, Mistral, Perplexity): collapsed under the main chips; 44px+ to tap */
 .morebtn2{display:flex;align-items:center;gap:6px;min-height:44px;margin:6px 0 0;padding:0 4px;text-decoration:none}
 .morechips{margin-top:4px}
@@ -226,9 +230,13 @@ html.sheetopen{overflow:hidden}
   font-size:13px;font-weight:650;white-space:nowrap;vertical-align:2px}
 .acard h4 .amodel{font-weight:600;color:var(--muted)}
 /* web answers: "Sources:" and up to 5 small links */
-.asrcs{margin:8px 0 0;font-size:14px;color:var(--muted);overflow-wrap:anywhere}
+/* web answers: a small "Sources" label, then one muted link per line (40px rows, "…" when too long), inside the card */
+.asrcs{display:flex;flex-direction:column;align-items:stretch;margin:10px 0 0;padding-top:6px;border-top:1px solid var(--line);font-size:14px;color:var(--muted);min-width:0}
 .asrcs[hidden]{display:none}
-.asrcs a{display:inline-block;min-height:44px;line-height:44px;padding:0 2px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
+.asrcs .asrcl{font-size:13px;font-weight:650;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);padding:4px 0 2px}
+.asrcs a{display:block;min-height:40px;line-height:40px;padding:0 2px;max-width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--muted);text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}
+.asrcs a:hover,.asrcs a:focus-visible{color:var(--accent)}
 .costline .split{display:block;color:var(--muted);font-size:14px}
 /* answer cards and boxes */
 .askfour{display:flex;align-items:center;justify-content:center;width:100%;min-height:54px;margin-top:12px;border:0;border-radius:14px;
@@ -236,8 +244,9 @@ html.sheetopen{overflow:hidden}
 .askfour[disabled]{opacity:.7;cursor:progress}
 .askleft{margin:8px 0 0;text-align:center}
 .codeline{margin:4px 0 0;text-align:center;overflow-wrap:anywhere}
-.acards{display:grid;grid-template-columns:1fr;gap:12px;margin-top:14px}
-.acard{padding:14px 16px;box-shadow:none}
+.acards{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;margin-top:14px}   /* minmax(0,…): a long source never widens the card */
+.acard{padding:14px 16px;box-shadow:none;min-width:0;overflow-wrap:anywhere}
+.acard h4{overflow-wrap:anywhere}
 .acard h4{margin:0 0 6px;font-size:17px}
 .acard .amodel{font-size:13.5px;font-weight:500;color:var(--muted)}
 .atext{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:16.5px;line-height:1.5}
@@ -307,6 +316,7 @@ h4.grp{font-size:15px;font-weight:700;letter-spacing:.05em;text-transform:upperc
   .tabs button{flex-direction:row;gap:7px;min-height:50px;border-radius:999px;font-size:16px;padding:6px 14px;white-space:nowrap}
   .tabs .ti{font-size:19px}
   .wide-only{display:inline-flex}
+  .askbar.isempty{min-height:44px;margin-top:10px}       /* wide: "Open all" is there */
   .phone-only{display:none}
   .asklist{grid-template-columns:1fr 1fr}
   .chips{grid-template-columns:repeat(4,minmax(0,1fr))}
@@ -334,3 +344,9 @@ h4.grp{font-size:15px;font-weight:700;letter-spacing:.05em;text-transform:upperc
   .chip b{font-size:14.5px}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* a new version took over while something was typed or open: a small one-line notice above the tabs */
+.swupdate{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom));z-index:55;max-width:calc(100% - 32px);
+  padding:6px 16px;border-radius:999px;background:var(--card);color:var(--text);border:1px solid var(--line);box-shadow:0 4px 18px rgba(0,0,0,.18);
+  font-size:15px;white-space:nowrap}
+.swupdate .linkbtn{margin:-12px 0;padding:12px 4px}
