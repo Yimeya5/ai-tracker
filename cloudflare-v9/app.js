@@ -1,14 +1,14 @@
 (function (root) {
   "use strict";
-  // AI Tracker: 5 tabs that answer 5 questions, plus "Ask them all" (type once, open the question in each AI).
+  // AI Pro: 5 tabs that answer 5 questions, plus "Ask" (ask the AIs here with credits, or open the question in each AI).
   //   Best for what · Cost · New releases · Big news · Agents · Ask   (+ a Sources view)
   // Each tab shows a short simple view first, and "See more" opens the full details.
   // All picks are made by fixed rules in scripts/update_data.py; this file only shows them.
-  // ---- settings for "Ask all 4 here" (see worker/README.md). Leave ASK_API empty and the Ask tab is the free v8 tab.
+  // ---- settings for "Ask the AIs" (see worker/README.md). Leave ASK_API empty and the Ask tab is the free v8 tab.
   var CONFIG = {
     ASK_API: "https://ai-tracker-ask.ai-tracker-ask.workers.dev",            // the Worker URL, e.g. "https://ai-tracker-ask.<you>.workers.dev"
-    PAY_LINK: "https://buy.stripe.com/test_fZu8wRan4foLbQwdEU2wU00",           // the Stripe Payment Link URL ($5 for 60 questions)
-    FREE: 3, PACK: 60, PRICE: 5   // only for the wording; the Worker decides
+    PAY_LINK: "https://buy.stripe.com/test_fZu8wRan4foLbQwdEU2wU00",           // the Stripe Payment Link URL ($5 for 100 credits)
+    FREE: 10, PACK: 100, PRICE: 5   // free credits, credits in the $5 pack, its price: only for the wording; the Worker decides
   };
   var hasDom = typeof document !== "undefined";
   var D = root.AI_DATA || null;
@@ -470,73 +470,123 @@
     return '<li><button type="button" class="askbtn' + (askQ.trim() ? "" : " off") + '" data-copy="' + esc(l.id) + '"' + (askQ.trim() ? "" : ' aria-disabled="true"') +
       "><b>" + esc(l.name) + "</b><small>Copies your question, then opens " + esc(l.name) + "." + (l.note ? " " + esc(l.note) : "") + "</small></button></li>";
   }
-  // ---------------------------------------------------------------- Ask all 4 here (optional helper, see worker/)
-  // One question to /ask returns 4 answers. The helper decides what is free or paid; the counts here are display only.
-  // Answers are written with textContent (never innerHTML). The question itself is never stored.
-  var FOUR = [
-    { id: "chatgpt", name: "ChatGPT", model: "GPT-6.1 Terra" }, { id: "claude", name: "Claude", model: "Claude Sonnet 5.5" },
-    { id: "gemini", name: "Gemini", model: "Gemini 3.8 Flash" }, { id: "grok", name: "Grok", model: "Grok 4.7" }
+  // ---------------------------------------------------------------- Ask the AIs (optional helper, see worker/)
+  // The visitor ticks 1 to 8 AIs; each answer costs credits. One question to /ask returns all the ticked answers.
+  // The helper decides what is free or paid; the numbers here are display only. Answers are written with
+  // textContent (never innerHTML). The question itself is never stored; the ticked AIs are (ait.pick).
+  var PRO_AIS = [                       // built-in copy; GET /status sends the server's list and costs, which win
+    { id: "chatgpt", name: "ChatGPT", credits: 2 }, { id: "claude", name: "Claude", credits: 2 },
+    { id: "gemini", name: "Gemini", credits: 1 }, { id: "grok", name: "Grok", credits: 1 },
+    { id: "deepseek", name: "DeepSeek", credits: 1 }, { id: "llama", name: "Llama", credits: 1 },
+    { id: "mistral", name: "Mistral", credits: 1 }, { id: "perplexity", name: "Perplexity", credits: 1 }
   ];
-  var four = { busy: false, answers: null, left: null, notice: "", out: "", paid: null, redeemErr: false, codeMsg: "" };
+  var DEFAULT_PICK = ["chatgpt", "claude", "gemini"];
+  var pro = { busy: false, asked: null, answers: null, left: null, notice: "", short: false, paid: null, redeemErr: false,
+              codeMsg: "", charged: null, models: null, pick: null };
+  var four = pro;                       // old name, kept for anything that still points at it
   function store(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, String(v)); } catch (e) {} }
   function stored(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   // Text direction by MAJORITY of letters (Hebrew script vs Latin), so "Gemini איז גוט…" is still right-to-left.
   function textDir(s) {
     var t = String(s == null ? "" : s);
-    var heb = (t.match(/[\u0590-\u05FF\uFB1D-\uFB4F]/g) || []).length;
-    var lat = (t.match(/[A-Za-z\u00C0-\u024F]/g) || []).length;
+    var heb = (t.match(/[֐-׿יִ-ﭏ]/g) || []).length;
+    var lat = (t.match(/[A-Za-zÀ-ɏ]/g) || []).length;
     if (!heb && !lat) return "auto";
     return heb > lat ? "rtl" : "ltr";
   }
   function plainAnswer(s) { return String(s || "").replace(/\*\*([^*\n]+)\*\*/g, "$1").replace(/__([^_\n]+)__/g, "$1").replace(/^#{1,6}\s+/gm, ""); }
-  function leftLine() {
-    var l = four.left;
-    if (l && l.paid_left != null) return "Paid questions left: " + l.paid_left;
-    if (l && l.free_left != null) return "Free questions left: " + l.free_left;
-    var used = parseInt(stored("ait.freeUsed") || "0", 10) || 0;
-    return "Free questions left: " + Math.max(0, CONFIG.FREE - used);
+  function nCredits(n) { return n + (n === 1 ? " credit" : " credits"); }
+  function proModels() { return pro.models && pro.models.length ? pro.models : PRO_AIS; }
+  // pure: what a selection costs (unknown ids cost nothing and are ignored)
+  function selectionCost(ids, models) {
+    var by = {};
+    (models || PRO_AIS).forEach(function (m) { by[m.id] = m.credits; });
+    var seen = {};
+    return (ids || []).reduce(function (t, id) { if (by[id] == null || seen[id]) return t; seen[id] = 1; return t + by[id]; }, 0);
   }
-  function fourHtml() {
-    var h = '<button type="button" class="askfour" id="askfour"' + (four.busy ? " disabled" : "") + ">" + (four.busy ? "Asking all 4…" : "Ask all 4 here") + "</button>" +
-      '<p class="note askleft" id="askleft" aria-live="polite">' + esc(leftLine()) + "</p>";
-    // the saved code, always copyable (for another device); the count lives only in the line above
+  // pure: the ticked AIs, cleaned (known ids, no repeats, in the list's order); first visit = ChatGPT, Claude, Gemini
+  function cleanPick(ids, models) {
+    var list = models || PRO_AIS, want = {};
+    if (!Array.isArray(ids)) return DEFAULT_PICK.slice();
+    ids.forEach(function (id) { want[id] = 1; });
+    return list.filter(function (m) { return want[m.id]; }).map(function (m) { return m.id; });
+  }
+  function getPick() {
+    if (!pro.pick) { var raw = null; try { raw = JSON.parse(stored("ait.pick")); } catch (e) {} pro.pick = cleanPick(raw); }
+    return cleanPick(pro.pick, proModels());
+  }
+  function setPick(ids) { pro.pick = cleanPick(ids, proModels()); store("ait.pick", JSON.stringify(pro.pick)); }
+  // credits the visitor has: free + paid (from the helper; before it answers, from this device's last known numbers)
+  function balance() {
+    var l = pro.left;
+    if (!l) {
+      var used = parseInt(stored("ait.freeCreditsUsed") || "0", 10) || 0;
+      l = { free_left: Math.max(0, CONFIG.FREE - used), paid_left: null };
+    }
+    var free = l.free_left || 0, paid = l.paid_left || 0;
+    return { free: free, paid: paid, total: free + paid };
+  }
+  function askLabel(n, cost) { return n ? "Ask " + n + (n === 1 ? " AI" : " AIs") + " (" + nCredits(cost) + ")" : "Tick at least one AI"; }
+  function proHtml() {
+    var models = proModels(), pick = getPick(), cost = selectionCost(pick, models), bal = balance();
+    var short = pick.length > 0 && bal.total < cost;
+    var h = '<div class="pickhead"><h3 id="pickh">Pick the AIs</h3><span class="pickq"><button type="button" class="linkbtn" id="pickall">All</button>' +
+      ' · <button type="button" class="linkbtn" id="picknone">Clear</button></span></div>' +
+      '<div class="chips" role="group" aria-labelledby="pickh">' + models.map(function (m) {
+        var on = pick.indexOf(m.id) >= 0;
+        return '<label class="chip' + (on ? " on" : "") + '"><input type="checkbox" data-pick="' + esc(m.id) + '"' + (on ? " checked" : "") +
+          "><span><b>" + esc(m.name) + "</b><small>" + esc(nCredits(m.credits)) + "</small></span></label>";
+      }).join("") + "</div>";
+    h += '<p class="costline" id="askcost" aria-live="polite">This question costs <b>' + esc(nCredits(cost)) + "</b> · You have <b>" + esc(nCredits(bal.total)) + "</b>" +
+      (bal.paid > 0 ? '<small class="split">' + bal.free + " free + " + bal.paid + " paid</small>" : "") + "</p>";
+    h += '<button type="button" class="askfour" id="askfour"' + (pro.busy || !pick.length || short ? " disabled" : "") + ">" +
+      (pro.busy ? "Asking…" : esc(askLabel(pick.length, cost))) + "</button>";
+    if (pro.charged != null && !pro.busy) h += '<p class="note askleft" id="askleft">Charged ' + esc(nCredits(pro.charged)) + " for the last question.</p>";
+    else h += '<p class="note askleft" id="askleft" aria-live="polite"></p>';
+    // the saved code, always copyable (for another device)
     var saved = stored("ait.code");
-    if (four.paid) {                          // right after the Stripe return only
-      h += '<div class="paidbox card" role="status"><p><b>Paid!</b> Your code: <b class="code" id="paidcode">' + esc(four.paid.code) + '</b> <button type="button" class="linkbtn" data-copycode="1">Copy</button></p>' +
+    if (pro.paid) {                          // right after the Stripe return only
+      h += '<div class="paidbox card" role="status"><p><b>Paid! You got ' + esc(nCredits(pro.paid.credits || CONFIG.PACK)) + ".</b></p>" +
+        '<p>Your code: <b class="code" id="paidcode">' + esc(pro.paid.code) + '</b> <button type="button" class="linkbtn" data-copycode="1">Copy</button></p>' +
         '<p class="note">Keep it to use on another device.</p><p class="note" id="copymsg" aria-live="polite"></p></div>';
     } else if (saved) {
       h += '<p class="note codeline">Your code: <b class="code">' + esc(saved) + '</b> <button type="button" class="linkbtn" data-copycode="1">Copy</button>' +
         ' <span id="copymsg" aria-live="polite"></span></p>';
     }
-    if (four.redeemErr) {
+    if (pro.redeemErr) {
       h += '<div class="paidbox card" role="status"><p><b>Payment not confirmed yet.</b></p><button type="button" class="linkbtn" id="redeemretry">Retry</button></div>';
     }
-    if (four.notice) h += '<p class="note bad" role="status">' + esc(four.notice) + "</p>";
-    if (four.out === "free_used" || four.out === "code_empty") {
-      h += '<div class="outbox card"><p><b>' + (four.out === "code_empty" ? "Your code has no questions left." : "Your " + CONFIG.FREE + " free questions are used.") + "</b></p>" +
-        (CONFIG.PAY_LINK ? '<a class="paybtn" href="' + safeUrl(CONFIG.PAY_LINK) + '">Get ' + CONFIG.PACK + " more for $" + CONFIG.PRICE + "</a>" : "") +
-        '<p class="note">Have a code?</p><div class="codebar"><input id="askcode" type="text" inputmode="text" autocomplete="off" spellcheck="false" placeholder="AT-XXXX-XXXX-XXXX" maxlength="20" aria-label="Your code">' +
-        '<button type="button" class="linkbtn" id="askapply">Apply</button></div><p class="note" id="codemsg" aria-live="polite">' + esc(four.codeMsg) + "</p></div>";
+    if (pro.notice) h += '<p class="note bad" role="status">' + esc(pro.notice) + "</p>";
+    if ((short || pro.short || bal.total === 0) && !pro.busy) {
+      h += '<div class="outbox card"><p><b>' + (bal.total === 0 ? "You have no credits left." : "Not enough credits for this question.") + "</b> " +
+        (bal.total === 0 ? "" : "Untick some AIs, or ") + (CONFIG.PAY_LINK ? (bal.total === 0 ? "G" : "g") + "et " + CONFIG.PACK + " credits for $" + CONFIG.PRICE + "." : "") + "</p>" +
+        (CONFIG.PAY_LINK ? '<a class="paybtn" href="' + safeUrl(CONFIG.PAY_LINK) + '">Get ' + CONFIG.PACK + " credits for $" + CONFIG.PRICE + "</a>" : "") +
+        '<p class="note">Have a code?</p><div class="codebar"><input id="askcode" type="text" autocomplete="off" spellcheck="false" placeholder="AT-XXXX-XXXX-XXXX" maxlength="20" aria-label="Your code">' +
+        '<button type="button" class="linkbtn" id="askapply">Apply code</button></div><p class="note" id="codemsg" aria-live="polite">' + esc(pro.codeMsg) + "</p>" +
+        '<p class="note">Free: open your question in each AI\'s own website (buttons below).</p></div>';
     }
-    if (four.answers || four.busy) {
-      h += '<div class="acards" id="acards">' + FOUR.map(function (f) {
-        return '<section class="acard card" data-card="' + f.id + '"><h4>' + esc(f.name) + ' <small class="amodel"></small></h4><p class="atext" dir="auto"></p></section>';
+    if (pro.asked && (pro.answers || pro.busy)) {
+      var by = {};
+      models.forEach(function (m) { by[m.id] = m; });
+      h += '<div class="acards" id="acards">' + pro.asked.map(function (id) {
+        var m = by[id] || { id: id, name: id, credits: 0 };
+        return '<section class="acard card" data-card="' + esc(id) + '"><h4>' + esc(m.name) + ' <small class="amodel">' + esc(nCredits(m.credits)) +
+          '</small></h4><p class="atext" dir="auto"></p></section>';
       }).join("") + "</div>";
     }
     return h;
   }
   // fill the cards after the view is drawn: plain text only
   function fourFill() {
-    if (!hasDom) return;
-    FOUR.forEach(function (f) {
-      var card = document.querySelector('[data-card="' + f.id + '"]');
+    if (!hasDom || !pro.asked) return;
+    pro.asked.forEach(function (id) {
+      var card = document.querySelector('[data-card="' + id + '"]');
       if (!card) return;
-      var a = four.answers ? four.answers.filter(function (x) { return x.id === f.id; })[0] : null;
-      card.querySelector(".amodel").textContent = (a && a.model) || f.model;
+      var a = pro.answers ? pro.answers.filter(function (x) { return x.id === id; })[0] : null;
       var t = card.querySelector(".atext");
       t.classList.toggle("muted", !a || !!(a && a.error));
-      if (four.busy || !a) t.textContent = "Thinking…";
-      else if (a.error) t.textContent = a.error;
+      if (pro.busy || !a) t.textContent = "Thinking…";
+      else if (a.error) t.textContent = a.error + " — credits returned";
       else t.textContent = plainAnswer(a.text) + (a.cut ? " (cut short)" : "");
       t.setAttribute("dir", textDir(t.textContent));
     });
@@ -544,19 +594,19 @@
 
   function vAsk() {
     var links = askLinks(askQ);
-    var h = "<h2>Ask them all</h2><p class=\"sub\">" + (CONFIG.ASK_API ? "Type once. Get all 4 answers here, or open your question in each AI's own website for free."
-      : "Type once, then open your question in each AI. Free: each AI's own website, nothing goes through this app.") + "</p>";
+    var h = CONFIG.ASK_API ? "<h2>Ask the AIs</h2><p class=\"sub\">Pick which AIs answer. Each answer costs credits.</p>"
+      : "<h2>Ask them all</h2><p class=\"sub\">Type once, then open your question in each AI. Free: each AI's own website, nothing goes through this app.</p>";
     h += '<div class="askbox card"><label for="askq" class="sr">Your question</label>' +
       '<textarea id="askq" dir="' + textDir(askQ) + '" rows="4" maxlength="1500" placeholder="Type your question…" autocomplete="off">' + esc(askQ) + "</textarea>" +
       '<div class="askbar"><button type="button" class="linkbtn" id="askclear">Clear</button>' +
-      '<button type="button" class="openall wide-only" id="askall">Open all</button></div>' + (CONFIG.ASK_API ? fourHtml() : "") + "</div>";
+      '<button type="button" class="openall wide-only" id="askall">Open all</button></div>' + (CONFIG.ASK_API ? proHtml() : "") + "</div>";
     if (CONFIG.ASK_API) h += '<h2 class="orh">Or open it in each AI (free)</h2>';
     h += '<p class="note phone-only">Phones open one tab per tap. Tap each AI below.</p><p class="note bad" id="askblocked" aria-live="polite"></p>';
     h += "<h3>Opens with your question</h3>" + '<ul class="asklist" id="asklinks">' + links.filter(function (l) { return l.mode === "link"; }).map(askLinkHtml).join("") + "</ul>";
     h += "<h3>Copy, then paste</h3><p class=\"sub\">These AIs don't take a question by link.</p>" +
       '<ul class="asklist" id="askcopies">' + links.filter(function (l) { return l.mode === "copy"; }).map(askCopyHtml).join("") + "</ul>" +
       '<p class="note" id="askmsg" aria-live="polite"></p>';
-    if (CONFIG.ASK_API) h += '<p class="credits">Ask all 4 sends your question to ChatGPT, Claude, Gemini and Grok through this app\'s helper to get the answers. It is not saved.</p>' +
+    if (CONFIG.ASK_API) h += '<p class="credits">Asking here sends your question to the AIs you pick, through this app\'s helper, to get the answers. It is not saved.</p>' +
       '<p class="credits">For the buttons above: some AIs ask you to log in first, and this app never sees that question or those answers.</p>';
     else h += '<p class="credits">Some AIs ask you to log in first. This app never sees your question or answers.</p>';
     return h;
@@ -696,7 +746,8 @@
   }
 
   root.AITracker = { routeFor: routeFor, pickTitle: pickTitle, tabs: TABS, setData: function (d) { D = d; }, askLinks: askLinks, askAIs: ASK_AIS,
-    config: CONFIG, plainAnswer: plainAnswer, four: four, textDir: textDir,
+    config: CONFIG, plainAnswer: plainAnswer, four: pro, pro: pro, textDir: textDir, selectionCost: selectionCost, cleanPick: cleanPick,
+    proAIs: PRO_AIS, nCredits: nCredits, askLabel: askLabel,
     view: viewHtml, views: VIEWS, more: MORE };
 
   if (!hasDom) return;
@@ -764,7 +815,7 @@
   }
   document.addEventListener("input", function (e) { if (e.target && e.target.id === "askq") askSetQ(e.target.value); });
 
-  // ---- Ask all 4 here: the only calls to the helper (CONFIG.ASK_API). JSON in/out; nothing is stored but the code.
+  // ---- Ask the AIs: the only calls to the helper (CONFIG.ASK_API). JSON in/out; nothing is stored but the code and the ticks.
   function askApi(path, body) {
     var opt = body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : { method: "GET" };
     opt.cache = "no-store"; opt.credentials = "omit";
@@ -772,37 +823,49 @@
       return r.json().then(function (j) { return { status: r.status, json: j || {} }; }, function () { return { status: r.status, json: {} }; });
     });
   }
-  function askRedraw() { if (state.tab === "ask") { var y = window.scrollY; render(); window.scrollTo(0, y); } }
+  function askRedraw(focusSel) {
+    if (state.tab !== "ask") return;
+    var y = window.scrollY; render(); window.scrollTo(0, y);
+    if (focusSel) { var f = document.querySelector(focusSel); if (f) f.focus(); }
+  }
   function setLeft(j) {
-    if (!j) return;
-    four.left = { free_left: j.free_left, paid_left: j.paid_left };
-    if (j.free_left != null) store("ait.freeUsed", Math.max(0, CONFIG.FREE - j.free_left));
+    if (!j || (j.free_left == null && j.paid_left === undefined)) return;
+    pro.left = { free_left: j.free_left != null ? j.free_left : (pro.left && pro.left.free_left), paid_left: j.paid_left !== undefined ? j.paid_left : (pro.left && pro.left.paid_left) };
+    if (j.free_left != null) store("ait.freeCreditsUsed", Math.max(0, CONFIG.FREE - j.free_left));
+  }
+  function setModels(list) {
+    if (!Array.isArray(list) || !list.length) return;
+    var ok = list.filter(function (m) { return m && typeof m.id === "string" && typeof m.name === "string" && m.credits > 0; });
+    if (ok.length) pro.models = ok.map(function (m) { return { id: m.id, name: m.name, credits: m.credits }; });
   }
   var PAUSED = "Answers here are paused right now. Open your question in each AI below.";
-  function askFour() {
-    var q = askQ.trim();
-    if (!q) { askSay("askmsg", "Type your question first."); var b = document.getElementById("askq"); if (b) b.focus(); return; }
-    if (four.busy) return;
-    four.busy = true; four.answers = null; four.notice = ""; four.out = ""; four.codeMsg = ""; four.paid = null;
+  function askPro() {
+    var q = askQ.trim(), pick = getPick();
+    if (!q) { askSay("askleft", "Type your question first."); var b = document.getElementById("askq"); if (b) b.focus(); return; }
+    if (!pick.length || pro.busy) return;
+    pro.busy = true; pro.asked = pick; pro.answers = null; pro.notice = ""; pro.short = false; pro.codeMsg = ""; pro.paid = null; pro.charged = null;
     askRedraw();
-    var code = stored("ait.code");
-    askApi("/ask", code ? { question: q, code: code } : { question: q }).then(function (r) {
+    var code = stored("ait.code"), body = { question: q, models: pick };
+    if (code) body.code = code;
+    askApi("/ask", body).then(function (r) {
       var j = r.json;
-      four.busy = false;
+      pro.busy = false;
       if (r.status === 200 && j.answers) {
-        four.answers = j.answers; setLeft(j);
-        if (j.refunded) four.notice = "None of the 4 answered this time, so it wasn't counted. Try again in a moment.";
-      } else if (r.status === 402 && (j.reason === "free_used" || j.reason === "code_empty")) {
-        four.out = j.reason; setLeft(j);
+        pro.answers = j.answers; setLeft(j); pro.charged = j.charged != null ? j.charged : null;
+      } else if (r.status === 402 && j.reason === "not_enough") {
+        setLeft(j); pro.short = true; pro.asked = null;
       } else if (r.status === 402 && j.reason === "daily_cap") {
-        four.notice = "Today's free answers are used up. Try again tomorrow, or open your question in each AI below.";
+        setLeft(j); pro.asked = null;
+        pro.notice = "Today's free credits are used up. Try again tomorrow, use a code, or open your question in each AI below.";
       } else if (r.status === 429) {
-        four.notice = "Please wait a few seconds before asking again.";
+        pro.asked = null; pro.notice = "Please wait a few seconds before asking again.";
+      } else if (r.status === 400 && j.error === "bad_models") {
+        setModels(j.models); pro.asked = null; pro.notice = "The list of AIs changed. Check your ticks and ask again.";
       } else {
-        four.notice = PAUSED;                                       // disabled, balance_empty, errors
+        setLeft(j); pro.asked = null; pro.notice = PAUSED;            // disabled, balance_empty, errors
       }
       askRedraw();
-    }, function () { four.busy = false; four.notice = PAUSED; askRedraw(); });
+    }, function () { pro.busy = false; pro.asked = null; pro.notice = PAUSED; askRedraw(); });
   }
   function applyCode() {
     var box = document.getElementById("askcode");
@@ -811,45 +874,57 @@
     askApi("/status?code=" + encodeURIComponent(c)).then(function (r) {
       var j = r.json;
       if (r.status === 200 && j.paid_left != null) {
-        if (j.paid_left > 0) { store("ait.code", c); setLeft(j); four.out = ""; four.notice = ""; four.codeMsg = ""; askRedraw(); askSay("askleft", "Code saved. " + leftLine()); }
-        else askSay("codemsg", "That code has no questions left.");
+        if (j.paid_left > 0) {
+          store("ait.code", c); setLeft(j); setModels(j.models); pro.short = false; pro.notice = ""; pro.codeMsg = "";
+          askRedraw(); askSay("askleft", "Code saved. You have " + nCredits(balance().total) + ".");
+        } else askSay("codemsg", "That code has no credits left.");
       } else if (r.status === 200) askSay("codemsg", "That code wasn't found.");
       else askSay("codemsg", PAUSED);
     }, function () { askSay("codemsg", PAUSED); });
   }
   var sessionId = null;
   function redeem() {
-    four.redeemErr = false;
+    pro.redeemErr = false;
     askApi("/redeem", { session_id: sessionId }).then(function (r) {
       if (r.status === 200 && r.json.code) {
         store("ait.code", r.json.code);
-        four.paid = { code: r.json.code, paid_left: r.json.paid_left };
-        four.left = { free_left: null, paid_left: r.json.paid_left }; four.out = "";
+        pro.paid = { code: r.json.code, credits: r.json.credits || CONFIG.PACK };
+        setLeft({ paid_left: r.json.paid_left }); pro.short = false;
         try { history.replaceState(null, "", location.pathname + "#ask"); } catch (e) {}
-      } else four.redeemErr = true;
+        loadLeft();
+      } else pro.redeemErr = true;
       askRedraw();
-    }, function () { four.redeemErr = true; askRedraw(); });
+    }, function () { pro.redeemErr = true; askRedraw(); });
   }
   function loadLeft() {
     if (!CONFIG.ASK_API) return;
     var code = stored("ait.code");
     askApi("/status" + (code ? "?code=" + encodeURIComponent(code) : "")).then(function (r) {
       if (r.status !== 200) return;
-      setLeft(r.json);
-      if (r.json.enabled === false) four.notice = PAUSED;
-      var el = document.getElementById("askleft"); if (el) el.textContent = leftLine();
-      if (r.json.enabled === false) askRedraw();
+      setLeft(r.json); setModels(r.json.models);
+      if (r.json.enabled === false) pro.notice = PAUSED;
+      if (!pro.busy) askRedraw();
     }, function () {});
   }
+  document.addEventListener("change", function (e) {
+    var p = e.target && e.target.getAttribute && e.target.getAttribute("data-pick");
+    if (!p) return;
+    var ids = [];
+    document.querySelectorAll("[data-pick]").forEach(function (x) { if (x.checked) ids.push(x.getAttribute("data-pick")); });
+    setPick(ids); pro.short = false;
+    askRedraw('[data-pick="' + p + '"]');
+  });
   document.addEventListener("click", function (e) {
     if (!e.target.closest) return;
     var off = e.target.closest('#view [aria-disabled="true"]');
     if (off) { e.preventDefault(); askSay("askmsg", "Type your question first."); return; }
-    if (e.target.closest("#askfour")) { askFour(); return; }
+    if (e.target.closest("#askfour")) { askPro(); return; }
+    if (e.target.closest("#pickall")) { setPick(proModels().map(function (m) { return m.id; })); pro.short = false; askRedraw("#pickall"); return; }
+    if (e.target.closest("#picknone")) { setPick([]); pro.short = false; askRedraw("#picknone"); return; }
     if (e.target.closest("#askapply")) { applyCode(); return; }
     if (e.target.closest("#redeemretry")) { redeem(); return; }
     if (e.target.closest("[data-copycode]")) {
-      var cc = (four.paid && four.paid.code) || stored("ait.code");
+      var cc = (pro.paid && pro.paid.code) || stored("ait.code");
       if (cc) askCopy(cc).then(function (ok) { askSay("copymsg", ok ? "Copied." : "Select the code and copy it."); });
       return;
     }
