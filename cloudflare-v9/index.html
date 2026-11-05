@@ -12,6 +12,20 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="AI Pro">
+<!-- Share preview (links in chats and social posts). When the app moves to its own domain, change the 3 URLs below. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="AI Pro">
+<meta property="og:title" content="AI Pro — which AI is best, what it costs, ask them all">
+<meta property="og:description" content="See which AI is best for each job and what it costs, follow new releases and big news, and ask ChatGPT, Claude, Gemini and more at once.">
+<meta property="og:url" content="https://ai-tracker-3x2.pages.dev/">
+<meta property="og:image" content="https://ai-tracker-3x2.pages.dev/icons/og-1200x630.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="AI Pro: which AI is best, what it costs, and ask them all at once">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="AI Pro — which AI is best, what it costs, ask them all">
+<meta name="twitter:description" content="See which AI is best for each job and what it costs, follow new releases and big news, and ask ChatGPT, Claude, Gemini and more at once.">
+<meta name="twitter:image" content="https://ai-tracker-3x2.pages.dev/icons/og-1200x630.png">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
@@ -22,6 +36,7 @@
 <header class="top page">
   <div class="title">
     <h1>AI Pro</h1>
+    <p class="tagline">Which AI is best, what it costs, and ask them all at once</p>
     <p class="stamp"><span id="stamp" aria-live="polite">Loading…</span> · <button type="button" class="linkbtn" id="srcbtn" data-tab="sources">Sources</button></p>
   </div>
   <div class="actions">
@@ -36,12 +51,13 @@
     <button type="button" data-tab="releases" aria-label="New releases"><span class="ti" aria-hidden="true">🆕</span><span class="long">New releases</span><span class="short" aria-hidden="true">New</span></button>
     <button type="button" data-tab="news" aria-label="Big news"><span class="ti" aria-hidden="true">📰</span><span class="long">Big news</span><span class="short" aria-hidden="true">News</span></button>
     <button type="button" data-tab="agents" aria-label="Agents"><span class="ti" aria-hidden="true">🤖</span><span class="long">Agents</span><span class="short" aria-hidden="true">Agents</span></button>
-    <button type="button" data-tab="ask" aria-label="Ask them all"><span class="ti" aria-hidden="true">💬</span><span class="long">Ask</span><span class="short" aria-hidden="true">Ask</span></button>
+    <button type="button" data-tab="ask" aria-label="Explore"><span class="ti" aria-hidden="true">💬</span><span class="long">Explore</span><span class="short" aria-hidden="true">Explore</span></button>
   </div>
 </nav>
 <main id="main" class="page" tabindex="-1">
   <div id="view" class="view"><p class="sub">Loading…</p></div>
 </main>
+<footer class="foot page"><a href="terms.html">Terms</a> · <a href="refund.html">Refund</a> · <a href="privacy.html">Privacy</a> <span class="copy">© 2026 AI Pro</span></footer>
 <div id="offline" class="offline" role="status" hidden>You're offline. Showing the last saved copy.</div>
 <script src="data/data.js"></script>
 <script src="app.js"></script>

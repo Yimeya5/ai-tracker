@@ -1,9 +1,9 @@
-/* AI Tracker: one calm column, big text, cards that open with a tap.
+/* AI Pro: one calm column, big text, cards that open with a tap.
    Phone: 6 tabs in a bar at the bottom (short labels). Tablet: one row at the top (short labels); wide screens: full labels. */
 :root{
   --bg:#f6f5f1;--card:#ffffff;--soft:#eceffc;--text:#16181d;--muted:#5b6170;--line:#e3e0d8;
-  --accent:#3846c4;--on-accent:#ffffff;--good:#2b8547;--warn:#a96300;
-  --tie:#7a4fc2;--tie-soft:#f1eafc;--new:#a96300;--new-soft:#fbf0dc;--none-soft:#eef0f3;
+  --accent:#3846c4;--on-accent:#ffffff;--good:#2b8547;--warn:#8a4f00;
+  --tie:#7a4fc2;--tie-soft:#f1eafc;--new:#8a4f00;--new-soft:#fbf0dc;--none-soft:#eef0f3;   /* #8a4f00 on #fbf0dc = 5.8:1 */
   --shadow:0 1px 2px rgba(22,24,29,.04),0 2px 10px rgba(22,24,29,.03);
   --r:20px;--nav:76px;
   color-scheme:light;
@@ -44,10 +44,11 @@ button{font:inherit;color:inherit}
   padding-top:calc(22px + env(safe-area-inset-top,0px));padding-bottom:4px}
 .title{min-width:0}
 .top h1{margin:0;font-size:31px;line-height:1.15;font-weight:800;letter-spacing:-.015em}
-.stamp{margin:6px 0 0;font-size:15.5px;color:var(--muted)}
+.tagline{margin:4px 0 0;font-size:15.5px;line-height:1.35;color:var(--muted)}
+.stamp{margin:6px 0 0;font-size:15px;color:var(--muted);white-space:nowrap}     /* "Updated 8h ago · Sources" stays on one line */
 .stamp .dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--good);margin-right:8px;vertical-align:1px}
 .stamp .dot.old{background:var(--warn)}
-.linkbtn{border:0;background:none;padding:4px 2px;margin:-4px 0;color:var(--accent);font-weight:650;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.linkbtn{border:0;background:none;padding:12px 4px;margin:-12px -2px;color:var(--accent);font-weight:650;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
 .linkbtn[aria-current="page"]{text-decoration:none;color:var(--text)}
 .actions{display:flex;gap:10px;flex:none}
 .icon-btn{width:48px;height:48px;border-radius:50%;border:1px solid var(--line);background:var(--card);cursor:pointer;
@@ -124,7 +125,7 @@ details[open] > summary .chev{transform:rotate(45deg) translate(-2px,-2px)}
 .boards li{padding:7px 0;border-top:1px solid var(--line);overflow-wrap:anywhere}
 .boards .top3{display:block;color:var(--muted)}
 .sub-more{margin-top:12px}
-.sub-more > summary{color:var(--accent);font-weight:650;padding:8px 0}
+.sub-more > summary{color:var(--accent);font-weight:650;padding:8px 0;min-height:44px;display:flex;align-items:center}
 
 /* simple lists */
 .rows{list-style:none;margin:0;padding:0 20px}
@@ -171,15 +172,63 @@ b.big{font-size:21px;font-weight:800;letter-spacing:-.01em}
 .pickhead h3{margin:0;font-size:18px}
 .pickq{white-space:nowrap}
 .chips{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.chip{position:relative;display:flex;align-items:center;gap:10px;min-height:52px;padding:8px 12px;border:1.5px solid var(--line);
-  border-radius:14px;background:var(--card);cursor:pointer;min-width:0}
-.chip input{width:22px;height:22px;flex:none;margin:0;accent-color:var(--accent)}
-.chip span{display:flex;flex-direction:column;min-width:0}
-.chip b{font-size:16.5px;overflow-wrap:anywhere}
-.chip small{font-size:14px;color:var(--muted)}
+.chip{position:relative;display:flex;align-items:stretch;min-height:52px;padding:0;border:1.5px solid var(--line);
+  border-radius:14px;background:var(--card);min-width:0}
+/* the whole name area ticks the box; the ▾ button beside it opens the model picker (it never ticks) */
+.chip .chipl{flex:1 1 auto;display:flex;align-items:center;gap:8px;min-width:0;min-height:49px;padding:8px 0 8px 10px;cursor:pointer}
+.chip input{width:20px;height:20px;flex:none;margin:0;accent-color:var(--accent)}
+.chip .chipl > span{display:flex;flex-direction:column;min-width:0}
+.chip b{font-size:16px;overflow-wrap:break-word}
+.chip small{font-size:13.5px;color:var(--muted);overflow-wrap:break-word}
 .chip.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
 .chip:focus-within{outline:3px solid var(--accent);outline-offset:2px}
+/* the ▾ looks 36px wide; its tap area is 44px wide (8px more to the left, over the label's edge) and the chip's full height */
+.chipmodel{position:relative;flex:none;display:flex;align-items:center;justify-content:center;width:36px;min-height:44px;margin:0;padding:0;border:0;
+  border-left:1px solid var(--line);border-radius:0 12px 12px 0;background:none;color:var(--accent);font:inherit;font-size:18px;font-weight:700;cursor:pointer}
+.chipmodel::before{content:"";position:absolute;top:0;bottom:0;left:-8px;right:0}
+.chipmodel:hover{background:rgba(127,127,127,.1)}
+/* model picker: bottom sheet on phones, small centered dialog on wide screens */
+.sheetwrap{position:fixed;inset:0;z-index:60;display:flex;align-items:flex-end;justify-content:center}
+.sheetwrap[hidden]{display:none}
+.sheetback{position:absolute;inset:0;background:rgba(0,0,0,.45)}
+.sheet{position:relative;width:100%;max-width:520px;max-height:85vh;overflow:auto;margin:0;padding:8px 16px calc(16px + env(safe-area-inset-bottom));
+  border-radius:20px 20px 0 0;background:var(--card);color:var(--text);box-shadow:0 -8px 30px rgba(0,0,0,.25)}
+.sheethead{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.sheethead h3{margin:8px 0;font-size:18px}
+.sheetx{flex:none;width:44px;height:44px;border:0;border-radius:12px;background:none;color:var(--text);font-size:28px;line-height:1;cursor:pointer}
+.mopts{display:flex;flex-direction:column;gap:8px;margin:4px 0 0}
+.mopt{display:flex;align-items:center;gap:12px;min-height:52px;padding:8px 12px;border:1.5px solid var(--line);border-radius:14px;cursor:pointer}
+.mopt input{width:22px;height:22px;flex:none;margin:0;accent-color:var(--accent)}
+.mopt .mname{flex:1 1 auto;display:flex;flex-direction:column;min-width:0}
+.mopt .mname b{font-size:16.5px;overflow-wrap:anywhere}
+.mopt .mname small{font-size:13.5px;color:var(--muted)}
+.mopt .mcred{flex:none;font-size:15px;color:var(--muted);font-variant-numeric:tabular-nums}
+.mopt.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.mopt:focus-within{outline:3px solid var(--accent);outline-offset:2px}
+.sheetdone{display:flex;align-items:center;justify-content:center;width:100%;min-height:48px;margin:12px 0 0;border:0;border-radius:14px;
+  background:var(--accent);color:var(--on-accent);font:inherit;font-weight:700;font-size:16.5px;cursor:pointer}
+html.sheetopen{overflow:hidden}
+@media (min-width:600px){
+  .sheetwrap{align-items:center}
+  .sheet{max-width:420px;border-radius:20px;padding-bottom:16px}
+}
 .costline{margin:12px 0 0;text-align:center;font-size:16.5px}
+/* "More AIs" (Llama, Mistral, Perplexity): collapsed under the main chips; 44px+ to tap */
+.morebtn2{display:flex;align-items:center;gap:6px;min-height:44px;margin:6px 0 0;padding:0 4px;text-decoration:none}
+.morechips{margin-top:4px}
+.morechips[hidden]{display:none}
+/* the live cost line: short and calm; non-default models on a small second line */
+.costline .webhint{display:block;color:var(--muted);font-size:14px}
+.costline b{white-space:nowrap}
+.costline .costnames{display:block;color:var(--muted);font-size:14px}
+/* an answer that searched the web */
+.acard h4 .searched{display:inline-block;margin-left:4px;padding:1px 8px;border-radius:999px;background:var(--new-soft);color:var(--new);
+  font-size:13px;font-weight:650;white-space:nowrap;vertical-align:2px}
+.acard h4 .amodel{font-weight:600;color:var(--muted)}
+/* web answers: "Sources:" and up to 5 small links */
+.asrcs{margin:8px 0 0;font-size:14px;color:var(--muted);overflow-wrap:anywhere}
+.asrcs[hidden]{display:none}
+.asrcs a{display:inline-block;min-height:44px;line-height:44px;padding:0 2px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
 .costline .split{display:block;color:var(--muted);font-size:14px}
 /* answer cards and boxes */
 .askfour{display:flex;align-items:center;justify-content:center;width:100%;min-height:54px;margin-top:12px;border:0;border-radius:14px;
@@ -230,6 +279,19 @@ h4.grp{font-size:15px;font-weight:700;letter-spacing:.05em;text-transform:upperc
   border:1px solid var(--line);background:var(--card);cursor:pointer;font-weight:700;font-size:16.5px;color:var(--accent);text-decoration:none}
 .backbtn{width:auto;display:inline-flex;padding:0 18px;margin:18px 0 0;font-weight:650}
 .credits{margin:22px 0 0;font-size:14.5px;color:var(--muted)}
+/* tap targets: small text links get padding above and below (44px+ to tap, at any font size) without moving the text */
+:where(.view, .foot, .stamp) a{padding-block:calc(23px - .6em)}
+.foot{margin-top:28px;padding-top:6px;padding-bottom:6px;border-top:1px solid var(--line);font-size:15px;color:var(--muted);text-align:center}
+.foot a{color:var(--muted)}
+.foot .copy{display:block;font-size:13.5px}
+/* first screen: the way into Ask */
+.askcta{display:flex;align-items:center;gap:8px;min-height:50px;margin:4px 0 12px;padding:10px 16px;border-radius:14px;
+  background:var(--accent);color:var(--on-accent);text-decoration:none;font-size:16.5px;white-space:nowrap;overflow:hidden}
+.askcta b{font-weight:800}
+.askcta .go{margin-left:auto;font-size:24px;line-height:1}
+.askqmsg{margin:6px 0 0}
+.askqmsg:empty{display:none}
+.fastmodel{margin-top:10px;font-size:14.5px}
 
 .offline{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--nav) + env(safe-area-inset-bottom,0px) + 16px);
   background:var(--text);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:15px;z-index:40;max-width:calc(100% - 32px);text-align:center}
@@ -256,10 +318,19 @@ h4.grp{font-size:15px;font-weight:700;letter-spacing:.05em;text-transform:upperc
 }
 @media (max-width:420px){
   .top h1{font-size:28px}
+  .tagline{font-size:14.5px}
+  .stamp{font-size:14.5px}
   .pick > summary{grid-template-columns:50px minmax(0,1fr) 20px;gap:14px;padding:18px}
   .ico{width:50px;height:50px;font-size:25px}
   .name{font-size:21.5px}
   .pick .body{padding:0 18px 18px 18px}
   .rows{padding:0 16px}
+}
+/* small phones (360 px): a little more room for the AI names next to the ▾ */
+@media (max-width:380px){
+  .askbox{padding:10px}
+  .chip .chipl{gap:6px;padding-left:8px}
+  .chip input{width:18px;height:18px}
+  .chip b{font-size:14.5px}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}

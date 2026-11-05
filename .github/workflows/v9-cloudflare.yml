@@ -33,9 +33,11 @@ jobs:
         run: |
           set -e
           mkdir -p _v9
-          cp cloudflare-v9/index.html cloudflare-v9/app.css cloudflare-v9/app.js cloudflare-v9/sw.js cloudflare-v9/manifest.webmanifest _v9/
           cp -r icons data _v9/
-          rm -f _v9/data/history.json _v9/data/raw.json
+          # every file in cloudflare-v9/ (app files, Terms/Refund/Privacy pages, its own icons/ which win over the root icons)
+          cp -r cloudflare-v9/. _v9/
+          rm -f _v9/README.md _v9/data/history.json _v9/data/raw.json
+          test -f _v9/privacy.html && test -f _v9/terms.html && test -f _v9/refund.html && test -f _v9/icons/og-1200x630.png
           python3 - <<'PY'
           import json
           d = json.load(open("_v9/data/data.json"))
