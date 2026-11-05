@@ -1,6 +1,6 @@
 {
- "name": "AI Tracker",
- "short_name": "AI Tracker",
+ "name": "AI Pro",
+ "short_name": "AI Pro",
  "description": "Which AI is best for what, what it costs, new releases, big news and AI agents. Picked by fixed rules from independent sources. Updates itself every day.",
  "start_url": "./index.html#best",
  "scope": "./",
