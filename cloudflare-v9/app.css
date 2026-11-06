@@ -456,4 +456,13 @@ h4.grp{font-size:15px;font-weight:700;letter-spacing:.05em;text-transform:upperc
 .newsitem .nsum{display:block;margin-top:4px;font-size:15.5px;line-height:1.45;color:var(--text);opacity:.86}
 .newsitem .nmeta{display:block;margin-top:4px;font-size:14px;color:var(--muted)}
 .newsitem .tag{margin-bottom:6px}
+/* a news item with a link: one calm tap target (no underline), soft highlight on hover, visible focus ring */
+.newsitem .nlink{display:block;margin:-8px -8px;padding:8px 8px;border-radius:14px;color:inherit;text-decoration:none;
+  -webkit-tap-highlight-color:transparent;transition:background-color .15s ease}
+.newsitem .nlink:hover{background:var(--soft)}
+.newsitem .nlink:active{background:var(--soft)}
+.newsitem .nlink:focus-visible{outline:3px solid var(--accent);outline-offset:0;border-radius:14px}
+.newsitem .nlink .nt{color:var(--text)}
+.newsitem .nlink:hover .nt{text-decoration:underline;text-decoration-color:var(--accent);text-underline-offset:3px}
+.newsitem .ext{color:var(--accent);font-weight:700;margin-left:2px}
 .foot .linkbtn{color:inherit;font-weight:inherit}           /* "Sources" looks like the other footer links */

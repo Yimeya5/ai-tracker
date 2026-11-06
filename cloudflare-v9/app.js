@@ -198,7 +198,21 @@
   //  speed    = the model's "fast" mark (guessed from its name), else a lower developer price as a rough hint
   //  price    = the developer price per million tokens (Paid: the cheapest monthly plan of its app)
   //  web      = can be asked in Explore here, where answers look up the web when the question needs it
-  //  Free / Paid = the company's app has a free plan / paid plans (from the Cost data)
+  //  Free / Paid = the model is on its app's FREE plan (FREE_MODELS above) / the app has paid plans (from the Cost data)
+  // Which TESTED models a FREE plan user can use, per app (by model key), checked 2026-11-06. "free" = on the free plan;
+  // "limited" = on the free plan with tight limits, or not fully confirmed ("May be limited on free"). A model not listed
+  // here needs a paid plan. Kept here, not in data/ (the daily Action rewrites data). Edit when plans change.
+  var FREE_MODELS = {
+    Claude: { "claude-sonnet-5-5": "free" },                          // Opus 5.5 and Fable 5.1: paid plans only
+    ChatGPT: { "gpt-6-1-terra": "limited", "gpt-image-2": "limited" },   // default free chat is GPT-6 Luna (not tested); Sol, Astra, Image 2.5/2.6: paid
+    Gemini: { "gemini-4-carbon": "limited", "gemini-nano-banana-2-1": "limited" },   // Gemini 4 Argon: subscribers only
+    Copilot: { "mai-image-2-6": "limited" }
+  };
+  // the free plan's everyday model, for "Closest free option" when no tested model of a task is free
+  var FREE_DEFAULT = { ChatGPT: "GPT-6 Luna", Claude: "Sonnet 5.5", Gemini: "Gemini Flash", Copilot: "Copilot" };
+  function own(o, k) { return !!o && Object.prototype.hasOwnProperty.call(o, k); }
+  function freeLevel(app, k) { return app && app.free && own(FREE_MODELS, app.app) && own(FREE_MODELS[app.app], k) ? FREE_MODELS[app.app][k] : ""; }
+  function freeIn(app, k) { return !!freeLevel(app, k); }
   var PRIOS = [["quality", "Quality"], ["speed", "Speed"], ["price", "Price"], ["web", "Web search"]];
   var PLANS = [["any", "Any"], ["free", "Free"], ["paid", "Paid"]];
   var finder = null;
@@ -248,12 +262,14 @@
       var scores = {
         quality: quality,
         speed: c.fast ? 1 : 0.6 * devScore,
-        price: plan === "paid" ? (plan1 ? scale(plan1.usd_month, 4, 250) : 0) : devScore,
+        // Free / Any: usable for free = cheapest (free 1, may be limited 0.85); no developer price alone = middle, not last
+        price: plan === "paid" ? (plan1 ? scale(plan1.usd_month, 4, 250) : 0)
+          : freeLevel(app, c.k) === "free" ? 1 : freeLevel(app, c.k) === "limited" ? 0.85 : blend ? devScore : 0.5,
         web: ex ? 1 : 0
       };
       var score = prio === "quality" ? quality : 0.4 * quality + 0.6 * scores[prio];        // the chosen priority counts most
       return { k: c.k, n: c.n, o: c.o, fast: !!c.fast, score: score, quality: quality, top10: top10, top3: top3, tests: n,
-               app: app ? app.app : "", free: !!(app && app.free), plan: plan1, dev: dev, blend: blend, explore: ex, scores: scores };
+               app: app ? app.app : "", free: freeIn(app, c.k), freeLevel: freeLevel(app, c.k), plan: plan1, dev: dev, blend: blend, explore: ex, scores: scores };
     }).filter(function (r) {
       if (plan === "free") return r.free;
       if (plan === "paid") return !!r.plan;
@@ -267,7 +283,8 @@
     else if (r.top10) w.push("Top 10 in " + r.top10 + " of " + r.tests + (r.tests === 1 ? " test" : " tests"));
     if (r.fast) w.push("⚡ Fast");
     if (plan === "paid" && r.plan) w.push(r.app + " " + r.plan.name + " " + money(r.plan.usd_month) + "/month");
-    else if (r.app) w.push(r.free ? r.app + " has a free plan" : "In " + r.app);
+    else if (r.free) w.push(r.freeLevel === "limited" ? "May be limited on free" : "Free in " + r.app);
+    else w.push("Paid plan needed" + (r.plan ? ": " + r.app + " " + r.plan.name + " " + money(r.plan.usd_month) + "/month" : ""));
     if (prio === "price" && plan !== "paid" && r.blend) w.push("Developer price " + money(r.blend) + " per million tokens");
     if (prio === "web" && r.explore) w.push("Can search the web in " + CONFIG.ASK_NAME);
     return w;
@@ -287,7 +304,11 @@
       seg("fprio", PRIOS, f.prio, "Most important") +
       seg("fplan", PLANS, f.plan, "Plan") +
       '<div class="fresult" aria-live="polite">';
-    if (!best) h += '<p class="note">No tested model fits this choice yet. Try another plan.</p>';
+    if (!best && f.plan === "free") {                               // never an empty Free: point to the closest free app
+      var near = rankModels(D, f.task, f.prio, "any").filter(function (r) { var a = appFor(D, r.o); return a && a.free; })[0];
+      h += '<p class="note">No tested model for this task is free.' + (near ? " Closest free option: " + esc(near.app) + " Free (" +
+        esc(FREE_DEFAULT[near.app] || "its free model") + ")." : "") + "</p>";
+    } else if (!best) h += '<p class="note">No tested model fits this choice yet. Try another plan.</p>';
     else {
       var try1 = CONFIG.ASK_API && best.explore ? '<button type="button" class="trybtn" data-try="' + esc(best.explore.id + "|" + best.explore.model) + '">Ask it in ' + esc(CONFIG.ASK_NAME) + "</button>" : "";
       h += '<div class="fbest"><p class="fkick">Your best match</p><p class="fname"><b>' + esc(best.n) + "</b>" + (best.o ? ' <span class="muted">by ' + esc(best.o) + "</span>" : "") + "</p>" +
@@ -297,6 +318,16 @@
         return '<li><span class="rpos">' + (i + 1) + '</span><span class="rbody"><b>' + esc(r.n) + "</b>" + (r.o ? ' <span class="muted">' + esc(r.o) + "</span>" : "") +
           '<span class="rbar" aria-hidden="true"><i style="width:' + pct + '%"></i></span><small>' + esc(finderWhy(r, f.prio, f.plan).join(" · ")) + "</small></span></li>";
       }).join("") + "</ol></details>";
+    }
+    if (f.plan === "free" && best) {                                // free apps whose free model isn't in this task's tests
+      var shown = {};
+      ranked.forEach(function (r) { shown[r.app] = 1; });
+      var also = (f.task === "pictures" ? ["ChatGPT", "Gemini", "Copilot"] : ["ChatGPT", "Claude", "Gemini"]).filter(function (a) {
+        var app = list(D.cost && D.cost.apps).filter(function (x) { return x.app === a; })[0];
+        return app && app.free && !shown[a];
+      });
+      if (also.length) h += '<p class="note falso">Also free, not tested for this task: ' +
+        esc(also.map(function (a) { return a + " Free (" + (FREE_DEFAULT[a] || "its free model") + ")"; }).join(", ")) + ".</p>";
     }
     h += '<p class="note fnote">Ranked from the tests, prices and plans in this app. ' +
       (f.prio === "speed" ? "Speed is a guess from the model's name and price, not a speed test. " : "") +
@@ -419,7 +450,8 @@
   }
 
   // ---------------------------------------------------------------- views: Big news
-  // v16: news is read inside the app: title, a short summary, date and the source's name as plain text. No outside links.
+  // News: title, a short summary, date and the source's name. With a link (http/https), the whole item is one tap that
+  // opens the original article in a new tab (source + ↗ in the meta line); without one it stays plain text.
   function newsSummary(n) {
     var x = String(n.x || "").replace(/\s+/g, " ").trim();
     if (x) return x.length > 220 ? x.slice(0, 217).replace(/\s+\S*$/, "") + "…" : x;
@@ -431,11 +463,15 @@
     return "Reported by " + (n.s || "the source") + ".";
   }
   function newsRow(n) {
-    return '<li class="newsitem"><span class="rn">' + (n.tag ? '<span class="tag">' + esc(n.tag) + "</span>" : "") + '<b class="nt">' + esc(n.t) + "</b>" +
+    var u = typeof n.u === "string" && /^https?:\/\/[^\s"'<>]+$/i.test(n.u) ? n.u : "";
+    var body = (n.tag ? '<span class="tag">' + esc(n.tag) + "</span>" : "") + '<b class="nt">' + esc(n.t) + "</b>" +
       '<span class="nsum">' + esc(newsSummary(n)) + "</span>" +
-      '<small class="nmeta">' + esc(day(n.d)) + (n.s ? " · " + esc(n.s) : "") + "</small></span></li>";
+      '<small class="nmeta">' + esc(day(n.d)) + (n.s ? " · " + esc(n.s) : "") +
+      (u ? ' <span class="ext" aria-hidden="true">↗</span><span class="sr"> (opens in a new tab)</span>' : "") + "</small>";
+    return u ? '<li class="newsitem"><a class="nlink rn" href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">' + body + "</a></li>"
+      : '<li class="newsitem"><span class="rn">' + body + "</span></li>";
   }
-  // credits as plain text (news screens have no outside links)
+  // the credit line under the news stays plain text (the items themselves link to their articles)
   function creditsText(ids) { return credits(ids).replace(/<a [^>]*href="(?!#)[^"]*"[^>]*>([\s\S]*?)<\/a>/g, "$1"); }
   function vNews() {
     var items = list(D.bignews && D.bignews.items);
