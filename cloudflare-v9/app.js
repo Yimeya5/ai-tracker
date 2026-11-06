@@ -1,7 +1,7 @@
 (function (root) {
   "use strict";
   // AI Pro: 5 tabs that answer 5 questions, plus "Ask" (ask the AIs here with credits, or open the question in each AI).
-  //   Best for what · Cost · New releases · Big news · Agents · Ask   (+ a Sources view)
+  //   Top Picks · Cost · New releases · Big news · Agents · Explore · Race   (+ a Sources view)
   // Each tab shows a short simple view first, and "See more" opens the full details.
   // All picks are made by fixed rules in scripts/update_data.py; this file only shows them.
   // ---- settings for Explore ("Ask the AIs", see worker/README.md). Leave ASK_API empty and the Ask tab is the free v8 tab.
@@ -33,26 +33,6 @@
   function safeUrl(u) { return /^https:\/\//.test(u || "") ? esc(u) : ""; }
   function ext(u, text) { var s = safeUrl(u); return s ? '<a href="' + s + '" target="_blank" rel="noopener">' + text + "</a>" : text; }
   function list(x) { return Array.isArray(x) ? x : []; }
-  function ago(iso) {
-    if (!iso) return "";
-    var s = (Date.now() - new Date(iso).getTime()) / 1000;
-    if (isNaN(s)) return "";
-    if (s < 90) return "just now";
-    if (s < 3600) return Math.round(s / 60) + " min ago";
-    if (s < 86400) { var h = Math.round(s / 3600); return h + (h === 1 ? " hour ago" : " hours ago"); }
-    var d = Math.round(s / 86400);
-    return d <= 1 ? "yesterday" : d + " days ago";
-  }
-  // short form for the phone header: "8h ago", "5 min ago", "3d ago" (keeps "Updated … · Sources" on one line)
-  function agoShort(iso) {
-    if (!iso) return "";
-    var s = (Date.now() - new Date(iso).getTime()) / 1000;
-    if (isNaN(s)) return "";
-    if (s < 90) return "just now";
-    if (s < 3600) return Math.round(s / 60) + " min ago";
-    if (s < 86400) return Math.round(s / 3600) + "h ago";
-    return Math.round(s / 86400) + "d ago";
-  }
   var MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   function day(iso) {
     if (!iso) return "";
@@ -176,7 +156,7 @@
     return h + "</div></details>";
   }
 
-  // ---------------------------------------------------------------- views: Best for what
+  // ---------------------------------------------------------------- views: Top Picks (#best)
   // the first screen: a clear way into Ask (only when Ask is set up)
   // the "Explore — 10 free credits" banner is for new visitors only: hidden once free credits were spent on this
   // device (ait.freeCreditsUsed, saved from every balance the helper sends) or a paid code was saved
@@ -211,21 +191,133 @@
       '<p class="tiptext">' + esc(tip) + "</p>" +
       '<details class="tipall"><summary>See all tips</summary><ol>' + t.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ol></details></aside>";
   }
+  // ---- Top Picks finder (v16): the visitor picks a task, what matters most and Free / Paid; the app ranks the
+  // tested models from the data it already has (no server call). Pure: rankModels(D, task, prio, plan).
+  //  score    = quality alone, or 40% quality + 60% the chosen priority
+  //  quality  = how high the independent tests rank it for that task (top 10 counts, #1 counts most), averaged over the tests
+  //  speed    = the model's "fast" mark (guessed from its name), else a lower developer price as a rough hint
+  //  price    = the developer price per million tokens (Paid: the cheapest monthly plan of its app)
+  //  web      = can be asked in Explore here, where answers look up the web when the question needs it
+  //  Free / Paid = the company's app has a free plan / paid plans (from the Cost data)
+  var PRIOS = [["quality", "Quality"], ["speed", "Speed"], ["price", "Price"], ["web", "Web search"]];
+  var PLANS = [["any", "Any"], ["free", "Free"], ["paid", "Paid"]];
+  var finder = null;
+  function finderTasks() { return list(D && D.picks).filter(function (p) { return p.id !== "cheap" && list(p.winners).concat(list(p.candidates)).length; }); }
+  function getFinder() {
+    if (!finder) { var raw = null; try { raw = JSON.parse(stored("ait.finder")); } catch (e) {} finder = raw && typeof raw === "object" ? raw : {}; }
+    var tasks = finderTasks().map(function (p) { return p.id; });
+    var ok = function (v, l, d) { return l.indexOf(v) >= 0 ? v : d; };
+    return { task: ok(finder.task, tasks, tasks[0] || ""), prio: ok(finder.prio, PRIOS.map(function (x) { return x[0]; }), "quality"),
+             plan: ok(finder.plan, PLANS.map(function (x) { return x[0]; }), "any") };
+  }
+  function setFinder(k, v) { var f = getFinder(); f[k] = v; finder = f; store("ait.finder", JSON.stringify(f)); }
+  function makerKey(o) { return String(o || "").toLowerCase().split(/\s+/)[0]; }
+  function appFor(d, o) {
+    var k = makerKey(o);
+    return list(d && d.cost && d.cost.apps).filter(function (a) { return makerKey(a.maker) === k; })[0] || null;
+  }
+  function devFor(d, k) { return list(d && d.cost && d.cost.dev).filter(function (x) { return x.k === k; })[0] || null; }
+  function cheapestPlan(app) {
+    return list(app && app.plans).filter(function (p) { return p.usd_month > 0; }).sort(function (a, b) { return a.usd_month - b.usd_month; })[0] || null;
+  }
+  // the Explore AI + model for a tested model, when this app can ask it ("claude-opus-5-5" = anthropic/claude-opus-5.5)
+  function exploreFor(k) {
+    var hit = null;
+    proModels().forEach(function (m) {
+      (m.options || []).forEach(function (o) {
+        var key = String(o.model).split("/").pop().replace(/[.]/g, "-").toLowerCase();
+        if (!hit && key === k) hit = { id: m.id, name: m.name, model: o.model, label: o.label };
+      });
+    });
+    return hit;
+  }
+  function scale(v, lo, hi) { var x = (Math.log(hi) - Math.log(v)) / (Math.log(hi) - Math.log(lo)); return Math.max(0, Math.min(1, x)); }
+  function rankModels(d, task, prio, plan) {
+    var p = list(d && d.picks).filter(function (x) { return x.id === task; })[0];
+    if (!p) return [];
+    var seen = {}, all = list(p.winners).concat(list(p.candidates)).filter(function (c) { if (!c || seen[c.k]) return false; seen[c.k] = 1; return true; });
+    var n = Math.max(1, p.n || 1);
+    return all.map(function (c) {
+      var ranks = list(c.ranks).filter(function (r) { return r.rank != null; });
+      var top10 = ranks.filter(function (r) { return r.rank <= 10; }).length, top3 = ranks.filter(function (r) { return r.rank <= 3; }).length;
+      var quality = ranks.reduce(function (t, r) { return t + (r.rank <= 10 ? (11 - r.rank) / 10 : 0); }, 0) / n;
+      var app = appFor(d, c.o), dev = devFor(d, c.k), plan1 = cheapestPlan(app);
+      var blend = dev ? (3 * dev.pin + dev.pout) / 4 : null;
+      var devScore = blend ? scale(blend, 0.2, 20) : 0.2;
+      var ex = exploreFor(c.k);
+      var scores = {
+        quality: quality,
+        speed: c.fast ? 1 : 0.6 * devScore,
+        price: plan === "paid" ? (plan1 ? scale(plan1.usd_month, 4, 250) : 0) : devScore,
+        web: ex ? 1 : 0
+      };
+      var score = prio === "quality" ? quality : 0.4 * quality + 0.6 * scores[prio];        // the chosen priority counts most
+      return { k: c.k, n: c.n, o: c.o, fast: !!c.fast, score: score, quality: quality, top10: top10, top3: top3, tests: n,
+               app: app ? app.app : "", free: !!(app && app.free), plan: plan1, dev: dev, blend: blend, explore: ex, scores: scores };
+    }).filter(function (r) {
+      if (plan === "free") return r.free;
+      if (plan === "paid") return !!r.plan;
+      return true;
+    }).sort(function (a, b) { return b.score - a.score || b.quality - a.quality || (a.n < b.n ? -1 : 1); });
+  }
+  function money(v) { return "$" + (v >= 10 ? Math.round(v) : (Math.round(v * 100) / 100).toFixed(2).replace(/\.00$/, "")); }
+  function finderWhy(r, prio, plan) {
+    var w = [];
+    if (r.top3) w.push("Top 3 in " + r.top3 + " of " + r.tests + (r.tests === 1 ? " test" : " tests"));
+    else if (r.top10) w.push("Top 10 in " + r.top10 + " of " + r.tests + (r.tests === 1 ? " test" : " tests"));
+    if (r.fast) w.push("⚡ Fast");
+    if (plan === "paid" && r.plan) w.push(r.app + " " + r.plan.name + " " + money(r.plan.usd_month) + "/month");
+    else if (r.app) w.push(r.free ? r.app + " has a free plan" : "In " + r.app);
+    if (prio === "price" && plan !== "paid" && r.blend) w.push("Developer price " + money(r.blend) + " per million tokens");
+    if (prio === "web" && r.explore) w.push("Can search the web in " + CONFIG.ASK_NAME);
+    return w;
+  }
+  function seg(name, opts, cur, label) {
+    return '<fieldset class="seg"><legend>' + esc(label) + '</legend><div class="segs">' + opts.map(function (o) {
+      return '<label class="segopt' + (o[0] === cur ? " on" : "") + '"><input type="radio" name="' + name + '" value="' + esc(o[0]) + '"' + (o[0] === cur ? " checked" : "") +
+        "><span>" + esc(o[1]) + "</span></label>";
+    }).join("") + "</div></fieldset>";
+  }
+  function finderHtml() {
+    var tasks = finderTasks();
+    if (!tasks.length) return "";
+    var f = getFinder(), ranked = rankModels(D, f.task, f.prio, f.plan), best = ranked[0];
+    var h = '<section class="finder card" id="finder" aria-labelledby="finderh"><h3 id="finderh">Find your AI</h3>' +
+      seg("ftask", tasks.map(function (p) { return [p.id, p.label]; }), f.task, "Task") +
+      seg("fprio", PRIOS, f.prio, "Most important") +
+      seg("fplan", PLANS, f.plan, "Plan") +
+      '<div class="fresult" aria-live="polite">';
+    if (!best) h += '<p class="note">No tested model fits this choice yet. Try another plan.</p>';
+    else {
+      var try1 = CONFIG.ASK_API && best.explore ? '<button type="button" class="trybtn" data-try="' + esc(best.explore.id + "|" + best.explore.model) + '">Ask it in ' + esc(CONFIG.ASK_NAME) + "</button>" : "";
+      h += '<div class="fbest"><p class="fkick">Your best match</p><p class="fname"><b>' + esc(best.n) + "</b>" + (best.o ? ' <span class="muted">by ' + esc(best.o) + "</span>" : "") + "</p>" +
+        '<ul class="fwhy">' + finderWhy(best, f.prio, f.plan).map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>" + try1 + "</div>";
+      h += '<details class="frank"' + (ranked.length > 1 ? " open" : " hidden") + '><summary>Full ranking (' + ranked.length + ")</summary><ol>" + ranked.map(function (r, i) {
+        var pct = Math.round(Math.max(0.04, Math.min(1, r.score)) * 100);
+        return '<li><span class="rpos">' + (i + 1) + '</span><span class="rbody"><b>' + esc(r.n) + "</b>" + (r.o ? ' <span class="muted">' + esc(r.o) + "</span>" : "") +
+          '<span class="rbar" aria-hidden="true"><i style="width:' + pct + '%"></i></span><small>' + esc(finderWhy(r, f.prio, f.plan).join(" · ")) + "</small></span></li>";
+      }).join("") + "</ol></details>";
+    }
+    h += '<p class="note fnote">Ranked from the tests, prices and plans in this app. ' +
+      (f.prio === "speed" ? "Speed is a guess from the model's name and price, not a speed test. " : "") +
+      (f.plan === "free" ? "Free plans have limits, and may not include every model. " : "") + "</p></div></section>";
+    return h;
+  }
   // simple views name no sources; the credits (and CC BY attribution) are one tap away on the Sources page
   function plainCredits() {
     return '<p class="credits">Data: independent AI tests, the companies\' own pages and price lists. <a href="#sources" data-tab="sources">Sources and credits</a></p>';
   }
   function vBest() {
     var picks = list(D.picks);
-    var h = "<h2>Best for what</h2><p class=\"sub\">" + esc(SUBS.best) + "</p>" + askCta() + tipHtml(new Date());   // the full rule is under See more
+    var h = "<h2>Top Picks</h2><p class=\"sub\">" + esc(SUBS.best) + "</p>" + askCta() + finderHtml() + tipHtml(new Date());   // the full rule is under See more
     h += staleList(["lmarena", "aa", "livebench", "epoch"]);
     if (list(D.picks).some(function (p) { return p.usesAA; })) h += aaNote();
-    h += '<div class="stack">' + (picks.map(function (p) { return pickCard(p, "p-"); }).join("") || '<p class="note">No picks yet.</p>') + "</div>";
+    h += '<h3 class="stackh">Top Picks by task</h3><div class="stack">' + (picks.map(function (p) { return pickCard(p, "p-"); }).join("") || '<p class="note">No picks yet.</p>') + "</div>";
     h += moreButton("best") + plainCredits();
     return h;
   }
   function vBestMore() {
-    var h = backButton() + "<h2>Best for what: full details</h2>";
+    var h = backButton() + "<h2>Top Picks: full details</h2>";
     h += howPicks();
     list(D.picks).forEach(function (p) {
       h += '<section class="job"><h3>' + esc(p.icon) + " " + esc(p.label) + ": " + esc(pickTitle(p)) + (p.status === "single" ? " (1 source only)" : "") + "</h3>";
@@ -292,19 +384,24 @@
   }
 
   // ---------------------------------------------------------------- views: New releases
-  function relRow(r) {
-    return '<li><span class="rn">' + ext(r.u, "<b>" + esc(r.n) + "</b>") + fastTag(r.fast) + "<small>" + esc(r.o) + " · " + esc(day(r.d)) + " · " + esc(r.src) + "</small></span></li>";
+  // v16: each release is its own clean card: a coloured maker badge, the name (linked to the announcement), maker · date
+  var HUES = [243, 268, 190, 152, 24, 330, 205, 45];
+  function makerHue(o) { var h = 0, s2 = makerKey(o); for (var i = 0; i < s2.length; i++) h = (h * 31 + s2.charCodeAt(i)) >>> 0; return HUES[h % HUES.length]; }
+  function relCard(r, withSrc) {
+    var o = String(r.o || ""), fresh = r.d && (Date.now() - new Date(String(r.d).slice(0, 10) + "T12:00:00Z").getTime()) / 864e5 <= 3;
+    return '<li class="relcard"><span class="av" style="--h:' + makerHue(o) + '" aria-hidden="true">' + esc((o.replace(/[^A-Za-z0-9]/g, "")[0] || "•").toUpperCase()) + "</span>" +
+      '<span class="rb"><span class="rt">' + ext(r.u, esc(r.n)) + (fresh ? ' <span class="badge new">NEW</span>' : "") + fastTag(r.fast) + "</span>" +
+      '<span class="rm">' + (withSrc ? esc(o) + " · " + esc(day(r.d)) + " · " + esc(r.src) : (o ? "New model from " + esc(o) + " · " : "") + esc(day(r.d))) + "</span></span></li>";
   }
+  function relRow(r) { return relCard(r, true); }
   // simple view: "New model from Tencent · Nov 2", the name links to the announcement; the source name is under See more
-  function relRowPlain(r) {
-    return '<li><span class="rn">' + ext(r.u, "<b>" + esc(r.n) + "</b>") + fastTag(r.fast) + "<small>" + (r.o ? "New model from " + esc(r.o) + " · " : "") + esc(day(r.d)) + "</small></span></li>";
-  }
+  function relRowPlain(r) { return relCard(r, false); }
   function vReleases() {
     var items = list(D.releases && D.releases.items);
     var h = "<h2>New releases</h2><p class=\"sub\">" + esc(SUBS.releases) + "</p>" + staleNote("openrouter");
-    h += '<ul class="rows card">' + (items.slice(0, 5).map(relRowPlain).join("") || '<li class="muted">Nothing new yet.</li>') + "</ul>";
-    if (items.slice(0, 5).some(function (r) { return r.fast; })) h += '<p class="note">⚡ ' + esc(fastNote()) + "</p>";
-    h += moreButton("releases", items.length > 5) + plainCredits();
+    h += '<ul class="rels">' + (items.slice(0, 6).map(relRowPlain).join("") || '<li class="relcard muted">Nothing new yet.</li>') + "</ul>";
+    if (items.slice(0, 6).some(function (r) { return r.fast; })) h += '<p class="note">⚡ ' + esc(fastNote()) + "</p>";
+    h += moreButton("releases", items.length > 6) + plainCredits();
     return h;
   }
   function vReleasesMore() {
@@ -317,26 +414,40 @@
       if (mo !== lastMo) { body += '<li class="mo">' + esc(MON[+mo.slice(5, 7) - 1] + " " + mo.slice(0, 4)) + "</li>"; lastMo = mo; }
       body += relRow(r);
     });
-    h += '<ul class="rows card">' + (body || '<li class="muted">Nothing new yet.</li>') + "</ul>";
+    h += '<ul class="rels">' + (body || '<li class="relcard muted">Nothing new yet.</li>') + "</ul>";
     return h + backButton() + credits(["official", "openrouter", "aa"]);
   }
 
   // ---------------------------------------------------------------- views: Big news
-  function newsRow(n) {
-    return '<li><span class="rn">' + (n.tag ? '<span class="tag">' + esc(n.tag) + "</span>" : "") + ext(n.u, "<b>" + esc(n.t) + "</b>") +
-      "<small>" + esc(n.s) + " · " + esc(day(n.d)) + "</small></span></li>";
+  // v16: news is read inside the app: title, a short summary, date and the source's name as plain text. No outside links.
+  function newsSummary(n) {
+    var x = String(n.x || "").replace(/\s+/g, " ").trim();
+    if (x) return x.length > 220 ? x.slice(0, 217).replace(/\s+\S*$/, "") + "…" : x;
+    var who = String(n.s || "").replace(/\s+(news|blog|change ?log|newsroom)$/i, "").replace(/\s+API$/i, "");
+    var t = String(n.tag || "").toLowerCase();
+    if (t === "new model") return "A new model announced by " + (who || "its maker") + ".";
+    if (/price/.test(t)) return "A price change announced by " + (who || "the company") + ".";
+    if (/ipo|acquisition|funding|company/.test(t)) return "Company news from " + (who || "the company") + ".";
+    return "Reported by " + (n.s || "the source") + ".";
   }
+  function newsRow(n) {
+    return '<li class="newsitem"><span class="rn">' + (n.tag ? '<span class="tag">' + esc(n.tag) + "</span>" : "") + '<b class="nt">' + esc(n.t) + "</b>" +
+      '<span class="nsum">' + esc(newsSummary(n)) + "</span>" +
+      '<small class="nmeta">' + esc(day(n.d)) + (n.s ? " · " + esc(n.s) : "") + "</small></span></li>";
+  }
+  // credits as plain text (news screens have no outside links)
+  function creditsText(ids) { return credits(ids).replace(/<a [^>]*href="(?!#)[^"]*"[^>]*>([\s\S]*?)<\/a>/g, "$1"); }
   function vNews() {
     var items = list(D.bignews && D.bignews.items);
     var h = "<h2>Big news</h2><p class=\"sub\">Only the big stories: new models, price changes and major company news.</p>" + staleNote("news");
     h += '<ul class="rows card">' + (items.slice(0, 5).map(newsRow).join("") || '<li class="muted">No big news right now.</li>') + "</ul>";
-    return h + moreButton("news", items.length > 5) + credits(["official", "news"]);
+    return h + moreButton("news", items.length > 5) + creditsText(["official", "news"]);
   }
   function vNewsMore() {
     var items = list(D.bignews && D.bignews.items);
     var h = backButton() + "<h2>Big news: last 30 days</h2><p class=\"sub\">" + esc((D.bignews && D.bignews.rules) || "") + " From the companies' own pages, AI lab blogs and tech news sites, picked by fixed word rules (opinion, lawsuits, rumors, partnerships and customer stories are left out). The same story from several sites is shown once, from the company's own page when there is one.</p>" + staleNote("news");
     h += '<ul class="rows card">' + (items.slice(0, 30).map(newsRow).join("") || '<li class="muted">No big news right now.</li>') + "</ul>";
-    return h + backButton() + credits(["official", "news"]);
+    return h + backButton() + creditsText(["official", "news"]);
   }
 
   // ---------------------------------------------------------------- views: Agents
@@ -970,9 +1081,35 @@
     return h;
   }
   function raceSay(text) { var el = document.getElementById("raceqmsg"); if (el) el.textContent = text; }
+  // pure: lanes in finish order: 1st, 2nd, 3rd …, then finished-with-an-error (in the order they ended), then running
+  function laneOrder(lanes) {
+    var rank = function (l) { return l.place ? l.place : l.ms != null ? 100 + l.ms / 1e9 : 1000; };
+    return list(lanes).map(function (l, i) { return { l: l, i: i }; })
+      .sort(function (a, b) { return rank(a.l) - rank(b.l) || (a.l.ms != null && b.l.ms != null ? a.l.ms - b.l.ms : 0) || a.i - b.i; })
+      .map(function (x) { return x.l; });
+  }
+  // a lane finished: redraw it, then move the lanes into finish order with a short slide (FLIP); no slide with
+  // reduced motion
   function laneUpdate(l) {
+    var box = document.getElementById("lanes");
     var el = document.querySelector('[data-lane="' + l.id + '"]');
-    if (el) el.outerHTML = laneHtml(l);
+    if (!box || !el) return;
+    var before = {};
+    [].forEach.call(box.children, function (c) { var r = c.getBoundingClientRect(); before[c.getAttribute("data-lane")] = { x: r.left, y: r.top }; });
+    el.outerHTML = laneHtml(l);
+    race.lanes = laneOrder(race.lanes);
+    var els = {};
+    [].forEach.call(box.children, function (c) { els[c.getAttribute("data-lane")] = c; });
+    race.lanes.forEach(function (x) { if (els[x.id]) box.appendChild(els[x.id]); });
+    var still = root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (still) return;
+    race.lanes.forEach(function (x) {
+      var c = els[x.id], b = before[x.id];
+      if (!c || !b || !c.animate) return;
+      var r = c.getBoundingClientRect(), dx = b.x - r.left, dy = b.y - r.top;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+      c.animate([{ transform: "translate(" + dx + "px," + dy + "px)" }, { transform: "translate(0,0)" }], { duration: 420, easing: "cubic-bezier(.2,.8,.2,1)" });
+    });
   }
   function raceTick() {
     if (!race.lanes) return;
@@ -1050,7 +1187,7 @@
     var h = "<h2>Sources</h2><p class=\"sub\">Where every number comes from. The app rebuilds itself every day. If a source doesn't answer, its last good copy is kept.</p>";
     h += '<ul class="rows card srcs">' + list(D.sources).map(function (s) {
       var st = stat(s.id);
-      var line = st.ok ? '<span class="ok">✓ Updated OK ' + esc(ago(st.updated)) + "</span>"
+      var line = st.ok ? '<span class="ok">✓ Working</span>'
         : st.updated ? '<span class="warn">⚠ Using last good copy from ' + esc(day(st.updated)) + "</span>" : '<span class="warn">⚠ No data yet</span>';
       return '<li><span class="rn"><b>' + (s.url ? ext(s.url, esc(s.credit || s.name)) : esc(s.credit || s.name)) + "</b>" +
         "<small>" + esc(s.what) + "</small>" +
@@ -1061,7 +1198,7 @@
     var offs = list(D.officialSources);
     if (offs.length) {
       h += "<h3>Official company pages (new models)</h3><ul class=\"rows card\">" + offs.map(function (o) {
-        var line = o.ok ? '<span class="ok">✓ Read OK ' + esc(ago(o.updated)) + "</span>"
+        var line = o.ok ? '<span class="ok">✓ Working</span>'
           : o.updated ? '<span class="warn">⚠ Failed today, using the copy from ' + esc(day(o.updated)) + "</span>" : '<span class="warn">⚠ No copy yet</span>';
         return '<li><span class="rn"><b>' + ext(o.url, esc(o.label)) + "</b><small>" + line + (o.err ? ' · <span class="muted">' + esc(o.err) + "</span>" : "") + "</small></span></li>";
       }).join("") + "</ul>";
@@ -1185,7 +1322,8 @@
     chosenOption: chosenOption, cleanChoice: cleanChoice, getChoice: getChoice, setChoice: setChoice, pickNames: pickNames,
     modelSheetHtml: modelSheetHtml,
     proAIs: PRO_AIS, nCredits: nCredits, askLabel: askLabel, webSources: webSources, stripMarks: stripMarks, mainIds: mainIds,
-    setModels: setModels, setWebCredits: setWebCredits, moreOpen: moreOpen, needsWeb: needsWeb, costPreview: costPreview, subs: SUBS, race: race, newRaceId: newRaceId, getRacePick: getRacePick, setRacePick: setRacePick,
+    setModels: setModels, setWebCredits: setWebCredits, moreOpen: moreOpen, needsWeb: needsWeb, costPreview: costPreview, subs: SUBS, rankModels: rankModels, finderHtml: finderHtml, getFinder: getFinder, setFinder: setFinder,
+    exploreFor: exploreFor, laneOrder: laneOrder, newsRow: newsRow, newsSummary: newsSummary, relCard: relCard, race: race, newRaceId: newRaceId, getRacePick: getRacePick, setRacePick: setRacePick,
     laneHtml: laneHtml, ctaOn: ctaOn, tipFor: tipFor, isoWeek: isoWeek, weekNumber: weekNumber, tipHtml: tipHtml, setLeft: setLeft, plainAnswer: plainAnswer, updateDecision: updateDecision, day: day, setQuestion: function (q) { askQ = String(q == null ? "" : q); },
     view: viewHtml, views: VIEWS, more: MORE };
 
@@ -1203,12 +1341,8 @@
   var view = document.getElementById("view");
   var stamp = document.getElementById("stamp");
 
-  function setStamp() {
-    if (!D) { stamp.textContent = "No data yet"; return; }
-    var hrs = (Date.now() - new Date(D.built).getTime()) / 3600000;
-    stamp.innerHTML = '<span class="dot' + (hrs > 36 ? " old" : "") + '"' + (hrs > 36 ? ' title="May be out of date"' : "") + '></span>Updated ' + esc(agoShort(D.built) || "recently") + (hrs > 36 ? ", old" : "");
-    stamp.title = "Data built " + new Date(D.built).toLocaleString();
-  }
+  // v16: no "Updated … ago" line any more (the header shows the brand); kept as a hook for older callers
+  function setStamp() { if (stamp) stamp.textContent = ""; }
   function render() {
     setStamp();
     view.innerHTML = viewHtml(state.tab, state.more);
@@ -1447,6 +1581,12 @@
   });
   document.addEventListener("change", function (e) {
     if (e.target && e.target.name === "mopt" && pro.sheet) { chooseModel(pro.sheet, e.target.value); return; }
+    if (e.target && /^f(task|prio|plan)$/.test(e.target.name || "")) {
+      setFinder(e.target.name.slice(1), e.target.value);
+      var fb = document.getElementById("finder");
+      if (fb) { fb.outerHTML = finderHtml(); var again = document.querySelector('#finder input[name="' + e.target.name + '"][value="' + e.target.value + '"]'); if (again) again.focus(); }
+      return;
+    }
     var rp = e.target && e.target.getAttribute && e.target.getAttribute("data-rpick");
     if (rp) {
       var rids = [];
@@ -1471,6 +1611,13 @@
     if (mb) { e.preventDefault(); openSheet(mb.getAttribute("data-models")); return; }
     if (e.target.closest("#askfour")) { askPro(); return; }
     if (e.target.closest("#racego")) { startRace(); return; }
+    var tb = e.target.closest("[data-try]");
+    if (tb) {                                                            // "Ask it in Explore": tick that AI, choose that model
+      var tp = tb.getAttribute("data-try").split("|");
+      setPick([tp[0]]); setChoice(tp[0], tp[1]); go("ask");
+      var qb2 = document.getElementById("askq"); if (qb2) qb2.focus();
+      return;
+    }
     if (e.target.closest("#rpicknone")) { setRacePick([]); race.short = false; askRedraw("#rpicknone"); return; }
     if (e.target.closest("#pickall")) { setPick(mainIds(proModels())); pro.short = false; askRedraw("#pickall"); return; }       // the 5 main ones
     if (e.target.closest("#moreais")) { pro.moreOpen = !moreOpen(getPick(), proModels()); askRedraw("#moreais"); return; }

@@ -1,14 +1,14 @@
 {
  "name": "AI Pro",
  "short_name": "AI Pro",
- "description": "Which AI is best for what, what it costs, new releases, big news and AI agents. Picked by fixed rules from independent sources. Updates itself every day.",
+ "description": "Know AI. Be Pro. Top AI picks for each task, what each AI costs, new releases, AI news, and one place to ask ChatGPT, Claude, Gemini and more.",
  "start_url": "./index.html#best",
  "scope": "./",
  "id": "./",
  "display": "standalone",
  "orientation": "any",
- "background_color": "#f6f5f1",
- "theme_color": "#f6f5f1",
+ "background_color": "#f5f7fb",
+ "theme_color": "#4f46e5",
  "icons": [
   {
    "src": "icons/icon-192.png",
