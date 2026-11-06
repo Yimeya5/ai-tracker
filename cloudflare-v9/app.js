@@ -422,7 +422,7 @@
       '<p class="note">⚡ ' + esc(fastNote()) + "</p>";
     h += staleNote("openrouter");
     h += '<ul class="rows card">' + (dev.map(function (d) {
-      return '<li><span class="rn"><b>' + esc(d.n) + "</b>" + fastTag(d.fast) + "<small>" + esc(makerName(d.o)) + " · " + ext(d.u, esc(d.srcName)) + (d.date ? ", " + esc(day(d.date)) : "") +
+      return '<li><span class="rn"><b>' + esc(d.n) + "</b>" + fastTag(d.fast) + "<small>" + esc(makerName(d.o)) + '</small><small class="checked">' + ext(d.u, esc(d.srcName)) + (d.date ? ", " + esc(day(d.date)) : "") +
         '</small></span><span class="rv">' + money(d.pin) + " / " + money(d.pout) + "</span></li>";
     }).join("") || '<li class="muted">No developer prices yet.</li>') + "</ul>";
     h += backButton() + credits(["prices", "openrouter", "aa"]);
@@ -1437,9 +1437,40 @@
 
   // v16: no "Updated … ago" line any more (the header shows the brand); kept as a hook for older callers
   function setStamp() { if (stamp) stamp.textContent = ""; }
+  // ---- source lines (v16d8): a row's sources and dates (its small.checked lines) start hidden; tapping the row
+  // (or Enter / Space on it) shows them in place, tapping again hides them. Links, buttons and inputs inside a row
+  // work as before and never toggle it. The open rows are remembered per view while the app is open.
+  var xopen = {};
+  function xrows() {
+    if (state.story || state.tab === "sources") return;                // the Sources page shows everything
+    var n = 0, where = state.tab + (state.more ? "-more" : "");
+    view.querySelectorAll(".rows li").forEach(function (li) {
+      if (!li.querySelector("small.checked")) return;
+      var key = where + "|" + (n++), on = !!xopen[key];
+      li.classList.add("xrow"); li.classList.toggle("xopen", on);
+      li.setAttribute("data-xkey", key); li.setAttribute("role", "button"); li.setAttribute("tabindex", "0");
+      li.setAttribute("aria-expanded", on ? "true" : "false");
+      var c = document.createElement("span"); c.className = "xchev"; c.setAttribute("aria-hidden", "true"); li.appendChild(c);
+    });
+  }
+  function xtoggle(li) {
+    var on = !li.classList.contains("xopen");
+    li.classList.toggle("xopen", on); li.setAttribute("aria-expanded", on ? "true" : "false");
+    xopen[li.getAttribute("data-xkey")] = on;
+  }
+  document.addEventListener("click", function (e) {
+    var li = e.target.closest && e.target.closest("#view .xrow");
+    if (!li || e.target.closest("a,button,input,select,textarea,label,summary")) return;
+    xtoggle(li);
+  });
+  document.addEventListener("keydown", function (e) {
+    if (!e.target.classList || !e.target.classList.contains("xrow") || (e.key !== "Enter" && e.key !== " ")) return;
+    e.preventDefault(); xtoggle(e.target);
+  });
   function render() {
     setStamp();
     view.innerHTML = state.story && D ? storyHtml(state.story.src, state.story.i) : viewHtml(state.tab, state.more);
+    xrows();
     if (state.tab === "ask") fourFill();
     document.querySelectorAll("#tabs button").forEach(function (b) {
       if (b.getAttribute("data-tab") === state.tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
@@ -1883,6 +1914,73 @@
   }
   window.addEventListener("online", function () { netChanged(); pull(false); });
   window.addEventListener("offline", netChanged);
+
+  // ---- "Install app" (header): only in a normal browser tab, never inside the installed app.
+  // Chrome / Edge / Android: the browser's own prompt (beforeinstallprompt, kept until tapped; used once).
+  // Everywhere else (iPhone / iPad Safari, in-app browsers, Firefox, prompt already used): a short sheet with the steps.
+  var installBtn = document.getElementById("installbtn"), installEvt = null, installDone = false;
+  function installMq(q) { try { return !!(window.matchMedia && window.matchMedia(q).matches); } catch (e) { return false; } }
+  function isStandalone() {
+    return installMq("(display-mode: standalone)") || installMq("(display-mode: fullscreen)") || installMq("(display-mode: minimal-ui)") || navigator.standalone === true;
+  }
+  function installSync() { if (installBtn) installBtn.hidden = installDone || isStandalone(); }
+  function installSteps() {
+    var ua = navigator.userAgent || "";
+    var ios = /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);     // iPadOS reports as a Mac
+    var inApp = /WhatsApp|FBAN|FBAV|Instagram|; wv\)/.test(ua);
+    var lines = { ios: "Tap Share, then Add to Home Screen.", app: "Tap ⋮, then Open in Chrome. Then tap ⋮ and Install app.",
+                  other: "Open this page in Chrome or Safari and add it to your home screen." };
+    var first = ios ? "ios" : /Android/.test(ua) && inApp ? "app" : "other";
+    return { first: lines[first], rest: ["ios", "app", "other"].filter(function (k) { return k !== first; }).map(function (k) { return lines[k]; }) };
+  }
+  function openInstall() {
+    var st = installSteps(), wrap = document.getElementById("installsheet");
+    if (!wrap) { wrap = document.createElement("div"); wrap.id = "installsheet"; wrap.className = "sheetwrap"; document.body.appendChild(wrap); }
+    wrap.innerHTML = '<div class="sheetback" data-installclose="1"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="installh"><div class="grabber" aria-hidden="true"></div>' +
+      '<div class="sheethead"><h3 id="installh">Install AI Pro</h3>' +
+      '<button type="button" class="sheetx" data-installclose="1" aria-label="Close"><span aria-hidden="true">×</span></button></div>' +
+      '<p class="istep">' + esc(st.first) + '</p><ul class="iother">' + st.rest.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>" +
+      '<button type="button" class="sheetdone" data-installclose="1">Done</button></div>';
+    wrap.hidden = false;
+    document.documentElement.classList.add("sheetopen");
+    var done = wrap.querySelector(".sheetdone"); if (done) done.focus();
+  }
+  function closeInstall() {
+    var wrap = document.getElementById("installsheet");
+    if (!wrap || wrap.hidden) return;
+    sheetGhost(wrap);
+    wrap.hidden = true; wrap.innerHTML = "";
+    if (!pro.sheet) document.documentElement.classList.remove("sheetopen");
+    if (installBtn && !installBtn.hidden) installBtn.focus();
+  }
+  function installOpen() { var w = document.getElementById("installsheet"); return !!(w && !w.hidden); }
+  if (installBtn) {
+    installBtn.addEventListener("click", function () {
+      if (!installEvt) { openInstall(); return; }
+      var ev = installEvt; installEvt = null;                              // a prompt can be used once
+      try {
+        ev.prompt();
+        Promise.resolve(ev.userChoice).then(function (c) { if (c && c.outcome === "accepted") { installDone = true; installSync(); } }, function () {});
+      } catch (e) { openInstall(); }
+    });
+  }
+  window.addEventListener("beforeinstallprompt", function (e) { e.preventDefault(); installEvt = e; installSync(); });
+  window.addEventListener("appinstalled", function () { installDone = true; installEvt = null; closeInstall(); installSync(); });
+  ["(display-mode: standalone)", "(display-mode: fullscreen)", "(display-mode: minimal-ui)"].forEach(function (q) {
+    try { var m = window.matchMedia(q); if (m.addEventListener) m.addEventListener("change", installSync); else if (m.addListener) m.addListener(installSync); } catch (e) {}
+  });
+  document.addEventListener("click", function (e) { if (e.target.closest && e.target.closest("[data-installclose]")) closeInstall(); });
+  document.addEventListener("keydown", function (e) {
+    if (!installOpen()) return;
+    if (e.key === "Escape") { e.preventDefault(); closeInstall(); return; }
+    if (e.key !== "Tab") return;                                             // Tab stays inside the sheet
+    var f = [].slice.call(document.querySelectorAll("#installsheet .sheet button"));
+    var i = f.indexOf(document.activeElement);
+    if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+    else if (!e.shiftKey && (i === f.length - 1 || i < 0)) { e.preventDefault(); f[0].focus(); }
+  });
+  installSync();
 
   var start = routeFor(location.hash) || { tab: "best", more: false };
   // back from Stripe: ?session_id=cs_...#ask -> turn the payment into a code (the helper checks it with Stripe)

@@ -68,6 +68,17 @@ button{font:inherit;color:inherit}
 .icon-btn.spin span{display:inline-block;animation:spin 1s linear infinite;transform-origin:50% 50%}
 @keyframes spin{to{transform:rotate(360deg)}}
 
+/* "Install app": a flat purple-tint pill, shown by app.js only in a normal browser tab (never in the installed app) */
+.installbtn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:40px;min-width:40px;padding:0 14px 0 12px;margin:2px 0;border:0;border-radius:999px;
+  background:var(--tint);color:var(--accent);font-size:14.5px;font-weight:600;cursor:pointer;white-space:nowrap;transition:background-color .15s ease}
+.installbtn:hover{background:color-mix(in srgb,var(--tint),var(--accent) 12%)}
+.installbtn[hidden]{display:none}
+.installbtn svg{display:block;flex:none;width:18px;height:18px}
+/* the install sheet reuses the model picker's sheet; the matching step first, the others smaller */
+.istep{margin:4px 4px 12px;font-size:17px;font-weight:600;line-height:1.45}
+.iother{list-style:none;margin:0 4px;padding:0;font-size:14px;line-height:1.45;color:var(--muted)}
+.iother li{padding:4px 0}
+
 /* ---------------------------------------------------------------- tabs: bottom bar on phones */
 .tabs{position:fixed;left:0;right:0;bottom:0;z-index:30;
   background:color-mix(in srgb,var(--card) 88%,transparent);-webkit-backdrop-filter:saturate(1.6) blur(18px);backdrop-filter:saturate(1.6) blur(18px);
@@ -167,6 +178,24 @@ details[open] > summary .chev{transform:rotate(45deg) translate(-2px,-2px)}
   border-radius:6px;padding:2px 8px;margin:0 8px 4px 0;vertical-align:2px}
 .srcs .rn small + small{margin-top:4px}
 .rn small.checked + small.checked{margin-top:0}
+
+/* source lines (v16d8): hidden until the row is tapped; a small chevron on the right turns when open */
+.rows li.xrow{cursor:pointer;align-items:flex-start}
+.rows li.xrow small.checked{display:none}
+.rows li.xrow.xopen small.checked{display:block;animation:fadein .18s ease both}
+/* links in source lines: a taller line and a smaller tap padding, so a link on one line never covers a link on the next
+   (line 26px; link box ≈ 17px text + 2 × 4px = 25px) */
+.rn small.checked{line-height:26px}
+.rn small.checked a{padding-block:4px}
+.rows li.xrow:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.xchev{flex:none;align-self:center;width:8px;height:8px;margin:0 4px 4px 0;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);
+  transform:rotate(45deg);transition:transform .2s var(--ease),border-color .15s ease}
+.xrow:hover .xchev{border-color:var(--accent)}
+.xrow.xopen .xchev{transform:rotate(225deg);margin:4px 4px 0 0;border-color:var(--accent)}
+/* news lists: date and source show inside the opened story (one tap); the row keeps a › on the right */
+.newsitem .nlink{position:relative;padding-right:32px}
+.newsitem .nlink .nmeta{display:none}
+.newsitem .nlink::after{content:"›";position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--accent);font-weight:700;font-size:22px;line-height:1}
 
 /* ---------------------------------------------------------------- Agents */
 .abest{padding:20px 20px 8px;margin-bottom:8px}
@@ -550,4 +579,7 @@ html.sheetopen{overflow:hidden}
   .tabs button{font-size:11px;letter-spacing:-.015em;padding:4px 0}
   .tabs .ti{width:40px}
 }
+/* narrow phones: "Install" (420 px and less), icon only under 370 px; it keeps aria-label "Install app" and a 40 px target */
+@media (max-width:420px){ .installbtn .iapp{display:none} }
+@media (max-width:369px){ .installbtn{padding:0;width:40px} .installbtn .itext{display:none} }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
