@@ -30,6 +30,8 @@
 
   // ---------------------------------------------------------------- helpers
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+  // v16f: "Google DeepMind" is shown as "Google" wherever a model's maker is shown (display only; source names stay)
+  function makerName(o) { return /^\s*google deepmind\s*$/i.test(String(o == null ? "" : o)) ? "Google" : o; }
   function safeUrl(u) { return /^https:\/\//.test(u || "") ? esc(u) : ""; }
   function ext(u, text) { var s = safeUrl(u); return s ? '<a href="' + s + '" target="_blank" rel="noopener">' + text + "</a>" : text; }
   function list(x) { return Array.isArray(x) ? x : []; }
@@ -70,10 +72,16 @@
     var w = list(p.winners);
     if (!w.length || p.status === "none") return "";
     var makers = [];
-    w.forEach(function (c) { if (c.o && makers.indexOf(c.o) < 0) makers.push(c.o); });
+    w.forEach(function (c) { var o = makerName(c.o); if (o && makers.indexOf(o) < 0) makers.push(o); });
     return makers.length ? "by " + makers.join(" and ") : "";
   }
   var AA_CREDIT = "Artificial Analysis (artificialanalysis.ai)";
+  // v16d: the screen never says "top 3" / "top 10" / "N of N tests". The ranking rules are unchanged; only the words.
+  var BEST_RULE = "A model is called best only when the independent tests agree it is one of the strongest.";
+  var AGENT_RULE = "Named best only when most independent agent tests agree it is one of the strongest.";
+  var CHEAP_HOW = "The strongest models in the general tests, ordered by developer price (3 parts input to 1 part output). Price from OpenRouter.";
+  // a sentence from the daily data that still speaks of "top 3" / "top 10" is replaced by a short neutral one
+  function plainRule(text, fallback) { return /\btop[\s-]*(3|three|10|ten)\b|\btheir top\b/i.test(String(text || "")) ? fallback : String(text || ""); }
   function rankLine(r) {
     var s = src(r.src);
     var head = r.src === "aa" ? "Source: " + ext(r.url || "https://artificialanalysis.ai/", AA_CREDIT) + " · " + esc(r.board)
@@ -83,7 +91,7 @@
     if (r.score != null) bits.push(r.lo != null && r.hi != null && r.lo !== r.hi ? r.score + " (" + r.lo + " to " + r.hi + ")" : String(r.score));
     if (r.votes != null) bits.push(n0(r.votes) + " votes");
     if (r.date) bits.push(day(r.date));
-    return "<li" + (r.top3 ? ' class="agree"' : "") + ">" + head + ": <b>" + esc(bits.join(" · ")) + "</b>" + (r.top3 ? ' <span class="tick" aria-label="top 3">✓ top 3</span>' : "") + "</li>";
+    return "<li" + (r.top3 ? ' class="agree"' : "") + ">" + head + ": <b>" + esc(bits.join(" · ")) + "</b></li>";
   }
   // "⚡ Fast" is guessed from the model's name (see FAST_WORDS in scripts/update_data.py), not measured. Label only.
   function fastNote() { return (D && D.fastNote) || "Fast = guessed from the model's name (Flash, Mini, Haiku…), not a speed test."; }
@@ -91,14 +99,11 @@
     return isFast ? ' <span class="fast" title="' + esc(fastNote()) + '">⚡ Fast</span>' : "";
   }
   function candDetail(c, showFast) {
-    var h = '<div class="cand"><p class="cn"><b>' + esc(c.n) + "</b>" + (showFast ? fastTag(c.fast) : "") + (c.o ? " <span class=\"muted\">by " + esc(c.o) + "</span>" : "") +
+    var h = '<div class="cand"><p class="cn"><b>' + esc(c.n) + "</b>" + (showFast ? fastTag(c.fast) : "") + (c.o ? " <span class=\"muted\">by " + esc(makerName(c.o)) + "</span>" : "") +
       (c.notSure ? ' <span class="badge new">New, not sure yet</span>' : "") + "</p>";
-    var agree = list(c.ranks).filter(function (r) { return r.top3; }).map(function (r) { return r.name; });
-    var top10 = list(c.ranks).filter(function (r) { return r.rank && r.rank <= 10; }).map(function (r) { return r.name; });
-    h += '<p class="note">' + (c.price ? "Top 10 in " + top10.length + " of " + list(c.ranks).length + " sources" + (top10.length ? " (" + esc(top10.join(", ")) + ")" : "")
-      : "Top 3 in " + (c.top3 || 0) + " of " + list(c.ranks).length + " sources" + (agree.length ? " (" + esc(agree.join(", ")) + ")" : "")) + "." +
-      (c.votes != null ? " " + n0(c.votes) + " LMArena votes on its main board." : "") +
-      (c.notSure && list(c.why).length ? " Not sure yet: " + esc(c.why.join("; ")) + "." : "") + "</p>";
+    var note = (c.votes != null ? n0(c.votes) + " LMArena votes on its main board." : "") +
+      (c.notSure && list(c.why).length ? (c.votes != null ? " " : "") + "Not sure yet: " + esc(plainRule(c.why.join("; "), "fewer tests so far")) + "." : "");
+    if (note) h += '<p class="note">' + note + "</p>";
     if (c.price) h += '<p class="note">Developer price: <b>' + money(c.price.pin) + " in / " + money(c.price.pout) + " out</b> per million tokens · " +
       ext(c.price.u, esc(c.price.srcName)) + (c.price.date ? ", " + esc(day(c.price.date)) : "") + "</p>";
     h += '<ul class="ranks">' + list(c.ranks).map(rankLine).join("") + "</ul></div>";
@@ -109,20 +114,19 @@
   function plainWhy(p) {
     var w = list(p.winners), n = p.n || list(p.boards).length || 3;
     if (p.id === "cheap") {
-      return w.length ? "Cheapest to build apps with, among models rated top 10 by at least " + (p.need || 2) + " of " + n + " tests. " +
+      return w.length ? "Cheapest to build apps with, among the strongest models. " +
         "Price is for developers (per million tokens ≈ 750,000 words). For the cheapest app plan, see Cost."
-        : "No model is rated top 10 by at least " + (p.need || 2) + " of " + n + " tests with a known price yet.";
+        : "None of the strongest models has a known price yet.";
     }
     if (p.status === "single") return "Rated #1 by people's votes. Only 1 test covers pictures right now, so no picture model is called best yet.";
     if (p.status === "none") {
       var close = list(p.candidates).slice(0, 3).map(function (c) { return c.n; });
-      return "No clear winner yet: the " + n + " tests don't agree." + (close.length ? " Closest: " + close.join(", ") + "." : "");
+      return "The " + n + " tests don't agree." + (close.length ? " Closest: " + close.join(", ") + "." : "");
     }
-    if (p.status === "tie") return "Tie: " + w.map(function (c) { return c.n; }).join(" and ") + " are both in the top 3 of " + (w[0].top3 >= n ? "all " + n : w[0].top3 + " of " + n) + " tests, and too close to call.";
+    if (p.status === "tie") return "Tie: " + w.map(function (c) { return c.n; }).join(" and ") + " are both among the strongest, and too close to call.";
     var c = w[0] || {};
     var votes1 = list(c.ranks).some(function (r) { return r.src === VOTES_SRC && r.rank === 1; });
-    return (c.top3 >= n ? n + " independent tests agree: it's in the top 3 of all of them." : "In the top 3 of " + c.top3 + " of " + n + " independent tests.") +
-      (votes1 ? " Rated #1 by people's votes." : "");
+    return votes1 ? "Rated #1 by people's votes." : "";
   }
   function plainPrice(c) {
     if (!c || !c.price) return "";
@@ -132,10 +136,8 @@
     var id = idPrefix + p.id;
     var w = list(p.winners);
     var badge = "";
-    if (p.id === "cheap" && w.length) badge = '<span class="badge one">' + (p.need || 2) + " of " + (p.n || 3) + " tests</span>";
-    else if (p.status === "single") badge = '<span class="badge one">Rated #1 by people\'s votes · 1 test only</span>';
+    if (p.status === "single") badge = '<span class="badge one">Rated #1 by people\'s votes · 1 test only</span>';
     else if (p.status === "tie") badge = '<span class="badge tie">Tie</span>';
-    else if (p.status === "none") badge = '<span class="badge none">Not decided</span>';
     else if (w[0] && w[0].notSure) badge = '<span class="badge new">New, not sure yet</span>';
     var h = '<details class="pick" id="' + esc(id) + '"' + (state.open[id] ? " open" : "") + "><summary>" +
       '<span class="ico" aria-hidden="true">' + esc(p.icon || "•") + "</span>" +
@@ -143,7 +145,8 @@
       '<span class="name">' + esc(pickTitle(p)) + "</span>" +
       (pickMaker(p) ? '<span class="who">' + esc(pickMaker(p)) + "</span>" : "") + (badge ? '<span class="badges">' + badge + "</span>" : "") + "</span>" +
       '<span class="chev" aria-hidden="true"></span></summary><div class="body">';
-    h += '<p class="why">' + esc(plainWhy(p)) + "</p>";
+    var why = plainWhy(p);
+    if (why) h += '<p class="why">' + esc(why) + "</p>";
     if (p.id === "cheap") h += plainPrice(w[0]);
     if (p.status === "single" && list(p.candidates).length) h += '<p class="note">Next: ' + esc(list(p.candidates).slice(0, 3).map(function (c) { return c.n; }).join(", ")) + ".</p>";
     list(p["new"]).forEach(function (c) {
@@ -152,7 +155,6 @@
         (votes1 ? " is rated #1 by people's votes" : " looks strong") + ", but it's too new to be sure.</p>";
     });
     if (p.usesAA) h += aaNote();
-    h += '<p class="note"><a href="#best-more" data-more="best">See the test scores and how picks work</a></p>';
     return h + "</div></details>";
   }
 
@@ -277,15 +279,19 @@
     }).sort(function (a, b) { return b.score - a.score || b.quality - a.quality || (a.n < b.n ? -1 : 1); });
   }
   function money(v) { return "$" + (v >= 10 ? Math.round(v) : (Math.round(v * 100) / 100).toFixed(2).replace(/\.00$/, "")); }
+  // "Plus" -> "Gemini Plus"; "Google AI Plus" / "Microsoft 365 Premium" / "SuperGrok Lite" already name a brand: as is
+  var TIER_WORDS = /^(go|plus|pro|max|ultra|lite|team|teams|premium|basic|business|standard|individual|personal|starter|core|free|enterprise|heavy)$/i;
+  function planName(app, name) {
+    var n = String(name || ""), first = n.split(/\s+/)[0];
+    if (!app || n.toLowerCase().indexOf(String(app).toLowerCase()) >= 0 || !TIER_WORDS.test(first)) return n;
+    return app + " " + n;
+  }
   function finderWhy(r, prio, plan) {
     var w = [];
-    if (r.top3) w.push("Top 3 in " + r.top3 + " of " + r.tests + (r.tests === 1 ? " test" : " tests"));
-    else if (r.top10) w.push("Top 10 in " + r.top10 + " of " + r.tests + (r.tests === 1 ? " test" : " tests"));
     if (r.fast) w.push("⚡ Fast");
-    if (plan === "paid" && r.plan) w.push(r.app + " " + r.plan.name + " " + money(r.plan.usd_month) + "/month");
+    if (plan === "paid" && r.plan) w.push(planName(r.app, r.plan.name) + " " + money(r.plan.usd_month) + "/month");
     else if (r.free) w.push(r.freeLevel === "limited" ? "May be limited on free" : "Free in " + r.app);
-    else w.push("Paid plan needed" + (r.plan ? ": " + r.app + " " + r.plan.name + " " + money(r.plan.usd_month) + "/month" : ""));
-    if (prio === "price" && plan !== "paid" && r.blend) w.push("Developer price " + money(r.blend) + " per million tokens");
+    else w.push("Paid plan needed" + (r.plan ? ": " + planName(r.app, r.plan.name) + " " + money(r.plan.usd_month) + "/month" : ""));
     if (prio === "web" && r.explore) w.push("Can search the web in " + CONFIG.ASK_NAME);
     return w;
   }
@@ -311,11 +317,11 @@
     } else if (!best) h += '<p class="note">No tested model fits this choice yet. Try another plan.</p>';
     else {
       var try1 = CONFIG.ASK_API && best.explore ? '<button type="button" class="trybtn" data-try="' + esc(best.explore.id + "|" + best.explore.model) + '">Ask it in ' + esc(CONFIG.ASK_NAME) + "</button>" : "";
-      h += '<div class="fbest"><p class="fkick">Your best match</p><p class="fname"><b>' + esc(best.n) + "</b>" + (best.o ? ' <span class="muted">by ' + esc(best.o) + "</span>" : "") + "</p>" +
+      h += '<div class="fbest"><p class="fkick">Your best match</p><p class="fname"><b>' + esc(best.n) + "</b>" + (best.o ? ' <span class="muted">by ' + esc(makerName(best.o)) + "</span>" : "") + "</p>" +
         '<ul class="fwhy">' + finderWhy(best, f.prio, f.plan).map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>" + try1 + "</div>";
       h += '<details class="frank"' + (ranked.length > 1 ? " open" : " hidden") + '><summary>Full ranking (' + ranked.length + ")</summary><ol>" + ranked.map(function (r, i) {
         var pct = Math.round(Math.max(0.04, Math.min(1, r.score)) * 100);
-        return '<li><span class="rpos">' + (i + 1) + '</span><span class="rbody"><b>' + esc(r.n) + "</b>" + (r.o ? ' <span class="muted">' + esc(r.o) + "</span>" : "") +
+        return '<li><span class="rpos">' + (i + 1) + '</span><span class="rbody"><b>' + esc(r.n) + "</b>" + (r.o ? ' <span class="muted">' + esc(makerName(r.o)) + "</span>" : "") +
           '<span class="rbar" aria-hidden="true"><i style="width:' + pct + '%"></i></span><small>' + esc(finderWhy(r, f.prio, f.plan).join(" · ")) + "</small></span></li>";
       }).join("") + "</ol></details>";
     }
@@ -344,20 +350,23 @@
     h += staleList(["lmarena", "aa", "livebench", "epoch"]);
     if (list(D.picks).some(function (p) { return p.usesAA; })) h += aaNote();
     h += '<h3 class="stackh">Top Picks by task</h3><div class="stack">' + (picks.map(function (p) { return pickCard(p, "p-"); }).join("") || '<p class="note">No picks yet.</p>') + "</div>";
+    h += '<p class="note pickslink"><a href="#best-more" data-more="best">See the test scores and how picks work</a></p>';
     h += moreButton("best") + plainCredits();
     return h;
   }
+  // the daily data's older wording "1 source only" reads "1 test only", like the Top Picks card
+  function oneTest(t) { return String(t || "").replace(/\b1 source only\b/g, "1 test only"); }
   function vBestMore() {
     var h = backButton() + "<h2>Top Picks: full details</h2>";
     h += howPicks();
     list(D.picks).forEach(function (p) {
-      h += '<section class="job"><h3>' + esc(p.icon) + " " + esc(p.label) + ": " + esc(pickTitle(p)) + (p.status === "single" ? " (1 source only)" : "") + "</h3>";
-      h += '<p class="why">' + esc(p.why) + "</p>";
-      if (p.id !== "cheap" && list(p.candidates).length && p.status === "none") h += "<p><b>Closest:</b> " + esc(list(p.candidates).slice(0, 3).map(function (c) { return c.n + " (top 3 in " + c.top3 + ")"; }).join(", ")) + "</p>";
-      h += '<p class="note"><b>Sources used:</b> ' + esc(p.how) + "</p>";
+      h += '<section class="job"><h3>' + esc(p.icon) + " " + esc(p.label) + ": " + esc(pickTitle(p)) + (p.status === "single" ? " (1 test only)" : "") + "</h3>";
+      var pw = plainRule(p.why, p.id === "cheap" ? "Cheapest to build apps with, among the strongest models." : p.status === "best" ? BEST_RULE : plainWhy(p));
+      if (pw) h += '<p class="why">' + esc(oneTest(pw)) + "</p>";
+      if (p.id !== "cheap" && list(p.candidates).length && p.status === "none") h += "<p><b>Closest:</b> " + esc(list(p.candidates).slice(0, 3).map(function (c) { return c.n; }).join(", ")) + "</p>";
+      h += '<p class="note"><b>Sources used:</b> ' + esc(oneTest(plainRule(p.how, p.id === "cheap" ? CHEAP_HOW : "The independent tests listed below."))) + "</p>";
       h += '<ul class="boards">' + list(p.boards).map(function (b) {
-        return "<li>" + (b.src === "aa" ? "Source: " + ext(b.url, AA_CREDIT) : ext(b.url, esc(b.name))) + " · " + esc(b.board) + (b.date ? " · " + esc(day(b.date)) : "") +
-          '<span class="top3">Top 3: ' + list(b.top).map(function (n, i) { return esc(n) + fastTag(list(b.topFast)[i]); }).join(", ") + "</span></li>";
+        return "<li>" + (b.src === "aa" ? "Source: " + ext(b.url, AA_CREDIT) : ext(b.url, esc(b.name))) + " · " + esc(b.board) + (b.date ? " · " + esc(day(b.date)) : "") + "</li>";
       }).join("") + "</ul>";
       list(p.winners).forEach(function (c) { h += candDetail(c, true); });
       var others = list(p.candidates).concat(list(p["new"]));
@@ -374,6 +383,12 @@
   // Each app shows where today's price came from (its own pricing page, or its own App Store listing),
   // when it was last checked, and a "stale" mark when that check is more than D.staleDays (30) days old.
   function staleMark(isStale) { return isStale ? ' <span class="stale" title="Not confirmed for more than ' + ((D && D.staleDays) || 30) + ' days">⚠ stale</span>' : ""; }
+  // a plan's price: "from $99.99/mo" when its note starts with "from" (the raw note isn't shown), else "$19.99/mo (note)"
+  function planPrice(p) {
+    var note = String(p.note || "");
+    if (/^from\b/i.test(note)) return "<b>from " + esc(monthly(p.usd_month)) + "</b>";
+    return "<b>" + esc(monthly(p.usd_month)) + "</b>" + (note ? " (" + esc(note) + ")" : "");
+  }
   function appRow(a, full) {
     var src = a.src || { label: "Pricing page", url: a.page };
     var right = a.free ? '<span class="free">Free ✓</span>' : '<span class="muted">No free plan</span>';
@@ -381,7 +396,7 @@
     var h = "<li><span class=\"rn\"><b>" + esc(a.app) + "</b><small>" + esc(a.maker) + " · " + paid + "</small>";
     if (full && list(a.plans).length) {
       h += '<span class="plans">' + list(a.plans).map(function (p) {
-        return '<span class="plan">' + esc(p.name) + ": <b>" + esc(monthly(p.usd_month)) + "</b>" + (p.note ? " (" + esc(p.note) + ")" : "") + staleMark(p.stale) + "</span>";
+        return '<span class="plan">' + esc(p.name) + ": " + planPrice(p) + staleMark(p.stale) + "</span>";
       }).join("") + "</span>";
     }
     var read = a.readToday === undefined ? a.read_ok : a.readToday;
@@ -407,7 +422,7 @@
       '<p class="note">⚡ ' + esc(fastNote()) + "</p>";
     h += staleNote("openrouter");
     h += '<ul class="rows card">' + (dev.map(function (d) {
-      return '<li><span class="rn"><b>' + esc(d.n) + "</b>" + fastTag(d.fast) + "<small>" + esc(d.o) + " · " + ext(d.u, esc(d.srcName)) + (d.date ? ", " + esc(day(d.date)) : "") +
+      return '<li><span class="rn"><b>' + esc(d.n) + "</b>" + fastTag(d.fast) + "<small>" + esc(makerName(d.o)) + " · " + ext(d.u, esc(d.srcName)) + (d.date ? ", " + esc(day(d.date)) : "") +
         '</small></span><span class="rv">' + money(d.pin) + " / " + money(d.pout) + "</span></li>";
     }).join("") || '<li class="muted">No developer prices yet.</li>') + "</ul>";
     h += backButton() + credits(["prices", "openrouter", "aa"]);
@@ -419,7 +434,7 @@
   var HUES = [243, 268, 190, 152, 24, 330, 205, 45];
   function makerHue(o) { var h = 0, s2 = makerKey(o); for (var i = 0; i < s2.length; i++) h = (h * 31 + s2.charCodeAt(i)) >>> 0; return HUES[h % HUES.length]; }
   function relCard(r, withSrc) {
-    var o = String(r.o || ""), fresh = r.d && (Date.now() - new Date(String(r.d).slice(0, 10) + "T12:00:00Z").getTime()) / 864e5 <= 3;
+    var o = String(makerName(r.o) || ""), fresh = r.d && (Date.now() - new Date(String(r.d).slice(0, 10) + "T12:00:00Z").getTime()) / 864e5 <= 3;
     return '<li class="relcard"><span class="av" style="--h:' + makerHue(o) + '" aria-hidden="true">' + esc((o.replace(/[^A-Za-z0-9]/g, "")[0] || "•").toUpperCase()) + "</span>" +
       '<span class="rb"><span class="rt">' + ext(r.u, esc(r.n)) + (fresh ? ' <span class="badge new">NEW</span>' : "") + fastTag(r.fast) + "</span>" +
       '<span class="rm">' + (withSrc ? esc(o) + " · " + esc(day(r.d)) + " · " + esc(r.src) : (o ? "New model from " + esc(o) + " · " : "") + esc(day(r.d))) + "</span></span></li>";
@@ -450,39 +465,47 @@
   }
 
   // ---------------------------------------------------------------- views: Big news
-  // News: title, a short summary, date and the source's name. With a link (http/https), the whole item is one tap that
-  // opens the original article in a new tab (source + ↗ in the meta line); without one it stays plain text.
+  // News is read INSIDE the app (v16d): a tap opens the story view (#story/news/3 or #story/agents/1). No outside links.
+  // The list shows a short line only when the data has a summary (n.x); nothing is made up.
   function newsSummary(n) {
     var x = String(n.x || "").replace(/\s+/g, " ").trim();
-    if (x) return x.length > 220 ? x.slice(0, 217).replace(/\s+\S*$/, "") + "…" : x;
-    var who = String(n.s || "").replace(/\s+(news|blog|change ?log|newsroom)$/i, "").replace(/\s+API$/i, "");
-    var t = String(n.tag || "").toLowerCase();
-    if (t === "new model") return "A new model announced by " + (who || "its maker") + ".";
-    if (/price/.test(t)) return "A price change announced by " + (who || "the company") + ".";
-    if (/ipo|acquisition|funding|company/.test(t)) return "Company news from " + (who || "the company") + ".";
-    return "Reported by " + (n.s || "the source") + ".";
+    return x.length > 220 ? x.slice(0, 217).replace(/\s+\S*$/, "") + "…" : x;
   }
-  function newsRow(n) {
-    var u = typeof n.u === "string" && /^https?:\/\/[^\s"'<>]+$/i.test(n.u) ? n.u : "";
+  function newsRow(n, src, i) {
+    var sum = newsSummary(n);
     var body = (n.tag ? '<span class="tag">' + esc(n.tag) + "</span>" : "") + '<b class="nt">' + esc(n.t) + "</b>" +
-      '<span class="nsum">' + esc(newsSummary(n)) + "</span>" +
-      '<small class="nmeta">' + esc(day(n.d)) + (n.s ? " · " + esc(n.s) : "") +
-      (u ? ' <span class="ext" aria-hidden="true">↗</span><span class="sr"> (opens in a new tab)</span>' : "") + "</small>";
-    return u ? '<li class="newsitem"><a class="nlink rn" href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">' + body + "</a></li>"
+      (sum ? '<span class="nsum">' + esc(sum) + "</span>" : "") +
+      '<small class="nmeta">' + esc(day(n.d)) + (n.s ? " · " + esc(n.s) : "") + ' <span class="go" aria-hidden="true">›</span></small>';
+    return src ? '<li class="newsitem"><a class="nlink rn" href="#story/' + esc(src) + "/" + (+i) + '" data-story="' + esc(src) + "|" + (+i) + '">' + body + "</a></li>"
       : '<li class="newsitem"><span class="rn">' + body + "</span></li>";
   }
-  // the credit line under the news stays plain text (the items themselves link to their articles)
+  function newsList(src) { return src === "agents" ? list(AG() && AG().news && AG().news.items) : list(D && D.bignews && D.bignews.items); }
+  // the story view: Back, tag, headline, date · source (plain text), the story in short paragraphs, Back again.
+  // Text = n.w (paragraphs, written by the daily update) or the full n.x; else a short muted line. Nothing invented.
+  function storyHtml(src, i) {
+    var n = newsList(src)[i], back = '<button type="button" class="backbtn storyback" data-storyback="1">‹ Back</button>';
+    if (!n) return back + '<h2>Story not found</h2><p class="sub">This story is no longer in the list.</p>';
+    var paras = list(n.w).filter(function (x) { return typeof x === "string" && x.trim(); }).map(function (x) { return x.trim(); });
+    if (!paras.length && String(n.x || "").trim()) paras = String(n.x).split(/\n\s*\n/).map(function (x) { return x.replace(/\s+/g, " ").trim(); }).filter(Boolean);
+    return '<article class="story">' + back +
+      (n.tag ? '<p class="stag"><span class="tag">' + esc(n.tag) + "</span></p>" : "") +
+      '<h2 class="sth" id="storyh" tabindex="-1" dir="auto">' + esc(n.t) + "</h2>" +
+      '<p class="smeta">' + esc(day(n.d)) + (n.s ? " · " + esc(n.s) : "") + "</p>" +
+      (paras.length ? '<div class="sbody" dir="auto">' + paras.map(function (x) { return "<p>" + esc(x) + "</p>"; }).join("") + "</div>" +
+        back.replace("storyback", "storyback bottom") : "") + "</article>";
+  }
+  // the credit line under the news stays plain text
   function creditsText(ids) { return credits(ids).replace(/<a [^>]*href="(?!#)[^"]*"[^>]*>([\s\S]*?)<\/a>/g, "$1"); }
   function vNews() {
     var items = list(D.bignews && D.bignews.items);
     var h = "<h2>Big news</h2><p class=\"sub\">Only the big stories: new models, price changes and major company news.</p>" + staleNote("news");
-    h += '<ul class="rows card">' + (items.slice(0, 5).map(newsRow).join("") || '<li class="muted">No big news right now.</li>') + "</ul>";
+    h += '<ul class="rows card">' + (items.slice(0, 5).map(function (n, i) { return newsRow(n, "news", i); }).join("") || '<li class="muted">No big news right now.</li>') + "</ul>";
     return h + moreButton("news", items.length > 5) + creditsText(["official", "news"]);
   }
   function vNewsMore() {
     var items = list(D.bignews && D.bignews.items);
     var h = backButton() + "<h2>Big news: last 30 days</h2><p class=\"sub\">" + esc((D.bignews && D.bignews.rules) || "") + " From the companies' own pages, AI lab blogs and tech news sites, picked by fixed word rules (opinion, lawsuits, rumors, partnerships and customer stories are left out). The same story from several sites is shown once, from the company's own page when there is one.</p>" + staleNote("news");
-    h += '<ul class="rows card">' + (items.slice(0, 30).map(newsRow).join("") || '<li class="muted">No big news right now.</li>') + "</ul>";
+    h += '<ul class="rows card">' + (items.slice(0, 30).map(function (n, i) { return newsRow(n, "news", i); }).join("") || '<li class="muted">No big news right now.</li>') + "</ul>";
     return h + backButton() + creditsText(["official", "news"]);
   }
 
@@ -498,26 +521,26 @@
     var bits = ["#" + r.rank];
     if (r.shown) bits.push(r.shown);
     if (r.date) bits.push(day(r.date));
-    return "<li" + (r.top3 ? ' class="agree"' : "") + ">" + head + ": <b>" + esc(bits.join(" · ")) + "</b>" + (r.top3 ? ' <span class="tick" aria-label="top 3">✓ top 3</span>' : "") + "</li>";
+    return "<li" + (r.top3 ? ' class="agree"' : "") + ">" + head + ": <b>" + esc(bits.join(" · ")) + "</b></li>";
   }
   function agentWho(c, n) {
-    return (c.o ? "by " + esc(c.o) + " · " : "") + "top 3 in " + c.top3 + " of " + n + " agent tests";
+    return c.o ? "by " + esc(makerName(c.o)) : "";
   }
   function agentBestCard(full) {
     var b = AG().best || {}, w = list(b.winners);
     var h = '<section class="card abest"><h3><span class="ico sm" aria-hidden="true">🤖</span>Best AI for agents</h3>' +
-      '<p class="note">' + (full ? esc(AG().rule || "") : "The AI model inside an agent. Named best only when it is top 3 in at least 2 of 3 independent agent tests.") + "</p>";
+      '<p class="note">' + (full ? esc(plainRule(AG().rule, AGENT_RULE)) : "The AI model inside an agent. " + esc(AGENT_RULE)) + "</p>";
     if (b.status === "best" && w.length) {
       h += '<ul class="rows">' + w.map(function (c) {
-        return '<li><span class="rn"><b class="big">' + esc(c.n) + "</b>" + (full ? fastTag(c.fast) : "") + "<small>" + agentWho(c, b.n) + "</small>" +
+        return '<li><span class="rn"><b class="big">' + esc(c.n) + "</b>" + (full ? fastTag(c.fast) : "") + (agentWho(c, b.n) ? "<small>" + agentWho(c, b.n) + "</small>" : "") +
           '<small class="checked">' + list(c.ranks).filter(function (r) { return r.top3; }).map(function (r) {
             return ext(r.url, esc(r.name)) + " #" + r.rank + (r.date ? ", " + esc(day(r.date)) : "");
           }).join(" · ") + "</small></span></li>";
       }).join("") + "</ul>";
     } else {
-      h += '<p class="why"><b>No clear winner yet.</b> ' + esc(b.why || "") + "</p>";
+      h += '<p class="why"><b>No clear winner yet.</b> ' + esc(plainRule(b.why, "The independent agent tests don't agree yet.")) + "</p>";
       var close = list(b.candidates).slice(0, 3);
-      if (close.length) h += '<p class="note">Closest: ' + esc(close.map(function (c) { return c.n + " (top 3 in " + c.top3 + ")"; }).join(", ")) + "</p>";
+      if (close.length) h += '<p class="note">Closest: ' + esc(close.map(function (c) { return c.n; }).join(", ")) + "</p>";
     }
     return h + "</section>";
   }
@@ -528,41 +551,47 @@
   function agentFree(a) {
     if (a.free === true) return '<span class="free">Free ✓</span>';
     if (a.free === false) return '<span class="muted">Paid</span>';
-    return '<span class="muted" title="The pricing page doesn\'t list a free plan">Free?</span>';
+    return "";                                                       // unknown: no badge
   }
-  function nameMaker(a) { return "<b>" + esc(a.app) + '</b> <span class="mk">· ' + esc(a.maker) + "</span>"; }
+  // v16f: the maker is left out when it is the app's own name ("Lindy · Lindy")
+  function sameName(a) { return String(a.maker || "").trim().toLowerCase() === String(a.app || "").trim().toLowerCase(); }
+  function nameMaker(a) { return "<b>" + esc(a.app) + "</b>" + (a.maker && !sameName(a) ? ' <span class="mk">· ' + esc(makerName(a.maker)) + "</span>" : ""); }
+  // one price style on the Agents tab: "/mo", and "<source> · checked <date>" like the Cost tab
+  function perMo(t) { return String(t || "").replace(/\/month\b/g, "/mo"); }
+  function checkedLine(label, url, read, date, stale) {
+    return ext(url, esc(label)) + (read ? " · checked " + esc(day(date)) : ' · <span class="warn">last checked ' + esc(day(date)) + "</span>") + staleMark(stale);
+  }
   function agentSimpleRow(a) {
     var s = a.src || {}, only = list(a.plans);
     var bits = [];
     if (a.plansFrom && a.free === false && only.length === 1) bits.push("only with " + esc(only[0].name));
     else if (a.plansFrom) bits.push("with " + esc(a.plansFrom) + " plans");
     var price = agentPrice(a);
-    if (price) bits.push(price);
-    var src = ext(s.url, esc(s.label || "Pricing page")) + (s.readToday ? ", " + esc(day(s.checked || a.checked)) : ', <span class="warn">last checked ' + esc(day(s.checked || a.checked)) + "</span>") + staleMark(s.stale);
+    if (price) bits.push(a.free === true && /^paid from /.test(price) ? "Free · " + price : price);
+    var src = checkedLine(s.label || "Pricing page", s.url, s.readToday, s.checked || a.checked, s.stale);
     return '<li><span class="rn">' + nameMaker(a) + (bits.length ? "<small>" + bits.join(" · ") + "</small>" : "") + '<small class="checked">' + src + '</small></span><span class="rv">' + agentFree(a) + "</span></li>";
   }
   // Hand-checked agents (scripts/agents_static.json): price text exactly as checked by hand, never parsed.
   // The daily check only confirms the maker's page is still up ("page still up: <date>").
   function staticRow(a, full) {
     var s = a.src || {}, c = a.check || {};
-    var h = '<li><span class="rn">' + nameMaker(a) + "<small>" + esc(a.priceText || "") + "</small>";
+    var h = '<li><span class="rn">' + nameMaker(a) + "<small>" + esc(perMo(a.priceText)) + "</small>";
     if (full) {
       h += "<small>" + esc(a.what || "") + "</small><small>Access: " + esc(a.access || "") + "</small>";
       if (list(a.plans).length) h += '<span class="plans">' + list(a.plans).map(function (p) {
         return '<span class="plan">' + esc(p.name) + ": <b>" + esc(monthly(p.usd_month)) + "</b></span>";
       }).join("") + "</span>";
     }
-    h += '<small class="checked">' + ext(s.url, esc(s.label || "Official page")) + ", checked " + esc(day(a.checked)) + staleMark(a.stale || c.stale) + "</small>";
+    h += '<small class="checked">' + ext(s.url, esc(s.label || "Official page")) + " · checked " + esc(day(a.checked)) + staleMark(a.stale || c.stale) + "</small>";
     if (full) h += '<small class="checked">' + (c.readToday ? "Page still up: " + esc(day(c.checked)) : '<span class="warn">Page last read ' + esc(day(c.checked)) + "</span>") + "</small>";
     return h + '</span><span class="rv">' + agentFree(a) + "</span></li>";
   }
   // Personal assistants (text or call them): no public prices, so they show access + a plain price line instead.
   function assistantRow(a, full) {
     var s = a.src || {};
-    var src = ext(s.url, esc(s.label || "Home page")) + (s.readToday ? ", checked " + esc(day(s.checked || a.checked))
-      : ', <span class="warn">last checked ' + esc(day(s.checked || a.checked)) + "</span>") + staleMark(s.stale);
-    var h = '<li><span class="rn">' + nameMaker(a) + "<small>" + esc(a.access || "") + " · " + esc(a.priceText || "") + "</small>";
-    if (full) h += "<small>" + esc(a.what || "") + "</small><small>Access: " + esc(a.access || "") + " · Price: " + esc(a.priceText || "") + "</small>";
+    var src = checkedLine(s.label || "Home page", s.url, s.readToday, s.checked || a.checked, s.stale);
+    var h = '<li><span class="rn">' + nameMaker(a) + "<small>" + esc(a.access || "") + " · " + esc(perMo(a.priceText)) + "</small>";
+    if (full) h += "<small>" + esc(a.what || "") + "</small><small>Access: " + esc(a.access || "") + " · Price: " + esc(perMo(a.priceText)) + "</small>";
     return h + '<small class="checked">' + (full ? "Source: " : "") + src + "</small></span></li>";
   }
   function agentAppRow(a, full) {
@@ -570,17 +599,17 @@
     if (a.group === "assistants") return assistantRow(a, full);
     if (!full) return agentSimpleRow(a);
     var s = a.src || {}, pf = a.proof;
-    var bits = [esc(a.maker)];
+    var bits = a.maker && !sameName(a) ? [esc(makerName(a.maker))] : [];
     if (a.plansFrom) bits.push(a.free ? "comes with " + esc(a.plansFrom) + ", Free plan too" : "comes with paid " + esc(a.plansFrom) + " plans");
     else if (a.free === true) bits.push("Free plan");
     else if (a.free == null) bits.push("free plan not listed on the pricing page");
     var price = agentPrice(a);
     if (price) bits.push(price);
-    var h = '<li><span class="rn"><b>' + esc(a.app) + "</b><small>" + bits.join(" · ") + "</small>";
+    var h = '<li><span class="rn"><b>' + esc(a.app) + "</b>" + (bits.length ? "<small>" + bits.join(" · ") + "</small>" : "");
     if (full) {
       h += "<small>" + esc(a.what) + (a.note ? " " + esc(a.note) : "") + (a.freeNote ? " " + esc(a.freeNote) + "." : "") + "</small>";
       if (list(a.plans).length) h += '<span class="plans">' + list(a.plans).map(function (p) {
-        return '<span class="plan">' + esc(p.name) + ": <b>" + esc(monthly(p.usd_month)) + "</b>" + (p.note ? " (" + esc(p.note) + ")" : "") + staleMark(p.stale) + "</span>";
+        return '<span class="plan">' + esc(p.name) + ": " + planPrice(p) + staleMark(p.stale) + "</span>";
       }).join("") + "</span>";
     } else if (a.note) {
       h += "<small>" + esc(a.note) + "</small>";
@@ -613,7 +642,7 @@
   }
   function agentNewsRows(n) {
     var items = list(AG().news && AG().news.items).slice(0, n);
-    return '<ul class="rows card">' + (items.map(newsRow).join("") || '<li class="muted">No agent news in the last ' + ((AG().news && AG().news.days) || 14) + " days.</li>") + "</ul>";
+    return '<ul class="rows card">' + (items.map(function (x, i) { return newsRow(x, "agents", i); }).join("") || '<li class="muted">No agent news in the last ' + ((AG().news && AG().news.days) || 14) + " days.</li>") + "</ul>";
   }
   function agentCredits(full) {
     var extra = list(AG() && AG().tests).filter(function (t) { return /via Epoch AI/.test(t.credit) && (full || t.inRule); }).map(function (t) { return ext(t.url, esc(t.credit)); });
@@ -633,19 +662,19 @@
     if (!AG()) return backButton() + vAgents();
     var ag = AG(), b = ag.best || {};
     var h = backButton() + "<h2>AI agents: full details</h2>";
-    h += '<div class="card prose"><h3>How the pick works</h3><p><b>Best AI for agents</b>: ' + esc(ag.rule || "") +
+    h += '<div class="card prose"><h3>How the pick works</h3><p><b>Best AI for agents</b>: ' + esc(plainRule(ag.rule, AGENT_RULE)) +
       " The 3 tests are run by different groups in different ways: people's votes (LMArena), hidden tasks (LiveBench) and real work tasks (APEX-Agents). Every model that passes is shown.</p>" +
       "<p>A test whose newest result is more than " + (ag.maxAge || 120) + " days old is left out. With fewer than 2 usable tests no model is named best.</p>" +
       "<p>Vending-Bench 2, Remote Labor Index and LiveBench Browser are shown for information only; they don't change the pick. No AI is used to choose.</p></div>";
     h += agentBestCard(true);
     list(b.winners).forEach(function (c) {
-      h += '<div class="cand card pad"><p class="cn"><b>' + esc(c.n) + "</b>" + fastTag(c.fast) + (c.o ? ' <span class="muted">by ' + esc(c.o) + "</span>" : "") + "</p>" +
-        '<p class="note">Top 3 in ' + c.top3 + " of " + b.n + " agent tests.</p><ul class=\"ranks\">" + list(c.ranks).map(agentRankLine).join("") + "</ul></div>";
+      h += '<div class="cand card pad"><p class="cn"><b>' + esc(c.n) + "</b>" + fastTag(c.fast) + (c.o ? ' <span class="muted">by ' + esc(makerName(c.o)) + "</span>" : "") + "</p>" +
+        '<ul class="ranks">' + list(c.ranks).map(agentRankLine).join("") + "</ul></div>";
     });
     if (list(b.candidates).length) {
       h += '<details class="sub-more"><summary>Other candidates (' + b.candidates.length + ")</summary>" + list(b.candidates).map(function (c) {
-        return '<div class="cand"><p class="cn"><b>' + esc(c.n) + "</b>" + (c.o ? ' <span class="muted">by ' + esc(c.o) + "</span>" : "") + '</p><p class="note">Top 3 in ' + c.top3 + " of " + b.n +
-          ' tests.</p><ul class="ranks">' + list(c.ranks).map(agentRankLine).join("") + "</ul></div>";
+        return '<div class="cand"><p class="cn"><b>' + esc(c.n) + "</b>" + (c.o ? ' <span class="muted">by ' + esc(makerName(c.o)) + "</span>" : "") + '</p><ul class="ranks">' +
+          list(c.ranks).map(agentRankLine).join("") + "</ul></div>";
       }).join("") + "</details>";
     }
     h += "<h3>Each agent test: top 5</h3>";
@@ -656,7 +685,7 @@
         (t.skipped ? '<p class="note bad">Left out today: ' + esc(t.skipWhy) + ".</p>" : "") +
         (t.ok === false && !t.skipped ? '<p class="note bad">Didn\'t answer today; using the last good copy.</p>' : "") +
         '<ol class="top5">' + list(t.top).map(function (r, i) {
-          return '<li><span class="rk">' + (i + 1) + '.</span><span class="nm"><b>' + esc(r.n) + "</b>" + (r.o ? ' <span class="muted">' + esc(r.o) + "</span>" : "") +
+          return '<li><span class="rk">' + (i + 1) + '.</span><span class="nm"><b>' + esc(r.n) + "</b>" + (r.o ? ' <span class="muted">' + esc(makerName(r.o)) + "</span>" : "") +
             '</span><span class="sc">' + esc(r.shown) + "</span></li>";
         }).join("") + "</ol></section>";
     });
@@ -741,6 +770,8 @@
     return String(s || "").replace(/\[([^\[\]\n]{1,300})\]\(\s*https?:\/\/[^\s()]{1,2000}(?:\([^\s()]{0,200}\)[^\s()]{0,500})*\s*\)/g, "$1")
       .replace(/\*\*([^*\n]+)\*\*/g, "$1").replace(/__([^_\n]+)__/g, "$1").replace(/^#{1,6}\s+/gm, "");
   }
+  function isOffline() { return typeof navigator !== "undefined" && navigator.onLine === false; }
+  var OFF_NOTE = '<p class="note bad offnote" role="status">You\'re offline.</p>';
   function nCredits(n) { return n + (n === 1 ? " credit" : " credits"); }
   function proModels() { return pro.models && pro.models.length ? pro.models : PRO_AIS; }
   // pure: what a selection costs (unknown ids cost nothing and are ignored). With web on, every AI that doesn't
@@ -874,8 +905,8 @@
     }
     h += costLineHtml(cp, pick, models, choice, wc, bal);
     pro.shownShort = short;
-    h += '<button type="button" class="askfour" id="askfour"' + (pro.busy || !pick.length || short ? " disabled" : "") + ">" +
-      (pro.busy ? "Asking…" : esc(askLabel(pick.length, cp.base, cp.held))) + "</button>";
+    h += '<button type="button" class="askfour" id="askfour"' + (pro.busy || !pick.length || short || isOffline() ? " disabled" : "") + ">" +
+      (pro.busy ? "Asking…" : esc(askLabel(pick.length, cp.base, cp.held))) + "</button>" + (isOffline() && !pro.busy ? OFF_NOTE : "");
     if (pro.charged != null && !pro.busy) h += '<p class="note askleft" id="askleft">Charged ' + esc(nCredits(pro.charged)) + " for the last question.</p>";
     else h += '<p class="note askleft" id="askleft" aria-live="polite"></p>';
     // the saved code, always copyable (for another device); the "Paid!" box itself is at the top of the view
@@ -912,19 +943,22 @@
   }
   // ---- the model picker: a bottom sheet on phones, a small centered dialog on wide screens.
   // It lives outside #view (so redraws don't close it); per-model credits are shown only here.
+  // the chosen row's check mark (shown by CSS on .mopt.on)
+  var SHEET_CHECK = '<span class="mcheck" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 10.5l3.5 3.5 7.5-8"/></svg></span>';
   function modelSheetHtml(id) {
     var m = proModels().filter(function (x) { return x.id === id; })[0];
     if (!m) return "";
     var cur = chosenOption(m, getChoice()), wc = webCredits();
     return '<div class="sheetback" data-sheetclose="1"></div>' +
       '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheeth" data-sheet="' + esc(m.id) + '">' +
+      '<div class="grabber" aria-hidden="true"></div>' +
       '<div class="sheethead"><h3 id="sheeth">Choose the ' + esc(m.name) + ' model</h3>' +
       '<button type="button" class="sheetx" data-sheetclose="1" aria-label="Close"><span aria-hidden="true">×</span></button></div>' +
       '<div class="mopts" role="radiogroup" aria-labelledby="sheeth">' + (m.options || []).map(function (o, i) {
         var on = o === cur;
         return '<label class="mopt' + (on ? " on" : "") + '"><input type="radio" name="mopt" value="' + esc(o.model) + '"' + (on ? " checked" : "") + ">" +
           '<span class="mname"><b>' + esc(o.label) + "</b>" + (i === 0 ? "<small>Default, fast</small>" : "") + "</span>" +
-          '<span class="mcred">' + esc(nCredits(o.credits)) + "</span></label>";
+          '<span class="mcred">' + esc(nCredits(o.credits)) + "</span>" + SHEET_CHECK + "</label>";
       }).join("") + "</div>" +
       '<p class="note">Credits per answer.' + (m.web === "native" ? " " + esc(m.name) + " searches the web by itself (no extra credits)."
         : " +" + esc(nCredits(wc)) + " if the question needs the web (news, prices, today…).") + " Choosing a model also ticks " + esc(m.name) + ".</p>" +
@@ -940,8 +974,19 @@
     var first = wrap.querySelector('input[name="mopt"]:checked') || wrap.querySelector('input[name="mopt"]');
     if (first) first.focus();
   }
+  // closing: the sheet is gone at once (as before); a still copy slides out over 0.2 s, then is removed
+  function sheetGhost(wrap) {
+    if (!wrap || wrap.hidden || !wrap.firstChild || (root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches)) return;
+    var g = wrap.cloneNode(true);
+    g.removeAttribute("id"); g.classList.add("closing"); g.setAttribute("aria-hidden", "true"); g.inert = true;
+    g.querySelectorAll("[id],[data-sheetclose],[data-sheet]").forEach(function (x) { x.removeAttribute("id"); x.removeAttribute("data-sheetclose"); x.removeAttribute("data-sheet"); });
+    g.querySelectorAll("input").forEach(function (x) { x.removeAttribute("name"); x.disabled = true; });
+    document.body.appendChild(g);
+    setTimeout(function () { if (g.parentNode) g.parentNode.removeChild(g); }, 220);
+  }
   function closeSheet() {
     var wrap = document.getElementById("modelsheet"), id = pro.sheet;
+    sheetGhost(wrap);
     if (wrap) { wrap.hidden = true; wrap.innerHTML = ""; }
     pro.sheet = null;
     document.documentElement.classList.remove("sheetopen");
@@ -1052,7 +1097,11 @@
   // Credits are exactly as in Explore (per AI, + web credits when the web rule fires), shown before Start.
   var RACE_MIN = 2, RACE_MAX = 4, RACE_DEFAULT = ["chatgpt", "claude"];
   var PLACES = ["1st", "2nd", "3rd", "4th"];
-  var race = { q: "", pick: null, busy: false, lanes: null, id: null, notice: "", short: false, timer: null, shownShort: false, charged: null };
+  var race = { q: "", pick: null, busy: false, lanes: null, id: null, notice: "", short: false, timer: null, shownShort: false, charged: null, moreOpen: null };
+  function raceMoreOpen(pick, models) {
+    if (race.moreOpen != null) return race.moreOpen;
+    return (models || PRO_AIS).some(function (m) { return !m.main && (pick || []).indexOf(m.id) >= 0; });
+  }
   function getRacePick() {
     if (!race.pick) { var raw = null; try { raw = JSON.parse(stored("ait.racepick")); } catch (e) {} race.pick = Array.isArray(raw) ? raw : RACE_DEFAULT; }
     return cleanPick(race.pick, proModels()).slice(0, RACE_MAX);
@@ -1085,7 +1134,7 @@
       (l.label ? '<span class="amodel"> · ' + esc(l.label) + "</span>" : "") +
       (l.searched && !l.error ? ' <span class="searched">🌐 Searched the web</span>' : "") +
       '<span class="lright">' + (l.place ? '<span class="lplace p' + l.place + '">' + PLACES[l.place - 1] + "</span>" : "") +
-      '<span class="ltime">' + (done ? laneSecs(l.ms) : "0.0 s") + "</span></span></div>" +
+      (done && l.error ? "" : '<span class="ltime">' + (done ? laneSecs(l.ms) : "0.0 s") + "</span>") + "</span></div>" +
       '<div class="lbar" aria-hidden="true"><i></i></div>' +
       (done ? '<p class="ltext' + (l.error ? " bad" : "") + '" dir="' + textDir(l.error || l.text) + '">' + esc(l.error || l.text) + "</p>"
         : '<p class="ltext muted">Working…</p>') +
@@ -1104,11 +1153,19 @@
       '<p class="note bad askqmsg" id="raceqmsg" aria-live="polite"></p>' +
       '<div class="pickhead"><h3 id="rpickh">Pick 2 to 4 AIs</h3><span class="pickq"><button type="button" class="linkbtn" id="rpicknone"' + (race.busy ? " disabled" : "") +
       ">Untick all</button></span></div>" +
-      '<div class="chips racechips" role="group" aria-labelledby="rpickh">' + models.map(function (m) { return raceChip(m, pick, choice); }).join("") + "</div>" +
-      costLineHtml(cp, pick, models, choice, wc, bal, "racecost") +
-      '<button type="button" class="askfour" id="racego"' + (race.busy || pick.length < RACE_MIN || short ? " disabled" : "") + ">" +
-      (race.busy ? "Racing…" : esc(raceLabel(pick.length, cp.base, cp.held))) + "</button>";
-    if (race.charged != null && !race.busy) h += '<p class="note askleft">Charged ' + esc(nCredits(race.charged)) + " for this race.</p>";
+      '<div class="chips racechips" role="group" aria-labelledby="rpickh">' + models.filter(function (m) { return m.main; }).map(function (m) { return raceChip(m, pick, choice); }).join("") + "</div>";
+    var rmore = models.filter(function (m) { return !m.main; });
+    if (rmore.length) {
+      var ropen = raceMoreOpen(pick, models), rOn = rmore.filter(function (m) { return pick.indexOf(m.id) >= 0; }).length;
+      h += '<button type="button" class="linkbtn morebtn2" id="rmoreais" aria-expanded="' + (ropen ? "true" : "false") + '" aria-controls="rmorechips">More AIs' +
+        (rOn ? " (" + rOn + " ticked)" : "") + ' <span aria-hidden="true">' + (ropen ? "▴" : "▾") + "</span></button>" +
+        '<div class="chips racechips morechips" id="rmorechips" role="group" aria-label="More AIs"' + (ropen ? "" : " hidden") + ">" +
+        rmore.map(function (m) { return raceChip(m, pick, choice); }).join("") + "</div>";
+    }
+    h += costLineHtml(cp, pick, models, choice, wc, bal, "racecost") +
+      '<button type="button" class="askfour" id="racego"' + (race.busy || pick.length < RACE_MIN || short || isOffline() ? " disabled" : "") + ">" +
+      (race.busy ? "Racing…" : esc(raceLabel(pick.length, cp.base, cp.held))) + "</button>" + (isOffline() && !race.busy ? OFF_NOTE : "");
+    if (race.charged && !race.busy) h += '<p class="note askleft">Charged ' + esc(nCredits(race.charged)) + " for this race.</p>";
     if (race.notice) h += '<p class="note bad" role="status">' + esc(race.notice) + "</p>";
     if ((short || race.short || bal.total === 0) && !race.busy) h += outboxHtml(bal, true);
     h += "</div>";
@@ -1288,7 +1345,7 @@
       "<p><b>Prices:</b> \u201cApp Store price (US)\u201d comes from the company's own App Store listing. A price not confirmed for more than " + ((D && D.staleDays) || 30) + " days is marked \u26a0 stale.</p>" +
       "<p><b>New releases:</b> taken from each company's own page when it announced the model (that date and link), otherwise the date it appeared on OpenRouter.</p>" +
       "<p><b>Epoch Capabilities Index:</b> many benchmarks combined into one score, with a margin of error.</p>" +
-      (ag ? "<p><b>Agent tests:</b> LMArena Agent Arena score (people's votes between two agents, higher is better), LiveBench Long Agentic (0 to 100), APEX-Agents (share of work tasks solved on the first try). A model is best for agents when it is top 3 in at least 2 of the 3.</p>" : "") +
+      (ag ? "<p><b>Agent tests:</b> LMArena Agent Arena score (people's votes between two agents, higher is better), LiveBench Long Agentic (0 to 100), APEX-Agents (share of work tasks solved on the first try). " + esc(AGENT_RULE) + "</p>" : "") +
       "<p>Data built " + esc(new Date(D.built).toLocaleString()) + ". No AI is used to pick anything. No sign-in, no tracking.</p></div>";
     return h;
   }
@@ -1305,10 +1362,9 @@
   function howPicks() {
     var ri = D.ruleInfo || {}, aa = !!D.aaEnabled, v = n0(ri.votes || 5000);
     var names = aa ? "LMArena, Artificial Analysis, LiveBench and Epoch AI" : "LMArena, LiveBench and Epoch AI";
-    var best = aa ? "a model counts as best only when at least 3 of the 4 independent sources (" + names + ") put it in their top 3."
-      : "a model counts as best only when all 3 independent sources (" + names + ") put it in their top 3.";
+    var best = "a model counts as best only when the independent sources (" + names + ") agree it is one of the strongest.";
     var pics = aa ? "For pictures there are 2 sources (LMArena and Artificial Analysis), so both must agree."
-      : "For pictures only LMArena has data, so no picture model is called best. The app shows LMArena's #1 marked \u201c1 source only\u201d, and the next ones under See more.";
+      : "For pictures only LMArena has data, so no picture model is called best. The app shows LMArena's #1 marked \u201c1 test only\u201d, and the next ones under See more.";
     return '<div class="card prose"><h3>How the picks work</h3>' +
       "<p><b>Best</b>: " + esc(best) + " " + esc(pics) + "</p>" +
       "<p><b>Tie</b>: when two models both pass, and their error bars overlap (the range each source gives for its score), it's a tie and both are shown.</p>" +
@@ -1321,13 +1377,13 @@
   function staleList(ids) { return ids.map(staleNote).join(""); }
   function credits(ids) {
     ids = ids.filter(active);
-    if (!ids.length) return '<p class="credits"><a href="#sources">All sources and update status</a></p>';
+    if (!ids.length) return '<p class="credits"><a href="#sources" data-tab="sources">All sources and update status</a></p>';
     return '<p class="credits">Data from ' + ids.map(function (id) {
       var s = src(id), t = String(s.credit || s.name || "");
       if (/^Each /.test(t)) t = "each" + t.slice(4);          // mid-sentence: "Data from each company's…"
       return s.url ? ext(s.url, esc(t)) : esc(t);
     }).join(", ") +
-      '. <a href="#sources">All sources and update status</a></p>';
+      '. <a href="#sources" data-tab="sources">All sources and update status</a></p>';
   }
 
   var VIEWS = { best: vBest, cost: vCost, releases: vReleases, news: vNews, agents: vAgents, ask: vAsk, race: vRace, sources: vSources };
@@ -1347,6 +1403,8 @@
   function routeFor(hash) {
     var h = String(hash || "").replace(/^#/, "").toLowerCase();
     if (h === "main") return null;                           // skip link
+    var sm = h.match(/^story\/(news|agents)\/(\d{1,3})$/);   // a news story inside the app
+    if (sm) return { tab: sm[1], more: false, story: { src: sm[1], i: +sm[2] } };
     var more = /-more$/.test(h);
     var t = h.replace(/-more$/, "");
     if (VIEWS_ALL.indexOf(t) >= 0) return { tab: t, more: more && !!MORE[t] };
@@ -1361,7 +1419,7 @@
     setModels: setModels, setWebCredits: setWebCredits, moreOpen: moreOpen, needsWeb: needsWeb, costPreview: costPreview, subs: SUBS, rankModels: rankModels, finderHtml: finderHtml, getFinder: getFinder, setFinder: setFinder,
     exploreFor: exploreFor, laneOrder: laneOrder, newsRow: newsRow, newsSummary: newsSummary, relCard: relCard, race: race, newRaceId: newRaceId, getRacePick: getRacePick, setRacePick: setRacePick,
     laneHtml: laneHtml, ctaOn: ctaOn, tipFor: tipFor, isoWeek: isoWeek, weekNumber: weekNumber, tipHtml: tipHtml, setLeft: setLeft, plainAnswer: plainAnswer, updateDecision: updateDecision, day: day, setQuestion: function (q) { askQ = String(q == null ? "" : q); },
-    view: viewHtml, views: VIEWS, more: MORE };
+    view: viewHtml, views: VIEWS, more: MORE, storyHtml: storyHtml, plainRule: plainRule };
 
   if (!hasDom) return;
   // the Ask tab's name lives in CONFIG.ASK_NAME (index.html carries the same words for the first paint)
@@ -1381,7 +1439,7 @@
   function setStamp() { if (stamp) stamp.textContent = ""; }
   function render() {
     setStamp();
-    view.innerHTML = viewHtml(state.tab, state.more);
+    view.innerHTML = state.story && D ? storyHtml(state.story.src, state.story.i) : viewHtml(state.tab, state.more);
     if (state.tab === "ask") fourFill();
     document.querySelectorAll("#tabs button").forEach(function (b) {
       if (b.getAttribute("data-tab") === state.tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
@@ -1389,18 +1447,70 @@
     var sb = document.getElementById("srcbtn");
     if (sb) { if (state.tab === "sources") sb.setAttribute("aria-current", "page"); else sb.removeAttribute("aria-current"); }
   }
-  // Tabs replace the history entry. "See more" ADDS one (marked aitMore), so the phone's Back returns to the
-  // simple view; "‹ Back to the simple view" then just goes back (the history doesn't grow).
+  // History (v16f): each entry carries d = how many steps it sits above Top Picks. Leaving Top Picks for another tab
+  // ADDS one entry (aitTab); later tab switches replace it, so the phone's Back from any tab returns to Top Picks and
+  // Back on Top Picks leaves the app. "See more" ADDS one (aitMore), so Back returns to the simple view; "‹ Back to the
+  // simple view" then just goes back. The Top Picks tab steps back to the Top Picks entry (the history doesn't grow).
+  function histD() { var s2 = history.state; return s2 && s2.d > 0 ? s2.d : 0; }
   function setHash(h, push) {
     if (location.hash === h) return;
-    try { if (push) history.pushState({ aitMore: 1 }, "", h); else history.replaceState(null, "", h); } catch (e) {}
+    try { if (push) history.pushState({ aitMore: 1, d: histD() + 1 }, "", h); else history.replaceState(histD() ? { aitTab: 1, d: histD() } : null, "", h); } catch (e) {}
+  }
+  function goTab(tab) {
+    tab = VIEWS_ALL.indexOf(tab) >= 0 ? tab : "best";
+    var d = histD();
+    if (tab === "best" && d > 0) { try { history.go(-d); return; } catch (e) {} }
+    if (tab !== "best" && d === 0 && !(state.tab === tab && !state.more && !state.story)) {
+      try { history.pushState({ aitTab: 1, d: 1 }, "", "#" + tab); } catch (e) {}
+    }
+    go(tab);
   }
   function go(tab, more, keepScroll, push) {
+    state.story = null;
     state.tab = VIEWS_ALL.indexOf(tab) >= 0 ? tab : "best";
     state.more = !!more && !!MORE[state.tab];
     setHash("#" + state.tab + (state.more ? "-more" : ""), !!push && state.more);
     render();
     if (!keepScroll) window.scrollTo(0, 0);
+  }
+
+  // ---- news stories: opening one ADDS a history entry (#story/news/3), so Back (button, browser or phone gesture)
+  // returns to the same list at the same scroll spot
+  function showStory(st, push, from) {
+    state.storyFrom = from || state.storyFrom || null;
+    state.story = { src: st.src, i: st.i };
+    state.tab = st.src; state.more = false;
+    var h = "#story/" + st.src + "/" + st.i;
+    if (push) { try { history.pushState({ aitStory: 1, d: histD() + 1 }, "", h); } catch (e) {} }
+    else if (location.hash !== h) { try { history.replaceState(histD() ? { aitTab: 1, d: histD() } : null, "", h); } catch (e) {} }
+    render();
+    window.scrollTo(0, 0);
+    var hd = document.getElementById("storyh"); if (hd) hd.focus({ preventScroll: true });
+  }
+  function closeStory() {
+    var from = state.storyFrom || { tab: state.tab, more: false, y: 0 };
+    state.story = null; state.storyFrom = null;
+    state.tab = from.tab; state.more = from.more;
+    setHash("#" + from.tab + (from.more ? "-more" : ""), false);
+    render();
+    window.scrollTo(0, from.y || 0);
+  }
+  // the route after Back / Forward / a typed hash
+  function applyRoute(r) {
+    if (!r) return;
+    if (r.story) {
+      if (!state.story || state.story.src !== r.story.src || state.story.i !== r.story.i)
+        showStory(r.story, false, state.story ? state.storyFrom : { tab: state.tab, more: state.more, y: window.scrollY });
+      return;
+    }
+    if (state.story) {
+      var from = state.storyFrom;
+      state.story = null; state.storyFrom = null; state.tab = r.tab; state.more = r.more;
+      render();
+      window.scrollTo(0, from && from.tab === r.tab && from.more === r.more ? from.y || 0 : 0);
+      return;
+    }
+    if (r.tab !== state.tab || r.more !== state.more) go(r.tab, r.more);
   }
 
   // ---- new version: reload by itself only when nothing would be lost
@@ -1581,7 +1691,7 @@
         store("ait.code", r.json.code);
         pro.paid = { code: r.json.code, credits: r.json.credits || CONFIG.PACK };
         setLeft({ paid_left: r.json.paid_left }); pro.short = false;
-        try { history.replaceState(null, "", location.pathname + "#ask"); } catch (e) {}
+        try { history.replaceState(history.state, "", location.pathname + "#ask"); } catch (e) {}
         loadLeft();
       } else pro.redeemErr = true;
       askRedraw();
@@ -1650,10 +1760,11 @@
     var tb = e.target.closest("[data-try]");
     if (tb) {                                                            // "Ask it in Explore": tick that AI, choose that model
       var tp = tb.getAttribute("data-try").split("|");
-      setPick([tp[0]]); setChoice(tp[0], tp[1]); go("ask");
+      setPick([tp[0]]); setChoice(tp[0], tp[1]); goTab("ask");
       var qb2 = document.getElementById("askq"); if (qb2) qb2.focus();
       return;
     }
+    if (e.target.closest("#rmoreais")) { race.moreOpen = !raceMoreOpen(getRacePick(), proModels()); askRedraw("#rmoreais"); return; }
     if (e.target.closest("#rpicknone")) { setRacePick([]); race.short = false; askRedraw("#rpicknone"); return; }
     if (e.target.closest("#pickall")) { setPick(mainIds(proModels())); pro.short = false; askRedraw("#pickall"); return; }       // the 5 main ones
     if (e.target.closest("#moreais")) { pro.moreOpen = !moreOpen(getPick(), proModels()); askRedraw("#moreais"); return; }
@@ -1692,68 +1803,98 @@
     }
   });
   document.addEventListener("click", function (e) {
+    var so = e.target.closest("[data-story]");
+    if (so) {
+      e.preventDefault();
+      var sp = so.getAttribute("data-story").split("|");
+      showStory({ src: sp[0], i: +sp[1] }, true, { tab: state.tab, more: state.more, y: window.scrollY });
+      return;
+    }
+    if (e.target.closest("[data-storyback]")) {
+      if (history.state && history.state.aitStory) history.back();     // same as the phone's Back (popstate below)
+      else closeStory();
+      return;
+    }
     var t = e.target.closest("[data-tab],[data-more],[data-less]");
     if (!t) return;
-    if (t.hasAttribute("data-tab")) go(t.getAttribute("data-tab"));
+    if (t.hasAttribute("data-tab")) { e.preventDefault(); goTab(t.getAttribute("data-tab")); }
     else if (t.hasAttribute("data-more")) { e.preventDefault(); go(t.getAttribute("data-more"), true, false, true); }
     else if (t.hasAttribute("data-less")) {
       if (history.state && history.state.aitMore) history.back();      // same as the phone's Back (popstate below)
       else go(state.tab, false);
     }
   });
-  window.addEventListener("popstate", function () {
-    var r = routeFor(location.hash);
-    if (r && (r.tab !== state.tab || r.more !== state.more)) go(r.tab, r.more);
-  });
+  window.addEventListener("popstate", function () { applyRoute(routeFor(location.hash)); });
   document.addEventListener("toggle", function (e) {
     var d = e.target;
     if (d && d.tagName === "DETAILS" && d.id) state.open[d.id] = d.open;
   }, true);
-  window.addEventListener("hashchange", function () {
-    var r = routeFor(location.hash);
-    if (r && (r.tab !== state.tab || r.more !== state.more)) go(r.tab, r.more);
-  });
+  window.addEventListener("hashchange", function () { applyRoute(routeFor(location.hash)); });
 
-  // theme: follows the system until the button is used
-  var rootEl = document.documentElement;
-  function applyTheme(t) { if (t === "light" || t === "dark") rootEl.setAttribute("data-theme", t); else rootEl.removeAttribute("data-theme"); }
-  try { applyTheme(localStorage.getItem("ait-theme")); } catch (e) {}
-  document.getElementById("theme").addEventListener("click", function () {
-    var cur = rootEl.getAttribute("data-theme");
-    var dark = cur ? cur === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
-    var t = dark ? "light" : "dark";
-    try { localStorage.setItem("ait-theme", t); } catch (e) {}
-    applyTheme(t);
-  });
+  // light / dark follows the phone's setting only (v16f): forget a manual choice saved by an older version
+  try { localStorage.removeItem("ait-theme"); } catch (e) {}
+  document.documentElement.removeAttribute("data-theme");
 
   // fresh data from the network (the service worker falls back to the saved copy when offline)
   var btn = document.getElementById("refresh");
   var offline = document.getElementById("offline");
+  // the refresh button says what happened, for about 2 s: "Up to date", "New data loaded" or "You're offline"
+  var toastTimer = null;
+  function toast(msg) {
+    var t = document.getElementById("toast");
+    if (!t) { t = document.createElement("div"); t.id = "toast"; t.className = "toast"; t.setAttribute("role", "status"); document.body.appendChild(t); }
+    t.textContent = msg; t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.hidden = true; }, 2000);
+  }
   function pull(manual) {
     if (!window.fetch) return;
     if (manual) btn.classList.add("spin");
+    var fresh = false;
     fetch("data/data.json?t=" + Date.now(), { cache: "no-store" })
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
       .then(function (nd) {
-        offline.hidden = true;
-        if (nd && nd.built && (!D || nd.built !== D.built)) { D = nd; if (state.tab === "ask") setStamp(); else render(); } else setStamp();   // don't redraw the Ask box while typing
-      })
-      .catch(function () { if (!navigator.onLine) showOffline(); })
-      .then(function () { btn.classList.remove("spin"); });
+        if (nd && nd.built && (!D || nd.built !== D.built)) { fresh = true; D = nd; if (state.tab === "ask") setStamp(); else render(); } else setStamp();   // don't redraw the Ask box while typing
+        return true;
+      }, function () { return false; })
+      .then(function (ok) {
+        btn.classList.remove("spin");
+        showOffline();
+        if (manual) toast(isOffline() ? "You're offline" : fresh ? "New data loaded" : ok ? "Up to date" : "Couldn't check right now");
+      });
   }
   btn.addEventListener("click", function () { pull(true); });
   document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") { setStamp(); pull(false); } });
-  window.addEventListener("online", function () { offline.hidden = true; pull(false); });
-  // "Showing the last saved copy" only when there is one; with nothing saved, the view says so instead
-  function showOffline() { if (D) offline.hidden = false; else { offline.hidden = true; if (state.tab !== "ask") render(); } }
-  window.addEventListener("offline", showOffline);
+  // the offline bar follows navigator.onLine (the saved copy answers the data request, so a fetch can't tell);
+  // with nothing saved, the view says so instead. Explore and Race redraw so Ask / Start are off while offline.
+  function showOffline() {
+    if (!isOffline()) { offline.hidden = true; return; }
+    if (D) offline.hidden = false; else { offline.hidden = true; if (state.tab !== "ask" && state.tab !== "race") render(); }
+  }
+  function netChanged() {
+    showOffline();
+    if (state.tab === "ask" || state.tab === "race") {
+      var a = document.activeElement, keep = a && (a.id === "askq" || a.id === "raceq") ? "#" + a.id : null;
+      var s1 = keep ? a.selectionStart : null, s2 = keep ? a.selectionEnd : null;
+      askRedraw(keep);
+      var nb = keep && document.querySelector(keep);
+      if (nb && s1 != null) { try { nb.setSelectionRange(s1, s2); } catch (e) {} }
+    }
+  }
+  window.addEventListener("online", function () { netChanged(); pull(false); });
+  window.addEventListener("offline", netChanged);
 
   var start = routeFor(location.hash) || { tab: "best", more: false };
   // back from Stripe: ?session_id=cs_...#ask -> turn the payment into a code (the helper checks it with Stripe)
   var sm = /[?&]session_id=(cs_[A-Za-z0-9_]{3,250})/.exec(location.search);
   if (sm && CONFIG.ASK_API) { sessionId = sm[1]; start = { tab: "ask", more: false }; redeem(); }
   else loadLeft();
+  if (!start.story && (start.tab !== "best" || start.more) && !histD()) {
+    try { history.replaceState(null, "", location.pathname + "#best"); history.pushState(start.more ? { aitMore: 1, d: 1 } : { aitTab: 1, d: 1 }, "", location.pathname + "#" + start.tab + (start.more ? "-more" : "")); } catch (e) {}
+  }
   go(start.tab, start.more, true);
+  showOffline();
+  if (start.story) showStory(start.story, false, { tab: start.tab, more: false, y: 0 });   // a shared #story/… link
   pull(false);
   setInterval(setStamp, 60000);
 
