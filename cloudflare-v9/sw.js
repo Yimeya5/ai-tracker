@@ -1,13 +1,15 @@
 // AI Pro service worker.
 // Data (data/*) = network first, saved copy when offline, so the app never shows old data while online.
 // App files = saved copy first for speed, refreshed in the background on every visit.
-const VERSION = "v16d8-2026-11-06";
+const VERSION = "v16f4-2026-11-06";
 const SHELL = "ait-shell-" + VERSION;
 const DATA = "ait-data";
 const SHELL_FILES = ["./", "./app.css", "./app.js", "./tips.js", "./manifest.webmanifest",
   "./icons/icon-180.png", "./icons/icon-192.png", "./icons/icon-512.png",
-  "./terms.html", "./refund.html", "./privacy.html", "./icons/icon.svg", "./icons/logo.svg"];
-const OPTIONAL = ["./terms.html", "./refund.html", "./privacy.html", "./icons/icon.svg", "./icons/logo.svg"];   // saved when present; never block the install
+  "./terms.html", "./refund.html", "./privacy.html", "./icons/icon.svg", "./icons/logo.svg"];   // + the maker logos (OPTIONAL, below)
+// the makers' logos on New releases (v16f3): saved when present, so they show offline too; never block the install
+const MAKER_ICONS = ["./icons/makers/ai21.svg", "./icons/makers/alibaba.svg", "./icons/makers/amazon.svg", "./icons/makers/anthropic.svg", "./icons/makers/apple.svg", "./icons/makers/baidu.svg", "./icons/makers/bytedance.svg", "./icons/makers/cohere.svg", "./icons/makers/deepseek.svg", "./icons/makers/google.svg", "./icons/makers/ibm.svg", "./icons/makers/inception.svg", "./icons/makers/inclusionai.svg", "./icons/makers/liquid-ai.svg", "./icons/makers/meta.svg", "./icons/makers/microsoft.svg", "./icons/makers/minimax.svg", "./icons/makers/mistral.svg", "./icons/makers/moonshot.svg", "./icons/makers/nvidia.svg", "./icons/makers/openai.svg", "./icons/makers/perplexity.svg", "./icons/makers/stepfun.svg", "./icons/makers/tencent.svg", "./icons/makers/xai.svg", "./icons/makers/xiaomi.svg", "./icons/makers/z-ai.svg"];
+const OPTIONAL = ["./terms.html", "./refund.html", "./privacy.html", "./icons/icon.svg", "./icons/logo.svg"].concat(MAKER_ICONS);   // saved when present; never block the install
 // The data is saved at install too, so the app works offline after ONE visit. Same key as the fetch handler below
 // (origin + path, no ?t=). A missing file never stops the install.
 const DATA_FILES = ["./data/data.js", "./data/data.json"];

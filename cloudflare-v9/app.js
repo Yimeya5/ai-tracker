@@ -210,20 +210,32 @@
     Gemini: { "gemini-4-carbon": "limited", "gemini-nano-banana-2-1": "limited" },   // Gemini 4 Argon: subscribers only
     Copilot: { "mai-image-2-6": "limited" }
   };
+  // v16f3 Find your AI extra tasks (voice): free with limits per third-party pages, NOT confirmed on the companies' own pages
+  // (2026-11-06). Gemini 3.8 Live Extended (thinking) and the video models are left as paid until checked.
+  FREE_MODELS.ChatGPT["gpt-live-1"] = "limited";
+  FREE_MODELS.Grok = { "grok-voice-think-fast-2-0": "limited" };
   // the free plan's everyday model, for "Closest free option" when no tested model of a task is free
   var FREE_DEFAULT = { ChatGPT: "GPT-6 Luna", Claude: "Sonnet 5.5", Gemini: "Gemini Flash", Copilot: "Copilot" };
   function own(o, k) { return !!o && Object.prototype.hasOwnProperty.call(o, k); }
   function freeLevel(app, k) { return app && app.free && own(FREE_MODELS, app.app) && own(FREE_MODELS[app.app], k) ? FREE_MODELS[app.app][k] : ""; }
   function freeIn(app, k) { return !!freeLevel(app, k); }
-  var PRIOS = [["quality", "Quality"], ["speed", "Speed"], ["price", "Price"], ["web", "Web search"]];
+  var PRIOS = [["quality", "Quality"], ["speed", "Speed"], ["price", "Price"], ["web", "Web search"], ["privacy", "Privacy"]];
+  // "Privacy" is offered only when data.json has privacy rows (finder.privacy.apps); without them it is hidden
+  function hasPrivacy() { var p = D && D.finder && D.finder.privacy; return !!(p && p.apps && typeof p.apps === "object" && Object.keys(p.apps).length); }
+  function prios() { return PRIOS.filter(function (x) { return x[0] !== "privacy" || hasPrivacy(); }); }
   var PLANS = [["any", "Any"], ["free", "Free"], ["paid", "Paid"]];
   var finder = null;
-  function finderTasks() { return list(D && D.picks).filter(function (p) { return p.id !== "cheap" && list(p.winners).concat(list(p.candidates)).length; }); }
+  // Top Picks jobs + the extra Find-your-AI tasks from data.json "finder" (Research, Video, Voice & talking, Translation);
+  // a task missing from the data (its source was down) is simply not offered
+  function allTasks(d) { return list(d && d.picks).concat(list(d && d.finder && d.finder.tasks)); }
+  function finderTasks() { return allTasks(D).filter(function (p) { return p.id !== "cheap" && list(p.winners).concat(list(p.candidates)).length; }); }
+  // the app's privacy row (score 0..1, rank, one line) from data.json finder.privacy, by app name ("ChatGPT")
+  function privacyFor(d, app) { var p = d && d.finder && d.finder.privacy; return p && app && own(p.apps, app.app) ? p.apps[app.app] : null; }
   function getFinder() {
     if (!finder) { var raw = null; try { raw = JSON.parse(stored("ait.finder")); } catch (e) {} finder = raw && typeof raw === "object" ? raw : {}; }
     var tasks = finderTasks().map(function (p) { return p.id; });
     var ok = function (v, l, d) { return l.indexOf(v) >= 0 ? v : d; };
-    return { task: ok(finder.task, tasks, tasks[0] || ""), prio: ok(finder.prio, PRIOS.map(function (x) { return x[0]; }), "quality"),
+    return { task: ok(finder.task, tasks, tasks[0] || ""), prio: ok(finder.prio, prios().map(function (x) { return x[0]; }), "quality"),
              plan: ok(finder.plan, PLANS.map(function (x) { return x[0]; }), "any") };
   }
   function setFinder(k, v) { var f = getFinder(); f[k] = v; finder = f; store("ait.finder", JSON.stringify(f)); }
@@ -249,10 +261,10 @@
   }
   function scale(v, lo, hi) { var x = (Math.log(hi) - Math.log(v)) / (Math.log(hi) - Math.log(lo)); return Math.max(0, Math.min(1, x)); }
   function rankModels(d, task, prio, plan) {
-    var p = list(d && d.picks).filter(function (x) { return x.id === task; })[0];
+    var p = allTasks(d).filter(function (x) { return x.id === task; })[0];
     if (!p) return [];
     var seen = {}, all = list(p.winners).concat(list(p.candidates)).filter(function (c) { if (!c || seen[c.k]) return false; seen[c.k] = 1; return true; });
-    var n = Math.max(1, p.n || 1);
+    var n = Math.max(1, p.finder ? list(p.boards).length : (p.n || 1));   // finder tasks: 1 source, maybe 2 boards
     return all.map(function (c) {
       var ranks = list(c.ranks).filter(function (r) { return r.rank != null; });
       var top10 = ranks.filter(function (r) { return r.rank <= 10; }).length, top3 = ranks.filter(function (r) { return r.rank <= 3; }).length;
@@ -260,18 +272,19 @@
       var app = appFor(d, c.o), dev = devFor(d, c.k), plan1 = cheapestPlan(app);
       var blend = dev ? (3 * dev.pin + dev.pout) / 4 : null;
       var devScore = blend ? scale(blend, 0.2, 20) : 0.2;
-      var ex = exploreFor(c.k);
+      var ex = exploreFor(c.k), pv = privacyFor(d, app);
       var scores = {
         quality: quality,
         speed: c.fast ? 1 : 0.6 * devScore,
         // Free / Any: usable for free = cheapest (free 1, may be limited 0.85); no developer price alone = middle, not last
         price: plan === "paid" ? (plan1 ? scale(plan1.usd_month, 4, 250) : 0)
           : freeLevel(app, c.k) === "free" ? 1 : freeLevel(app, c.k) === "limited" ? 0.85 : blend ? devScore : 0.5,
-        web: ex ? 1 : 0
+        web: ex ? 1 : 0,
+        privacy: pv && typeof pv.score === "number" ? pv.score : 0        // no privacy check for this maker = last
       };
       var score = prio === "quality" ? quality : 0.4 * quality + 0.6 * scores[prio];        // the chosen priority counts most
       return { k: c.k, n: c.n, o: c.o, fast: !!c.fast, score: score, quality: quality, top10: top10, top3: top3, tests: n,
-               app: app ? app.app : "", free: freeIn(app, c.k), freeLevel: freeLevel(app, c.k), plan: plan1, dev: dev, blend: blend, explore: ex, scores: scores };
+               app: app ? app.app : "", free: freeIn(app, c.k), freeLevel: freeLevel(app, c.k), plan: plan1, dev: dev, blend: blend, explore: ex, privacy: pv, scores: scores };
     }).filter(function (r) {
       if (plan === "free") return r.free;
       if (plan === "paid") return !!r.plan;
@@ -293,7 +306,38 @@
     else if (r.free) w.push(r.freeLevel === "limited" ? "May be limited on free" : "Free in " + r.app);
     else w.push("Paid plan needed" + (r.plan ? ": " + planName(r.app, r.plan.name) + " " + money(r.plan.usd_month) + "/month" : ""));
     if (prio === "web" && r.explore) w.push("Can search the web in " + CONFIG.ASK_NAME);
+    if (prio === "privacy") w.push(r.privacy ? "Privacy #" + privRank(r.app) + ": " + r.privacy.line : "No privacy check for this maker yet");
     return w;
+  }
+  function privRank(app) {
+    var p = D && D.finder && D.finder.privacy, a = p && own(p.apps, app) ? p.apps[app] : null;
+    return a && a.rank ? a.rank : list(p && p.order).indexOf(app) + 1 || "–";
+  }
+  // "How we score privacy": a tap-to-open row (same style as the source rows): each app's rank, score, its 5 checks with
+  // the page each was read on, and the Incogni ranking
+  function privacyHowHtml() {
+    var p = D && D.finder && D.finder.privacy;
+    if (!p || !p.apps) return "";
+    var names = list(p.order).filter(function (a) { return own(p.apps, a); });
+    Object.keys(p.apps).forEach(function (a) { if (names.indexOf(a) < 0) names.push(a); });
+    var key = "finder|privacy", on = !!xopen[key];
+    var apps = names.map(function (a) {
+      var x = p.apps[a] || {};
+      var checks = list(x.checks).map(function (c) {
+        var src = c.src && c.src.url ? " " + ext(c.src.url, "Source") : "";
+        return '<li><span class="' + (c.ok ? "pvok" : "pvno") + '" aria-label="' + (c.ok ? "Yes" : "No") + '">' + (c.ok ? "✓" : "✗") + "</span><span>" + esc(c.label) +
+          (c.unverified ? ' <span class="pnote">(not confirmed)</span>' : "") + src + "</span></li>";
+      }).join("");
+      return '<div class="pvapp"><span class="pl"><span class="pln"><b>#' + esc(String(privRank(a))) + " " + esc(a) + "</b></span>" +
+        '<span class="plp">' + esc(String(Math.round((x.score || 0) * 100))) + "/100</span></span>" +
+        (x.line ? '<span class="pnote pvline">' + esc(x.line) + "</span>" : "") + (checks ? '<ul class="pvchk">' + checks + "</ul>" : "") + "</div>";
+    }).join("");
+    var inc = p.incogni && p.incogni.url ? '<p class="pvsrc">Independent half: ' + ext(p.incogni.url, esc(p.incogni.name || "Incogni privacy ranking")) +
+      (p.incogni.published ? " (" + esc(p.incogni.published) + ")" : "") + ".</p>" : "";
+    return '<ul class="rows fpriv"><li class="xrow' + (on ? " xopen" : "") + '" data-xkey="' + key + '" role="button" tabindex="0" aria-expanded="' + (on ? "true" : "false") + '">' +
+      '<span class="rn"><b>How we score privacy</b><small>' + esc(p.checked ? "Checked " + p.checked : "") + "</small></span>" +
+      '<span class="xchev" aria-hidden="true"></span><div class="xmore">' + (p.how ? '<p class="pvhow">' + esc(p.how) + "</p>" : "") +
+      '<div class="plist">' + apps + "</div>" + inc + "</div></li></ul>";
   }
   function seg(name, opts, cur, label) {
     return '<fieldset class="seg"><legend>' + esc(label) + '</legend><div class="segs">' + opts.map(function (o) {
@@ -307,7 +351,7 @@
     var f = getFinder(), ranked = rankModels(D, f.task, f.prio, f.plan), best = ranked[0];
     var h = '<section class="finder card" id="finder" aria-labelledby="finderh"><h3 id="finderh">Find your AI</h3>' +
       seg("ftask", tasks.map(function (p) { return [p.id, p.label]; }), f.task, "Task") +
-      seg("fprio", PRIOS, f.prio, "Most important") +
+      seg("fprio", prios(), f.prio, "Most important") +
       seg("fplan", PLANS, f.plan, "Plan") +
       '<div class="fresult" aria-live="polite">';
     if (!best && f.plan === "free") {                               // never an empty Free: point to the closest free app
@@ -335,9 +379,18 @@
       if (also.length) h += '<p class="note falso">Also free, not tested for this task: ' +
         esc(also.map(function (a) { return a + " Free (" + (FREE_DEFAULT[a] || "its free model") + ")"; }).join(", ")) + ".</p>";
     }
+    var task1 = allTasks(D).filter(function (x) { return x.id === f.task; })[0] || {};
+    if (task1.note && list(task1.note.langs).length) {              // Translation: Hebrew / Yiddish results (Intento 2026)
+      h += '<p class="note ftrans">' + list(task1.note.langs).map(function (x) {
+        return x && x.line ? ext(x.url, esc(x.line)) : "";
+      }).filter(Boolean).join("<br>") + "</p>";
+    }
+    var pvd = f.prio === "privacy" && hasPrivacy();
     h += '<p class="note fnote">Ranked from the tests, prices and plans in this app. ' +
+      (task1.finder ? "Only 1 test covers this task, so it is a guide, not a verdict. " : "") +
+      (pvd ? "Privacy: half Incogni's 2026 privacy ranking, half 5 checks on each company's own pages. " : "") +
       (f.prio === "speed" ? "Speed is a guess from the model's name and price, not a speed test. " : "") +
-      (f.plan === "free" ? "Free plans have limits, and may not include every model. " : "") + "</p></div></section>";
+      (f.plan === "free" ? "Free plans have limits, and may not include every model. " : "") + "</p>" + (pvd ? privacyHowHtml() : "") + "</div></section>";
     return h;
   }
   // simple views name no sources; the credits (and CC BY attribution) are one tap away on the Sources page
@@ -389,6 +442,18 @@
     if (/^from\b/i.test(note)) return "<b>from " + esc(monthly(p.usd_month)) + "</b>";
     return "<b>" + esc(monthly(p.usd_month)) + "</b>" + (note ? " (" + esc(note) + ")" : "");
   }
+  // v16f3: all of an app's plans, one per line, "Free" first, then cheapest first; shown when the row is tapped (.xmore)
+  function planList(a) {
+    var ps = list(a.plans).filter(function (p) { return p && p.usd_month != null; }).map(function (p, i) { return { p: p, i: i }; })
+      .sort(function (x, y) { return x.p.usd_month - y.p.usd_month || x.i - y.i; }).map(function (x) { return x.p; });
+    if (!ps.length && a.free !== true) return "";
+    return '<span class="xmore"><span class="plist">' + (a.free === true ? '<span class="pl"><span class="pln">Free</span><span class="plp">$0</span></span>' : "") +
+      ps.map(function (p) {
+        var from = /^from\b/i.test(String(p.note || ""));
+        return '<span class="pl"><span class="pln">' + esc(p.name) + (p.note && !from ? ' <span class="pnote">(' + esc(p.note) + ")</span>" : "") + "</span>" +
+          '<span class="plp">' + (from ? "from " : "") + esc(monthly(p.usd_month)) + staleMark(p.stale) + "</span></span>";
+      }).join("") + "</span></span>";
+  }
   function appRow(a, full) {
     var src = a.src || { label: "Pricing page", url: a.page };
     var right = a.free ? '<span class="free">Free ✓</span>' : '<span class="muted">No free plan</span>';
@@ -403,7 +468,7 @@
     h += '<small class="checked">' + ext(src.url || a.page, esc(src.label || "Pricing page")) +
       (read ? " · checked " + esc(day(a.checked)) : ' · <span class="warn">price last checked ' + esc(day(a.checked)) + "</span>") +
       staleMark(a.stale) + "</small></span>" +
-      '<span class="rv">' + right + "</span></li>";
+      '<span class="rv">' + right + "</span>" + (full ? "" : planList(a)) + "</li>";      // the plans: a full-width line under the row
     return h;
   }
   function vCost() {
@@ -433,17 +498,86 @@
   // v16: each release is its own clean card: a coloured maker badge, the name (linked to the announcement), maker · date
   var HUES = [243, 268, 190, 152, 24, 330, 205, 45];
   function makerHue(o) { var h = 0, s2 = makerKey(o); for (var i = 0; i < s2.length; i++) h = (h * 31 + s2.charCodeAt(i)) >>> 0; return HUES[h % HUES.length]; }
+  // v16f3: each maker's own logo (icons/makers/, from @lobehub/icons-static-svg 1.102.0), on a small white tile in both
+  // themes (some logos are one dark colour). The ONE table: maker name (lower case) -> file. Unknown maker -> a letter.
+  var MAKER_LOGOS = { "openai": "openai", "google": "google", "google deepmind": "google", "anthropic": "anthropic", "z.ai": "z-ai", "zhipu": "z-ai",
+    "mistral": "mistral", "mistral ai": "mistral", "xai": "xai", "xiaomi": "xiaomi", "deepseek": "deepseek", "inception": "inception",
+    "nvidia": "nvidia", "meta": "meta", "meta ai": "meta", "inclusionai": "inclusionai", "alibaba": "alibaba", "qwen": "alibaba",
+    "tencent": "tencent", "moonshot": "moonshot", "moonshot ai": "moonshot", "minimax": "minimax", "liquid ai": "liquid-ai", "liquid": "liquid-ai",
+    "stepfun": "stepfun", "cohere": "cohere", "microsoft": "microsoft", "amazon": "amazon", "aws": "amazon", "perplexity": "perplexity",
+    "apple": "apple", "bytedance": "bytedance", "baidu": "baidu", "ibm": "ibm", "ai21": "ai21", "ai21 labs": "ai21" };
+  function makerLogo(o) {
+    var name = String(makerName(o) || ""), k = own(MAKER_LOGOS, name.trim().toLowerCase()) ? MAKER_LOGOS[name.trim().toLowerCase()] : "";
+    var letter = esc((name.replace(/[^A-Za-z0-9]/g, "")[0] || "•").toUpperCase());
+    if (!k) return '<span class="av" style="--h:' + makerHue(name) + '" aria-hidden="true">' + letter + "</span>";
+    return '<span class="mlogo" aria-hidden="true"><img src="icons/makers/' + k + '.svg" alt="" width="24" height="24" loading="lazy" decoding="async">' +
+      '<span class="mletter">' + letter + "</span></span>";                    // the letter shows only if the file can't load
+  }
+  // pure: newest first by release date (YYYY-MM-DD), the data's order for the same day, items without a date last
+  function relSorted(items) {
+    return list(items).map(function (r, i) { return { r: r, i: i, d: String((r && r.d) || "").slice(0, 10) }; }).sort(function (a, b) {
+      if (!a.d !== !b.d) return a.d ? -1 : 1;
+      return a.d < b.d ? 1 : a.d > b.d ? -1 : a.i - b.i;
+    }).map(function (x) { return x.r; });
+  }
+  // the whole card is one button (it opens the model's sheet); the release date stays on the card
   function relCard(r, withSrc) {
     var o = String(makerName(r.o) || ""), fresh = r.d && (Date.now() - new Date(String(r.d).slice(0, 10) + "T12:00:00Z").getTime()) / 864e5 <= 3;
-    return '<li class="relcard"><span class="av" style="--h:' + makerHue(o) + '" aria-hidden="true">' + esc((o.replace(/[^A-Za-z0-9]/g, "")[0] || "•").toUpperCase()) + "</span>" +
-      '<span class="rb"><span class="rt">' + ext(r.u, esc(r.n)) + (fresh ? ' <span class="badge new">NEW</span>' : "") + fastTag(r.fast) + "</span>" +
+    var key = r.k || r.n;
+    return '<li class="relcard">' + makerLogo(r.o) +
+      '<span class="rb"><span class="rt"><button type="button" class="rtb" data-rel="' + esc(key) + '" aria-haspopup="dialog">' + esc(r.n) + "</button>" +
+      (fresh ? ' <span class="badge new">NEW</span>' : "") + fastTag(r.fast) + "</span>" +
       '<span class="rm">' + (withSrc ? esc(o) + " · " + esc(day(r.d)) + " · " + esc(r.src) : (o ? "New model from " + esc(o) + " · " : "") + esc(day(r.d))) + "</span></span></li>";
   }
   function relRow(r) { return relCard(r, true); }
+  // ---- the sheet about one released model: only facts we have (maker, date, where it was announced or listed, what its
+  // name says), its places in the tests (Top Picks data), its prices (Cost data) and "Ask it" when this app can ask it
+  var NAME_HINTS = [
+    [/\b(flash|lite|mini|nano|haiku|air|turbo|instant)\b/i, "Its name marks a fast, lower-cost version."],
+    [/\b(coder|code|codex|codestral|devstral)\b/i, "Its name marks a model for coding."],
+    [/\b(video|veo|sora)\b/i, "Its name marks a model for video."],
+    [/\b(image|imagen|banana|diffusion)\b/i, "Its name marks a model for images."],
+    [/\b(legal|law)\b/i, "Its name marks a model for legal work."],
+    [/\b(audio|voice|speech|tts|asr|whisper|music)\b/i, "Its name marks a model for sound or speech."],
+    [/\b(vl|vision|omni)\b/i, "Its name marks a model that also reads images."],
+    [/\b(embed|embedding|embeddings|rerank)\b/i, "Its name marks a model for search and embeddings."],
+    [/\b(math|prover)\b/i, "Its name marks a model for math."]];
+  function relFind(key) { return list(D && D.releases && D.releases.items).filter(function (r) { return (r.k || r.n) === key; })[0] || null; }
+  function relSheetHtml(r) {
+    var o = String(makerName(r.o) || ""), when = day(r.d), src = String(r.src || "");
+    var desc = [(o ? o + " released " : "Released ") + String(r.n) + (when ? " on " + when : "") + "." +
+      (src ? (r.official ? " Announced on " : " Listed on ") + src + "." : "")];
+    var hint = NAME_HINTS.filter(function (x) { return x[0].test(String(r.n)); })[0];
+    if (hint) desc.push(hint[1]);
+    // its places in the tests (the Find your AI ranking, quality first), "Top pick" when it is a pick's winner
+    var good = [];
+    list(D && D.picks).forEach(function (p) {
+      if (p.id === "cheap") return;
+      var won = list(p.winners).some(function (c) { return c.k === r.k; });
+      var ranked = rankModels(D, p.id, "quality", "any"), pos = -1;
+      ranked.forEach(function (x, i) { if (pos < 0 && x.k === r.k) pos = i; });
+      if (won) good.push("Top pick for " + p.label);
+      else if (pos >= 0) good.push("#" + (pos + 1) + " in " + p.label + " tests");
+    });
+    var price = [], dev = devFor(D, r.k), app = appFor(D, r.o), lvl = freeLevel(app, r.k);
+    if (lvl) price.push(lvl === "free" ? "Free in " + app.app : "In " + app.app + "'s free plan (may be limited)");
+    if (dev) price.push("For developers: " + money(dev.pin) + " to read and " + money(dev.pout) + " to write, per million tokens");
+    var ex = CONFIG.ASK_API ? exploreFor(r.k) : null;
+    return '<div class="sheetback" data-relclose="1"></div>' +
+      '<div class="sheet relsheet" role="dialog" aria-modal="true" aria-labelledby="relh"><div class="grabber" aria-hidden="true"></div>' +
+      '<div class="sheethead"><div class="relhead">' + makerLogo(r.o) + '<div class="relht"><h3 id="relh">' + esc(r.n) + "</h3>" +
+      '<p class="relsub">' + esc(o) + (o && when ? " · " : "") + esc(when) + "</p></div></div>" +
+      '<button type="button" class="sheetx" data-relclose="1" aria-label="Close"><span aria-hidden="true">×</span></button></div>' +
+      '<p class="reldesc">' + desc.map(esc).join(" ") + "</p>" +
+      (good.length ? '<h4 class="relh4">Good at</h4><ul class="rellist">' + good.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>" : "") +
+      (price.length ? '<h4 class="relh4">Price</h4><ul class="rellist">' + price.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>" : "") +
+      (ex ? '<button type="button" class="sheetdone" data-relask="' + esc(ex.id + "|" + ex.model) + '">Ask it in ' + esc(CONFIG.ASK_NAME) + "</button>" : "") +
+      (safeUrl(r.u) ? '<p class="relsrc">' + ext(r.u, esc(src || "Source")) + "</p>" : "") + "</div>";
+  }
   // simple view: "New model from Tencent · Nov 2", the name links to the announcement; the source name is under See more
   function relRowPlain(r) { return relCard(r, false); }
   function vReleases() {
-    var items = list(D.releases && D.releases.items);
+    var items = relSorted(D.releases && D.releases.items);
     var h = "<h2>New releases</h2><p class=\"sub\">" + esc(SUBS.releases) + "</p>" + staleNote("openrouter");
     h += '<ul class="rels">' + (items.slice(0, 6).map(relRowPlain).join("") || '<li class="relcard muted">Nothing new yet.</li>') + "</ul>";
     if (items.slice(0, 6).some(function (r) { return r.fast; })) h += '<p class="note">⚡ ' + esc(fastNote()) + "</p>";
@@ -451,13 +585,13 @@
     return h;
   }
   function vReleasesMore() {
-    var items = list(D.releases && D.releases.items);
+    var items = relSorted(D.releases && D.releases.items);
     var h = backButton() + "<h2>New releases: last " + ((D.releases && D.releases.days) || 60) + " days</h2>" +
       "<p class=\"sub\">Date and link = the company's own announcement when it has one (OpenAI, Google, Anthropic, Mistral, xAI, Meta, DeepSeek), otherwise the date it became available on OpenRouter" + (D.aaEnabled ? " or the release date listed by " + AA_CREDIT : "") + ". Each model is listed once. ⚡ " + esc(fastNote()) + "</p>" + staleNote("openrouter");
     var lastMo = "", body = "";
     items.forEach(function (r) {
-      var mo = String(r.d).slice(0, 7);
-      if (mo !== lastMo) { body += '<li class="mo">' + esc(MON[+mo.slice(5, 7) - 1] + " " + mo.slice(0, 4)) + "</li>"; lastMo = mo; }
+      var mo = /^\d{4}-\d{2}/.test(String(r.d || "")) ? String(r.d).slice(0, 7) : "none";
+      if (mo !== lastMo) { body += '<li class="mo">' + esc(mo === "none" ? "No date" : MON[+mo.slice(5, 7) - 1] + " " + mo.slice(0, 4)) + "</li>"; lastMo = mo; }
       body += relRow(r);
     });
     h += '<ul class="rels">' + (body || '<li class="relcard muted">Nothing new yet.</li>') + "</ul>";
@@ -471,9 +605,11 @@
     var x = String(n.x || "").replace(/\s+/g, " ").trim();
     return x.length > 220 ? x.slice(0, 217).replace(/\s+\S*$/, "") + "…" : x;
   }
+  // v16f: the tab is called Updates, so a story tagged "News" in the data shows "Update" (display only)
+  function tagName(t) { return /^\s*news\s*$/i.test(String(t)) ? "Update" : t; }
   function newsRow(n, src, i) {
     var sum = newsSummary(n);
-    var body = (n.tag ? '<span class="tag">' + esc(n.tag) + "</span>" : "") + '<b class="nt">' + esc(n.t) + "</b>" +
+    var body = (n.tag ? '<span class="tag">' + esc(tagName(n.tag)) + "</span>" : "") + '<b class="nt">' + esc(n.t) + "</b>" +
       (sum ? '<span class="nsum">' + esc(sum) + "</span>" : "") +
       '<small class="nmeta">' + esc(day(n.d)) + (n.s ? " · " + esc(n.s) : "") + ' <span class="go" aria-hidden="true">›</span></small>';
     return src ? '<li class="newsitem"><a class="nlink rn" href="#story/' + esc(src) + "/" + (+i) + '" data-story="' + esc(src) + "|" + (+i) + '">' + body + "</a></li>"
@@ -488,7 +624,7 @@
     var paras = list(n.w).filter(function (x) { return typeof x === "string" && x.trim(); }).map(function (x) { return x.trim(); });
     if (!paras.length && String(n.x || "").trim()) paras = String(n.x).split(/\n\s*\n/).map(function (x) { return x.replace(/\s+/g, " ").trim(); }).filter(Boolean);
     return '<article class="story">' + back +
-      (n.tag ? '<p class="stag"><span class="tag">' + esc(n.tag) + "</span></p>" : "") +
+      (n.tag ? '<p class="stag"><span class="tag">' + esc(tagName(n.tag)) + "</span></p>" : "") +
       '<h2 class="sth" id="storyh" tabindex="-1" dir="auto">' + esc(n.t) + "</h2>" +
       '<p class="smeta">' + esc(day(n.d)) + (n.s ? " · " + esc(n.s) : "") + "</p>" +
       (paras.length ? '<div class="sbody" dir="auto">' + paras.map(function (x) { return "<p>" + esc(x) + "</p>"; }).join("") + "</div>" +
@@ -498,14 +634,14 @@
   function creditsText(ids) { return credits(ids).replace(/<a [^>]*href="(?!#)[^"]*"[^>]*>([\s\S]*?)<\/a>/g, "$1"); }
   function vNews() {
     var items = list(D.bignews && D.bignews.items);
-    var h = "<h2>Big news</h2><p class=\"sub\">Only the big stories: new models, price changes and major company news.</p>" + staleNote("news");
-    h += '<ul class="rows card">' + (items.slice(0, 5).map(function (n, i) { return newsRow(n, "news", i); }).join("") || '<li class="muted">No big news right now.</li>') + "</ul>";
+    var h = "<h2>Updates</h2><p class=\"sub\">Only the big stories: new models, price changes and major company updates.</p>" + staleNote("news");
+    h += '<ul class="rows card">' + (items.slice(0, 5).map(function (n, i) { return newsRow(n, "news", i); }).join("") || '<li class="muted">No updates right now.</li>') + "</ul>";
     return h + moreButton("news", items.length > 5) + creditsText(["official", "news"]);
   }
   function vNewsMore() {
     var items = list(D.bignews && D.bignews.items);
-    var h = backButton() + "<h2>Big news: last 30 days</h2><p class=\"sub\">" + esc((D.bignews && D.bignews.rules) || "") + " From the companies' own pages, AI lab blogs and tech news sites, picked by fixed word rules (opinion, lawsuits, rumors, partnerships and customer stories are left out). The same story from several sites is shown once, from the company's own page when there is one.</p>" + staleNote("news");
-    h += '<ul class="rows card">' + (items.slice(0, 30).map(function (n, i) { return newsRow(n, "news", i); }).join("") || '<li class="muted">No big news right now.</li>') + "</ul>";
+    var h = backButton() + "<h2>Updates: last 30 days</h2><p class=\"sub\">" + esc((D.bignews && D.bignews.rules) || "") + " From the companies' own pages, AI lab blogs and tech sites, picked by fixed word rules (opinion, lawsuits, rumors, partnerships and customer stories are left out). The same story from several sites is shown once, from the company's own page when there is one.</p>" + staleNote("news");
+    h += '<ul class="rows card">' + (items.slice(0, 30).map(function (n, i) { return newsRow(n, "news", i); }).join("") || '<li class="muted">No updates right now.</li>') + "</ul>";
     return h + backButton() + creditsText(["official", "news"]);
   }
 
@@ -569,7 +705,7 @@
     var price = agentPrice(a);
     if (price) bits.push(a.free === true && /^paid from /.test(price) ? "Free · " + price : price);
     var src = checkedLine(s.label || "Pricing page", s.url, s.readToday, s.checked || a.checked, s.stale);
-    return '<li><span class="rn">' + nameMaker(a) + (bits.length ? "<small>" + bits.join(" · ") + "</small>" : "") + '<small class="checked">' + src + '</small></span><span class="rv">' + agentFree(a) + "</span></li>";
+    return '<li><span class="rn">' + nameMaker(a) + (bits.length ? "<small>" + bits.join(" · ") + "</small>" : "") + '<small class="checked">' + src + '</small></span><span class="rv">' + agentFree(a) + "</span>" + planList(a) + "</li>";
   }
   // Hand-checked agents (scripts/agents_static.json): price text exactly as checked by hand, never parsed.
   // The daily check only confirms the maker's page is still up ("page still up: <date>").
@@ -584,7 +720,7 @@
     }
     h += '<small class="checked">' + ext(s.url, esc(s.label || "Official page")) + " · checked " + esc(day(a.checked)) + staleMark(a.stale || c.stale) + "</small>";
     if (full) h += '<small class="checked">' + (c.readToday ? "Page still up: " + esc(day(c.checked)) : '<span class="warn">Page last read ' + esc(day(c.checked)) + "</span>") + "</small>";
-    return h + '</span><span class="rv">' + agentFree(a) + "</span></li>";
+    return h + '</span><span class="rv">' + agentFree(a) + "</span>" + (full ? "" : planList(a)) + "</li>";
   }
   // Personal assistants (text or call them): no public prices, so they show access + a plain price line instead.
   function assistantRow(a, full) {
@@ -642,7 +778,7 @@
   }
   function agentNewsRows(n) {
     var items = list(AG().news && AG().news.items).slice(0, n);
-    return '<ul class="rows card">' + (items.map(function (x, i) { return newsRow(x, "agents", i); }).join("") || '<li class="muted">No agent news in the last ' + ((AG().news && AG().news.days) || 14) + " days.</li>") + "</ul>";
+    return '<ul class="rows card">' + (items.map(function (x, i) { return newsRow(x, "agents", i); }).join("") || '<li class="muted">No agent updates in the last ' + ((AG().news && AG().news.days) || 14) + " days.</li>") + "</ul>";
   }
   function agentCredits(full) {
     var extra = list(AG() && AG().tests).filter(function (t) { return /via Epoch AI/.test(t.credit) && (full || t.inRule); }).map(function (t) { return ext(t.url, esc(t.credit)); });
@@ -655,7 +791,7 @@
     h += staleList(["lmarena", "livebench", "epoch", "agentapps"]);
     h += agentBestCard(false);
     h += "<h3>Agent apps</h3>" + agentGroups(false);
-    h += "<h3>Agent news</h3>" + agentNewsRows(4);
+    h += "<h3>Agent updates</h3>" + agentNewsRows(4);
     return h + moreButton("agents") + agentCredits();
   }
   function vAgentsMore() {
@@ -691,7 +827,7 @@
     });
     h += "<h3>Agent apps: every plan</h3><p class=\"sub\">Monthly US prices, read every day from each app's own pricing page or App Store listing. Agents that come with a ChatGPT, Claude or Gemini plan show that plan's price (same as the Cost tab) and the line on the company's page that says which plans include it. After " + ((D && D.staleDays) || 30) + " days without a check a price is marked stale.</p>" + staleNote("agentapps");
     h += agentGroups(true);
-    h += "<h3>Agent news: last " + ((ag.news && ag.news.days) || 14) + " days</h3><p class=\"sub\">" + esc((ag.news && ag.news.rules) || "") + "</p>" + agentNewsRows((ag.news && ag.news.max) || 8);
+    h += "<h3>Agent updates: last " + ((ag.news && ag.news.days) || 14) + " days</h3><p class=\"sub\">" + esc((ag.news && ag.news.rules) || "") + "</p>" + agentNewsRows((ag.news && ag.news.max) || 8);
     return h + backButton() + agentCredits(true);
   }
 
@@ -737,20 +873,20 @@
   // main: shown in the main chips; the rest sit behind "More AIs". web "native": searches the web by itself (no web extra).
   // options: the models the visitor may choose for that AI; the FIRST is the default (credits = the default's).
   // Built-in copy of the Worker's table; GET /status sends the server's list, costs, flags and options, which win.
-  function opts(list) { return list.map(function (o) { return { model: o[0], label: o[1], credits: o[2] }; }); }
+  function opts(list) { return list.map(function (o) { var x = { model: o[0], label: o[1], credits: o[2] }; if (o[3] === false) x.vision = false; return x; }); }
   var PRO_AIS = [
     { id: "chatgpt", name: "ChatGPT", main: true, options: opts([["openai/gpt-6.1-terra", "GPT-6.1 Terra", 2], ["openai/gpt-6.1-sol", "GPT-6.1 Sol", 3], ["openai/gpt-6-astra", "GPT-6 Astra", 7]]) },
     { id: "claude", name: "Claude", main: true, options: opts([["anthropic/claude-sonnet-5.5", "Sonnet 5.5", 2], ["anthropic/claude-opus-5.5", "Opus 5.5", 4], ["anthropic/claude-fable-5.1", "Fable 5.1", 7]]) },
     { id: "gemini", name: "Gemini", main: true, options: opts([["google/gemini-3.8-flash", "3.8 Flash", 1], ["google/gemini-4-argon", "Gemini 4 Argon", 3]]) },
     { id: "grok", name: "Grok", main: true, options: opts([["x-ai/grok-4.7", "Grok 4.7", 1], ["x-ai/grok-4.3", "Grok 4.3", 1]]) },
-    { id: "deepseek", name: "DeepSeek", main: true, options: opts([["deepseek/deepseek-v4.1-flash", "V4.1 Flash", 1], ["deepseek/deepseek-v4-pro-0813", "V4 Pro", 2]]) },
+    { id: "deepseek", name: "DeepSeek", main: true, options: opts([["deepseek/deepseek-v4.1-flash", "V4.1 Flash", 1], ["deepseek/deepseek-v4-pro-0813", "V4 Pro", 2, false]]) },
     { id: "llama", name: "Llama", main: false, options: opts([["meta-llama/llama-4-maverick", "Llama 4 Maverick", 1], ["meta-llama/llama-4-scout", "Llama 4 Scout", 1]]) },
     { id: "mistral", name: "Mistral", main: false, options: opts([["mistralai/mistral-large-4-0", "Large 4", 1], ["mistralai/mistral-medium-3-5", "Medium 3.5", 2]]) },
     { id: "perplexity", name: "Perplexity", main: false, web: "native", options: opts([["perplexity/sonar", "Sonar", 1], ["perplexity/sonar-pro", "Sonar Pro", 3], ["perplexity/sonar-reasoning-pro", "Sonar Reasoning Pro", 3]]) }
   ];
   PRO_AIS.forEach(function (m) { m.credits = m.options[0].credits; });
   var DEFAULT_PICK = ["chatgpt", "claude", "gemini"];
-  var pro = { busy: false, asked: null, answers: null, left: null, notice: "", short: false, paid: null, redeemErr: false,
+  var pro = { busy: false, asked: null, answers: null, left: null, notice: "", short: false, paid: null, redeemErr: false, files: [], fileMsg: "",
               codeMsg: "", charged: null, models: null, pick: null, webCredits: null, moreOpen: null,
               choice: null, askedChoice: null, sheet: null };
   var four = pro;                       // old name, kept for anything that still points at it
@@ -772,15 +908,72 @@
   }
   function isOffline() { return typeof navigator !== "undefined" && navigator.onLine === false; }
   var OFF_NOTE = '<p class="note bad offnote" role="status">You\'re offline.</p>';
+  // ---------------------------------------------------------------- files (v16f): attach documents and pictures in Explore and Race
+  // Read IN THE BROWSER: PDF (pdf.js), Excel (SheetJS), Word and PowerPoint (JSZip + their XML), text files as they are;
+  // pictures are shrunk (longest side 1600 px). The helper prices and checks them again (worker/src/index.js). Each tab
+  // keeps its own list (pro.files, race.files). Libraries load only when a file of that type is attached.
+  var FILE_MAX = 3, FILE_MAX_BYTES = 10 * 1024 * 1024, FILE_TEXT_MAX = 100000;
+  var FILE_FREE_CHARS = 5000, FILE_CHARS_PER_CREDIT = 20000, IMAGE_CREDITS = 1;      // same rule as the helper's
+  var FILE_ACCEPT = ".pdf,.docx,.doc,.xlsx,.xls,.csv,.txt,.md,.pptx,.ppt,.png,.jpg,.jpeg,.webp";
+  var FILES_REFUSED = "These files can't be sent. Remove one and try again.";
+  var FILE_KINDS = { pdf: "pdf", docx: "docx", xlsx: "sheet", xls: "sheet", csv: "text", txt: "text", md: "text", pptx: "pptx",
+                     png: "image", jpg: "image", jpeg: "image", webp: "image", doc: "olddoc", ppt: "oldppt" };
+  function fileKind(name) { var m = /\.([a-z0-9]+)$/i.exec(String(name || "")); return m && own(FILE_KINDS, m[1].toLowerCase()) ? FILE_KINDS[m[1].toLowerCase()] : ""; }
+  // pure: what a tab's files send: text cut to FILE_TEXT_MAX in all (cut = true when something was left out), the images,
+  // and whether a file is still being read
+  function filePayload(files) {
+    var left = FILE_TEXT_MAX, out = [], chars = 0, images = 0, cut = false, reading = false;
+    list(files).forEach(function (f) {
+      if (f.status === "reading") { reading = true; return; }
+      if (f.status !== "ok") return;
+      var name = String(f.name).slice(0, 120);
+      if (f.kind === "image") { out.push({ name: name, kind: "image", mime: f.mime, data: f.data }); images++; return; }
+      var t = String(f.text || "");
+      if (t.length > left) { t = t.slice(0, left); cut = true; }
+      left -= t.length; chars += t.length;
+      out.push({ name: name, kind: "text", text: t });
+    });
+    return { attachments: out, chars: chars, images: images, cut: cut, reading: reading };
+  }
+  // pure: extra credits for one AI's chosen model: ceil(max(0, chars - 5,000) / 20,000) + 1 per image it can read
+  function fileCreditsFor(option, fp) {
+    if (!fp || !fp.attachments || !fp.attachments.length) return 0;
+    return Math.ceil(Math.max(0, fp.chars - FILE_FREE_CHARS) / FILE_CHARS_PER_CREDIT) + (option && option.vision === false ? 0 : fp.images * IMAGE_CREDITS);
+  }
+  function fileSize(n) { return n < 1024 ? n + " B" : n < 1048576 ? Math.max(1, Math.round(n / 1024)) + " KB" : (n / 1048576).toFixed(1).replace(/\.0$/, "") + " MB"; }
+  var FILE_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">';
+  var FILE_ICONS = {
+    doc: FILE_ICON + '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg>',
+    sheet: FILE_ICON + '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M4 15h16M10 4v16"/></svg>',
+    slides: FILE_ICON + '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M12 16v4M8 20h8"/></svg>',
+    image: FILE_ICON + '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-9 9"/></svg>'
+  };
+  var CLIP_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg>';
+  function fileIcon(kind) { return FILE_ICONS[kind === "sheet" ? "sheet" : kind === "pptx" ? "slides" : kind === "image" ? "image" : "doc"]; }
+  // the Attach button, the limit line, the chips (icon, name, size or "Reading…", ×), the long-file notice and the error line
+  function attachHtml(which, files, msg, busy) {
+    var fp = filePayload(files), full = list(files).length >= FILE_MAX;
+    return '<div class="attach"><div class="attachbar"><button type="button" class="attachbtn" data-attach="' + which + '"' + (busy || full ? " disabled" : "") +
+      ' aria-describedby="' + which + 'filelim">' + CLIP_ICON + "<span>Attach</span></button>" +
+      '<span class="attachlim" id="' + which + 'filelim">Up to 3 files, 10 MB each</span>' +
+      '<input type="file" class="sr" id="' + which + 'file" data-filein="' + which + '" multiple accept="' + FILE_ACCEPT + '" tabindex="-1" aria-hidden="true"></div>' +
+      (list(files).length ? '<ul class="fchips">' + files.map(function (f) {
+        return '<li class="fchip' + (f.status === "reading" ? " reading" : "") + '"><span class="ficon" aria-hidden="true">' + fileIcon(f.kind) + "</span>" +
+          '<span class="fcname" title="' + esc(f.name) + '">' + esc(f.name) + '</span><span class="fcsize">' + (f.status === "reading" ? "Reading…" : esc(fileSize(f.size))) + "</span>" +
+          '<button type="button" class="fcx" data-fremove="' + which + "|" + f.id + '" aria-label="Remove ' + esc(f.name) + '"' + (busy ? " disabled" : "") + '><span aria-hidden="true">×</span></button></li>';
+      }).join("") + "</ul>" : "") +
+      (fp.cut ? '<p class="note fnotice">Long file: only the first 100,000 characters are sent.</p>' : "") +
+      '<p class="note bad fmsg" id="' + which + 'filemsg" aria-live="polite">' + esc(msg || "") + "</p></div>";
+  }
   function nCredits(n) { return n + (n === 1 ? " credit" : " credits"); }
   function proModels() { return pro.models && pro.models.length ? pro.models : PRO_AIS; }
   // pure: what a selection costs (unknown ids cost nothing and are ignored). With web on, every AI that doesn't
   // search by itself (web "native", i.e. Perplexity) costs webCredits more.
   // choice = {aiId: model id}; an unknown or missing model counts as that AI's default.
-  function selectionCost(ids, models, web, webCredits, choice) {
+  function selectionCost(ids, models, web, webCredits, choice, fp) {
     var by = {};
     (models || PRO_AIS).forEach(function (m) {
-      by[m.id] = chosenOption(m, choice).credits + (web && m.web !== "native" ? (webCredits == null ? CONFIG.WEB : webCredits) : 0);
+      by[m.id] = chosenOption(m, choice).credits + (web && m.web !== "native" ? (webCredits == null ? CONFIG.WEB : webCredits) : 0) + fileCreditsFor(chosenOption(m, choice), fp);
     });
     var seen = {};
     return (ids || []).reduce(function (t, id) { if (by[id] == null || seen[id]) return t; seen[id] = 1; return t + by[id]; }, 0);
@@ -831,10 +1024,11 @@
   }
   // pure: the cost preview. base = without web; held = what the helper holds before asking (base + web for each AI that
   // doesn't search by itself, when the question needs the web); hint = say "+2 per AI if it needs the web".
-  function costPreview(q, pick, models, choice, wc, now) {
+  function costPreview(q, pick, models, choice, wc, now, fp) {
     var web = needsWeb(q, now);
-    var base = selectionCost(pick, models, false, wc, choice), held = selectionCost(pick, models, web, wc, choice);
-    return { web: web, base: base, held: held, hint: held > base };
+    var base = selectionCost(pick, models, false, wc, choice, fp), held = selectionCost(pick, models, web, wc, choice, fp);
+    var files = fp ? base - selectionCost(pick, models, false, wc, choice) : 0;          // what the attached files add
+    return { web: web, base: base, held: held, hint: held > base, files: files };
   }
   function mainIds(models) { return (models || PRO_AIS).filter(function (m) { return m.main; }).map(function (m) { return m.id; }); }
   // "More AIs" is open when the visitor opened it, or (until they choose) when one of its AIs is ticked
@@ -874,6 +1068,8 @@
   function costLineHtml(cp, pick, models, choice, wc, bal, id) {
     var chosen = (models || PRO_AIS).filter(function (m) { return pick.indexOf(m.id) >= 0 && !isDefault(m, chosenOption(m, choice)); });
     return '<p class="costline" id="' + (id || "askcost") + '" aria-live="polite"><span class="cl">Uses <b>' + esc(nCredits(cp.base)) + "</b></span>" +
+      (cp.files ? ' · <span class="cl">' + esc(String(cp.files)) + " for files</span>" : "") +
+      (cp.best3 ? ' · <span class="cl">Best of 3</span>' : "") +
       ' · <span class="cl">You have <b>' + esc(nCredits(bal.total)) + "</b></span>" +
       (cp.hint ? '<small class="webhint">(+' + esc(String(wc)) + " per AI if it needs the web)</small>" : "") +
       (chosen.length ? '<small class="costnames">' + esc(pickNames(chosen.map(function (m) { return m.id; }), models, choice)) + "</small>" : "") +
@@ -881,7 +1077,7 @@
   }
   function proHtml() {
     var models = proModels(), pick = getPick(), wc = webCredits(), bal = balance(), choice = getChoice();
-    var cp = costPreview(askQ, pick, models, choice, wc, Date.now());
+    var fp = filePayload(pro.files), cp = costPreview(askQ, pick, models, choice, wc, Date.now(), fp);
     var short = pick.length > 0 && bal.total < cp.held;                // checked against what the helper will hold
     // a chip shows only the AI's name (and the chosen model's short label when it isn't the default); credits per
     // model appear only inside the model picker. The ▾ button sits outside the label, so it never ticks the box.
@@ -905,7 +1101,7 @@
     }
     h += costLineHtml(cp, pick, models, choice, wc, bal);
     pro.shownShort = short;
-    h += '<button type="button" class="askfour" id="askfour"' + (pro.busy || !pick.length || short || isOffline() ? " disabled" : "") + ">" +
+    h += '<button type="button" class="askfour" id="askfour"' + (pro.busy || !pick.length || short || isOffline() || fp.reading ? " disabled" : "") + ">" +
       (pro.busy ? "Asking…" : esc(askLabel(pick.length, cp.base, cp.held))) + "</button>" + (isOffline() && !pro.busy ? OFF_NOTE : "");
     if (pro.charged != null && !pro.busy) h += '<p class="note askleft" id="askleft">Charged ' + esc(nCredits(pro.charged)) + " for the last question.</p>";
     else h += '<p class="note askleft" id="askleft" aria-live="polite"></p>';
@@ -927,6 +1123,7 @@
         return '<section class="acard card" data-card="' + esc(id) + '"><h4>' + esc(m.name) +
           (isDefault(m, o) ? "" : '<span class="amodel"> · ' + esc(o.label) + "</span>") +
           (a && a.searched === true && !a.error ? ' <span class="searched">🌐 Searched the web</span>' : "") +
+          (a && a.images_skipped === true && !a.error ? ' <span class="imgskip">Can\'t read images</span>' : "") +
           '</h4><p class="atext" dir="auto"></p><p class="asrcs" hidden></p></section>';
       }).join("") + "</div>" + '<p class="note fastmodel">Answered by each company\'s fast model, unless you pick another (▾).</p>';
     }
@@ -957,11 +1154,11 @@
       '<div class="mopts" role="radiogroup" aria-labelledby="sheeth">' + (m.options || []).map(function (o, i) {
         var on = o === cur;
         return '<label class="mopt' + (on ? " on" : "") + '"><input type="radio" name="mopt" value="' + esc(o.model) + '"' + (on ? " checked" : "") + ">" +
-          '<span class="mname"><b>' + esc(o.label) + "</b>" + (i === 0 ? "<small>Default, fast</small>" : "") + "</span>" +
+          '<span class="mname"><b>' + esc(o.label) + "</b>" + (i === 0 || o.vision === false ? "<small>" + (i === 0 ? "Default, fast" : "") + (i === 0 && o.vision === false ? " · " : "") + (o.vision === false ? "Can't read images" : "") + "</small>" : "") + "</span>" +
           '<span class="mcred">' + esc(nCredits(o.credits)) + "</span>" + SHEET_CHECK + "</label>";
       }).join("") + "</div>" +
       '<p class="note">Credits per answer.' + (m.web === "native" ? " " + esc(m.name) + " searches the web by itself (no extra credits)."
-        : " +" + esc(nCredits(wc)) + " if the question needs the web (news, prices, today…).") + " Choosing a model also ticks " + esc(m.name) + ".</p>" +
+        : " +" + esc(nCredits(wc)) + " if the question needs the web (updates, prices, today…).") + " Choosing a model also ticks " + esc(m.name) + ".</p>" +
       '<button type="button" class="sheetdone" data-sheetclose="1">Done</button></div>';
   }
   function openSheet(id) {
@@ -1076,6 +1273,7 @@
       : "<h2>Ask them all</h2><p class=\"sub\">Type once, then open your question in each AI. Free: each AI's own website, nothing goes through this app.</p>";
     h += '<div class="askbox card"><label for="askq" class="sr">Your question</label>' +
       '<textarea id="askq" dir="' + textDir(askQ) + '" rows="4" maxlength="1500" placeholder="Type your question…" autocomplete="off">' + esc(askQ) + "</textarea>" +
+      (CONFIG.ASK_API ? attachHtml("ask", pro.files, pro.fileMsg, pro.busy) : "") +
       '<div class="askbar' + (askQ ? "" : " isempty") + '"><button type="button" class="linkbtn" id="askclear"' + (askQ ? "" : " hidden") + ">Clear question</button>" +
       '<button type="button" class="openall wide-only" id="askall">Open all</button></div>' +
       '<p class="note bad askqmsg" id="askqmsg" aria-live="polite"></p>' + (CONFIG.ASK_API ? proHtml() : "") + "</div>";
@@ -1085,19 +1283,28 @@
     h += "<h3>Copy, then paste</h3><p class=\"sub\">These AIs don't take a question by link.</p>" +
       '<ul class="asklist" id="askcopies">' + links.filter(function (l) { return l.mode === "copy"; }).map(askCopyHtml).join("") + "</ul>" +
       '<p class="note" id="askmsg" aria-live="polite"></p>';
-    if (CONFIG.ASK_API) h += '<p class="credits">Asking here sends your question to the AIs you pick, through this app\'s helper, to get the answers. It is not saved.</p>' +
+    if (CONFIG.ASK_API) h += '<p class="credits">Asking here sends your question and any attached files to the AIs you pick, through this app\'s helper, to get the answers. They are not saved.</p>' +
       '<p class="credits">For the buttons above: some AIs ask you to log in first, and this app never sees that question or those answers.</p>';
     else h += '<p class="credits">Some AIs ask you to log in first. This app never sees your question or answers.</p>';
     return h;
   }
 
-  // ---------------------------------------------------------------- Race (v15)
-  // 2-4 AIs get the same task. Each AI is its OWN /ask (one model), all sent at once with one race_id, so the helper
-  // counts them as one ask for its burst guard. Each lane fills the moment its answer arrives: place + seconds.
-  // Credits are exactly as in Explore (per AI, + web credits when the web rule fires), shown before Start.
+  // ---------------------------------------------------------------- Race (v15; server-timed since v16f2)
+  // 2-4 AIs get the same task in ONE request (POST /race). The helper checks everything and holds the credits first, then
+  // starts every AI at the same moment and times each one itself (first word, answer time, words per second). It streams
+  // one line per AI as it finishes. The lanes show ONLY the helper's numbers, and the places come from its answer times,
+  // never from when a line reached this phone. "Best of 3" runs the race 3 times and shows the averages.
+  // An older helper without /race (404): the v15 way (one /ask per AI with a race_id, timed here) is used instead.
+  // Credits are exactly as in Explore (per AI, + web credits when the web rule fires, + files), shown before Start.
   var RACE_MIN = 2, RACE_MAX = 4, RACE_DEFAULT = ["chatgpt", "claude"];
   var PLACES = ["1st", "2nd", "3rd", "4th"];
-  var race = { q: "", pick: null, busy: false, lanes: null, id: null, notice: "", short: false, timer: null, shownShort: false, charged: null, moreOpen: null };
+  var race = { q: "", pick: null, busy: false, lanes: null, id: null, notice: "", short: false, timer: null, shownShort: false, charged: null, moreOpen: null,
+               files: [], fileMsg: "", best3: false, rounds: 1, round: 0 };
+  // the cost before Start: Best of 3 holds 3 rounds
+  function raceCost(cp) {
+    if (!race.best3) return cp;
+    return { web: cp.web, base: cp.base * 3, held: cp.held * 3, hint: cp.hint, files: cp.files * 3, best3: true };
+  }
   function raceMoreOpen(pick, models) {
     if (race.moreOpen != null) return race.moreOpen;
     return (models || PRO_AIS).some(function (m) { return !m.main && (pick || []).indexOf(m.id) >= 0; });
@@ -1127,12 +1334,44 @@
         (race.busy ? " disabled" : "") + '><span aria-hidden="true">▾</span></button>' : "") + "</span>";
   }
   function laneSecs(ms) { return (ms < 1000 ? (ms / 1000).toFixed(2) : (ms / 1000).toFixed(1)) + " s"; }
+  function secs1(ms) { return (Math.round(ms / 100) / 10).toFixed(1) + " s"; }            // the helper's times, to 0.1 s
+  function avg(a) { return a.length ? a.reduce(function (t, x) { return t + x; }, 0) / a.length : null; }
+  // a lane timed by the helper: place + answer time on the right; under the answer: answer time, words/s (words ÷ answer
+  // time), first word, who served it
+  function serverLaneHtml(l) {
+    var done = l.ms != null, state2 = !done ? "running" : l.error ? "failed" : "done";
+    var srcs = l.text && !l.error ? webSources(l.sources) : [], b3 = race.rounds > 1 && l.rounds > 1;
+    var meta = "";
+    if (l.total != null) {
+      meta = (b3 ? "Average answer time <b>" : "Answer time <b>") + esc(secs1(l.total)) + "</b>" +
+        (b3 && l.times.length > 1 ? ' <span class="lrounds">(' + esc(l.times.map(function (t) { return (Math.round(t / 100) / 10).toFixed(1); }).join(" · ")) + " s)</span>" : "") +
+        (l.wps != null ? " · <b>" + esc(String(Math.round(l.wps))) + "</b> words/s" : "") +
+        (l.first != null ? ' · <span class="lfirst">First word ' + esc(secs1(l.first)) + "</span>" : "") +
+        (l.provider ? ' · <span class="lprov">Served by ' + esc(l.provider) + "</span>" : "");
+    }
+    var live = !done && l.text ? '<p class="lmeta live">Round ' + Math.min(race.round || 1, l.rounds) + " of " + l.rounds + "…</p>" : "";
+    return '<section class="lane card ' + state2 + '" data-lane="' + esc(l.id) + '"><div class="lhead"><b>' + esc(l.name) + "</b>" +
+      (l.label ? '<span class="amodel"> · ' + esc(l.label) + "</span>" : "") +
+      (l.searched && !l.error ? ' <span class="searched">🌐 Searched the web</span>' : "") +
+      (l.imgSkip && !l.error ? ' <span class="imgskip">Can\'t read images</span>' : "") +
+      '<span class="lright">' + (l.place ? '<span class="lplace p' + l.place + '">' + PLACES[l.place - 1] + "</span>" : "") +
+      (done && l.error ? "" : '<span class="ltime' + (done ? "" : " live") + '">' + (done ? esc(secs1(l.total)) : "0.0 s") + "</span>") + "</span></div>" +
+      '<div class="lbar" aria-hidden="true"><i></i></div>' +
+      (l.error ? '<p class="ltext bad">' + esc(l.error) + "</p>"
+        : l.text ? '<p class="ltext" dir="' + textDir(l.text) + '">' + esc(l.text) + "</p>" + (l.note ? '<p class="lmeta">' + esc(l.note) + "</p>" : "")
+        : '<p class="ltext muted">Working…</p>') +
+      (meta ? '<p class="lmeta">' + meta + "</p>" : "") + live +
+      (srcs.length ? '<p class="asrcs"><span class="asrcl">Sources</span>' + srcs.map(function (x) {
+        return '<a href="' + esc(x.url) + '" target="_blank" rel="noopener noreferrer">' + esc(x.title) + "</a>"; }).join("") + "</p>" : "") + "</section>";
+  }
   function laneHtml(l) {
+    if (l.server) return serverLaneHtml(l);
     var done = l.ms != null, state2 = !done ? "running" : l.error ? "failed" : "done";
     var srcs = done && !l.error ? webSources(l.sources) : [];
     return '<section class="lane card ' + state2 + '" data-lane="' + esc(l.id) + '"><div class="lhead"><b>' + esc(l.name) + "</b>" +
       (l.label ? '<span class="amodel"> · ' + esc(l.label) + "</span>" : "") +
       (l.searched && !l.error ? ' <span class="searched">🌐 Searched the web</span>' : "") +
+      (l.imgSkip && !l.error ? ' <span class="imgskip">Can\'t read images</span>' : "") +
       '<span class="lright">' + (l.place ? '<span class="lplace p' + l.place + '">' + PLACES[l.place - 1] + "</span>" : "") +
       (done && l.error ? "" : '<span class="ltime">' + (done ? laneSecs(l.ms) : "0.0 s") + "</span>") + "</span></div>" +
       '<div class="lbar" aria-hidden="true"><i></i></div>' +
@@ -1145,11 +1384,11 @@
     var h = "<h2>Race</h2><p class=\"sub\">" + esc(SUBS.race) + "</p>";
     if (!CONFIG.ASK_API) return h + '<p class="note">Race needs the app\'s answer helper, which isn\'t set up here. Use Explore to open your question in each AI.</p>';
     var models = proModels(), pick = getRacePick(), wc = webCredits(), bal = balance(), choice = getChoice();
-    var cp = costPreview(race.q, pick, models, choice, wc, Date.now()), short = pick.length >= RACE_MIN && bal.total < cp.held;
+    var cp = raceCost(costPreview(race.q, pick, models, choice, wc, Date.now(), filePayload(race.files))), short = pick.length >= RACE_MIN && bal.total < cp.held;
     race.shownShort = short;
     h += '<div class="askbox card racebox"><label for="raceq" class="sr">The task</label>' +
       '<textarea id="raceq" dir="' + textDir(race.q) + '" rows="3" maxlength="1500" placeholder="Type one task for all of them…" autocomplete="off"' +
-      (race.busy ? " disabled" : "") + ">" + esc(race.q) + "</textarea>" +
+      (race.busy ? " disabled" : "") + ">" + esc(race.q) + "</textarea>" + attachHtml("race", race.files, race.fileMsg, race.busy) +
       '<p class="note bad askqmsg" id="raceqmsg" aria-live="polite"></p>' +
       '<div class="pickhead"><h3 id="rpickh">Pick 2 to 4 AIs</h3><span class="pickq"><button type="button" class="linkbtn" id="rpicknone"' + (race.busy ? " disabled" : "") +
       ">Untick all</button></span></div>" +
@@ -1162,15 +1401,17 @@
         '<div class="chips racechips morechips" id="rmorechips" role="group" aria-label="More AIs"' + (ropen ? "" : " hidden") + ">" +
         rmore.map(function (m) { return raceChip(m, pick, choice); }).join("") + "</div>";
     }
-    h += costLineHtml(cp, pick, models, choice, wc, bal, "racecost") +
-      '<button type="button" class="askfour" id="racego"' + (race.busy || pick.length < RACE_MIN || short || isOffline() ? " disabled" : "") + ">" +
+    h += '<label class="b3"><input type="checkbox" role="switch" id="raceb3"' + (race.best3 ? " checked" : "") + (race.busy ? " disabled" : "") + ">" +
+      '<span class="b3t"><b>Best of 3</b><small>Runs the race 3 times and shows each AI\'s average.</small></span></label>' +
+      costLineHtml(cp, pick, models, choice, wc, bal, "racecost") +
+      '<button type="button" class="askfour" id="racego"' + (race.busy || pick.length < RACE_MIN || short || isOffline() || filePayload(race.files).reading ? " disabled" : "") + ">" +
       (race.busy ? "Racing…" : esc(raceLabel(pick.length, cp.base, cp.held))) + "</button>" + (isOffline() && !race.busy ? OFF_NOTE : "");
     if (race.charged && !race.busy) h += '<p class="note askleft">Charged ' + esc(nCredits(race.charged)) + " for this race.</p>";
     if (race.notice) h += '<p class="note bad" role="status">' + esc(race.notice) + "</p>";
     if ((short || race.short || bal.total === 0) && !race.busy) h += outboxHtml(bal, true);
     h += "</div>";
     if (race.lanes) h += '<div class="lanes" id="lanes">' + race.lanes.map(laneHtml).join("") + "</div>";
-    h += '<p class="credits">Each AI gets your task through this app\'s helper, all at the same moment. Times include the trip over the internet. Your task is not saved.</p>';
+    h += '<p class="credits">Timed on our server: AI speed only. Your task and files are not saved.</p>';
     return h;
   }
   function raceSay(text) { var el = document.getElementById("raceqmsg"); if (el) el.textContent = text; }
@@ -1222,12 +1463,139 @@
     if (j.reason === "disabled" || j.error === "disabled") return "Answers are paused right now.";
     if (r.status === 429) return "Too quick: wait a few seconds, then start again.";
     if (r.status === 400 && (j.error === "unknown_model" || j.error === "bad_models")) { setModels(j.models); return "This model isn't available. Pick another (▾)."; }
+    if (r.status === 400 && (j.error === "bad_attachments" || j.error === "attachments_too_big")) return FILES_REFUSED;
     return "Something went wrong on our side.";
+  }
+  // places from the helper's answer times (the average in Best of 3), among the lanes that are done and answered
+  function racePlaces() {
+    var fin = race.lanes.filter(function (l) { return l.ms != null && !l.error && l.total != null; })
+      .sort(function (a, b) { return a.total - b.total; });
+    race.lanes.forEach(function (l) { l.place = null; });
+    fin.forEach(function (l, i) { l.place = i + 1; });
+  }
+  // one line from the helper's race stream
+  function raceLine(o, rid) {
+    if (race.id !== rid || !o || typeof o !== "object") return;
+    if (o.type === "start") {
+      race.round = o.round || 1;
+      race.lanes.forEach(function (l) { l.t0 = Date.now(); });                // the live clock only; the real times come from the helper
+      if (race.round > 1) race.lanes.forEach(function (l) { var el = document.querySelector('[data-lane="' + l.id + '"]'); if (el && l.ms == null) el.outerHTML = laneHtml(l); });
+      return;
+    }
+    if (o.type === "done") {
+      var l = race.lanes.filter(function (x) { return x.id === o.id; })[0];
+      if (!l) return;
+      if (o.round === 1 || o.round == null) {
+        if (o.provider) l.provider = String(o.provider);
+        if (!o.error) {
+          var t = String(o.text || "");
+          l.text = plainAnswer(o.sources ? stripMarks(t) : t) + (o.cut ? " (cut short)" : "");
+          l.searched = o.searched === true; l.sources = o.sources || null; l.imgSkip = o.images_skipped === true;
+        } else l.firstErr = o.error;
+      }
+      if (!o.error && typeof o.total_ms === "number") {
+        l.times.push(o.total_ms); if (typeof o.first_ms === "number") l.firsts.push(o.first_ms); if (typeof o.wps === "number") l.wpss.push(o.wps);
+        l.total = avg(l.times); l.first = avg(l.firsts); l.wps = avg(l.wpss);
+      } else l.errs.push(o.error || "No answer this time");
+      if ((o.round || 1) >= l.rounds) {                                        // this lane is finished
+        l.ms = l.total != null ? l.total : 0;
+        if (!l.times.length) { l.error = l.errs[l.errs.length - 1] + " — credits returned"; l.text = ""; }
+        else if (l.firstErr) l.note = "No answer in round 1 (credits returned for it).";
+        else if (l.errs.length) l.note = "No answer in " + l.errs.length + (l.errs.length === 1 ? " round" : " rounds") + " (credits returned for " + (l.errs.length === 1 ? "it" : "them") + ").";
+        var old = {};
+        race.lanes.forEach(function (x) { old[x.id] = x.place; });
+        racePlaces();
+        race.lanes.forEach(function (x) {                                       // a place that moved is redrawn
+          if (x !== l && x.place !== old[x.id]) { var el = document.querySelector('[data-lane="' + x.id + '"]'); if (el) el.outerHTML = laneHtml(x); }
+        });
+      }
+      laneUpdate(l);
+      return;
+    }
+    if (o.type === "end") {
+      race.ended = true;
+      setLeft(o);
+      if (typeof o.charged === "number") race.charged = o.charged;
+      if (o.reason === "balance_empty") race.notice = OUR_SIDE;
+    }
+  }
+  function raceFinish(rid) {
+    if (race.id !== rid) return;
+    race.busy = false; clearInterval(race.timer); race.timer = null;
+    if (!race.ended) {                                                        // the line to the helper dropped before the end
+      race.lanes.forEach(function (l) { if (l.ms == null) { l.ms = 0; l.error = "Connection lost."; } });
+      race.notice = "The connection dropped before the race finished. Your credits were updated: AIs that didn't answer are not charged.";
+      loadLeft();
+    }
+    askRedraw();
+  }
+  // read the helper's NDJSON stream: one JSON object per line, handled as soon as it arrives
+  function readRace(r, rid) {
+    var reader = r.body.getReader(), dec = new TextDecoder(), buf = "";
+    function pump() {
+      return reader.read().then(function (x) {
+        if (x.done) { if (buf.trim()) { try { raceLine(JSON.parse(buf), rid); } catch (e) {} } return; }
+        buf += dec.decode(x.value, { stream: true });
+        var nl;
+        while ((nl = buf.indexOf("\n")) >= 0) {
+          var line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+          if (line.trim()) { try { raceLine(JSON.parse(line), rid); } catch (e) {} }
+        }
+        return pump();
+      });
+    }
+    return pump();
   }
   function startRace() {
     var q = race.q.trim(), pick = getRacePick();
     if (race.busy) return;
     if (!q) { raceSay("Type a task first."); var b = document.getElementById("raceq"); if (b) b.focus(); return; }
+    var rfp = filePayload(race.files);
+    if (rfp.reading) { raceSay("Wait until the files are read."); return; }
+    if (pick.length < RACE_MIN) return;
+    if (!root.ReadableStream || !root.TextDecoder || !window.fetch) return startRaceOld();
+    var models = proModels(), choice = getChoice(), by = {}, code = stored("ait.code"), id = newRaceId(), rounds = race.best3 ? 3 : 1;
+    models.forEach(function (m) { by[m.id] = m; });
+    race.busy = true; race.id = id; race.notice = ""; race.short = false; race.charged = 0; race.rounds = rounds; race.round = 0; race.ended = false;
+    race.lanes = pick.map(function (aid) {
+      var m = by[aid], o = chosenOption(m, choice);
+      return { id: aid, name: m.name, label: isDefault(m, o) ? "" : o.label, model: o.model, t0: Date.now(), ms: null, place: null, text: "", error: "",
+               searched: false, sources: null, server: true, rounds: rounds, times: [], firsts: [], wpss: [], errs: [], total: null, first: null, wps: null, provider: "" };
+    });
+    askRedraw();
+    race.timer = setInterval(raceTick, 100);
+    var body = { question: q, models: pick }, ch = {}, any = false;
+    race.lanes.forEach(function (l) { if (l.label) { ch[l.id] = l.model; any = true; } });
+    if (any) body.choice = ch;
+    if (rounds > 1) body.rounds = rounds;
+    if (rfp.attachments.length) body.attachments = rfp.attachments;
+    if (code) body.code = code;
+    var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null, timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 600000) : null;
+    fetch(CONFIG.ASK_API.replace(/\/+$/, "") + "/race", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      cache: "no-store", credentials: "omit", signal: ctrl ? ctrl.signal : undefined }).then(function (r) {
+      if (race.id !== id) return;
+      if (r.status === 404) { race.busy = false; clearInterval(race.timer); race.timer = null; race.id = null; if (timer) clearTimeout(timer); return startRaceOld(); }   // an older helper
+      if (r.status !== 200 || !/ndjson/.test(r.headers.get("Content-Type") || "") || !r.body) {
+        return r.json().then(function (j) { return j || {}; }, function () { return {}; }).then(function (j) {
+          setLeft(j);
+          if (r.status === 402 && j.reason === "not_enough") { race.short = true; race.lanes = null; }
+          else { race.notice = laneError({ status: r.status, json: j }); race.lanes = null; }
+          race.ended = true;
+        });
+      }
+      return readRace(r, id);
+    }).catch(function () {
+      if (race.id === id && !race.lanes.some(function (l) { return l.ms != null; })) {
+        race.lanes = null; race.ended = true; race.notice = "Couldn't connect. Check your internet and start again.";
+      }
+    }).then(function () { if (timer) clearTimeout(timer); raceFinish(id); });
+  }
+  function startRaceOld() {
+    var q = race.q.trim(), pick = getRacePick();
+    if (race.busy) return;
+    if (!q) { raceSay("Type a task first."); var b = document.getElementById("raceq"); if (b) b.focus(); return; }
+    var rfp = filePayload(race.files);
+    if (rfp.reading) { raceSay("Wait until the files are read."); return; }
     if (pick.length < RACE_MIN) return;
     var models = proModels(), choice = getChoice(), by = {}, code = stored("ait.code"), id = newRaceId(), t0 = Date.now(), placed = 0, open = pick.length;
     models.forEach(function (m) { by[m.id] = m; });
@@ -1240,6 +1608,7 @@
     race.timer = setInterval(raceTick, 100);
     race.lanes.forEach(function (l) {
       var body = { question: q, models: [l.id], race_id: id };
+      if (rfp.attachments.length) body.attachments = rfp.attachments;
       if (l.label) { body.choice = {}; body.choice[l.id] = l.model; }
       if (code) body.code = code;
       askApi("/ask", body, 150000).then(function (r) { return r; }, function () { return null; }).then(function (r) {
@@ -1248,7 +1617,7 @@
         var a = r && r.status === 200 && r.json.answers && r.json.answers[0];
         if (a && !a.error) {
           l.place = ++placed; l.text = plainAnswer(a.sources ? stripMarks(a.text) : a.text) + (a.cut ? " (cut short)" : "");
-          l.searched = a.searched === true; l.sources = a.sources || null;
+          l.searched = a.searched === true; l.sources = a.sources || null; l.imgSkip = a.images_skipped === true;
         } else l.error = a ? a.error + " — credits returned" : laneError(r);
         if (r && r.json) { setLeft(r.json); if (r.status === 200 && r.json.charged != null) race.charged += r.json.charged; }
         if (r && r.status === 402 && r.json.reason === "not_enough") race.short = true;
@@ -1263,7 +1632,7 @@
     var line = document.getElementById("racecost"), btn = document.getElementById("racego");
     if (!line || !btn) return;
     var models = proModels(), pick = getRacePick(), wc = webCredits(), bal = balance(), choice = getChoice();
-    var cp = costPreview(race.q, pick, models, choice, wc, Date.now()), short = pick.length >= RACE_MIN && bal.total < cp.held;
+    var cp = raceCost(costPreview(race.q, pick, models, choice, wc, Date.now(), filePayload(race.files))), short = pick.length >= RACE_MIN && bal.total < cp.held;
     if (short !== race.shownShort) {
       var box = document.getElementById("raceq"), a = box ? box.selectionStart : null, b = box ? box.selectionEnd : null;
       askRedraw("#raceq");
@@ -1333,7 +1702,7 @@
     }
     var feeds = list(D.bignews && D.bignews.feeds);
     if (feeds.length) {
-      h += "<h3>News feeds</h3><ul class=\"rows card\">" + feeds.map(function (f) {
+      h += "<h3>Update feeds</h3><ul class=\"rows card\">" + feeds.map(function (f) {
         return '<li><span class="rn"><b>' + esc(f[0]) + '</b></span><span class="rv ' + (f[1] === "ok" ? "ok" : "warn") + '">' + (f[1] === "ok" ? "✓ " + esc(f[2]) + " stories" : "⚠ didn't answer") + "</span></li>";
       }).join("") + "</ul>";
     }
@@ -1407,6 +1776,7 @@
     if (sm) return { tab: sm[1], more: false, story: { src: sm[1], i: +sm[2] } };
     var more = /-more$/.test(h);
     var t = h.replace(/-more$/, "");
+    if (t === "updates") t = "news";                        // v16f: the News tab is called Updates; #news still works
     if (VIEWS_ALL.indexOf(t) >= 0) return { tab: t, more: more && !!MORE[t] };
     return { tab: "best", more: false };
   }
@@ -1584,7 +1954,7 @@
     var line = document.getElementById("askcost"), btn = document.getElementById("askfour");
     if (!line || !btn) return;
     var models = proModels(), pick = getPick(), wc = webCredits(), bal = balance(), choice = getChoice();
-    var cp = costPreview(askQ, pick, models, choice, wc, Date.now()), short = pick.length > 0 && bal.total < cp.held;
+    var cp = costPreview(askQ, pick, models, choice, wc, Date.now(), filePayload(pro.files)), short = pick.length > 0 && bal.total < cp.held;
     if (short !== !!pro.shownShort) {
       var box = document.getElementById("askq"), a = box ? box.selectionStart : null, b = box ? box.selectionEnd : null;
       askRedraw("#askq");
@@ -1658,10 +2028,10 @@
   function cleanOptions(list, credits) {
     if (!Array.isArray(list)) return null;
     var ok = list.filter(function (o) { return o && typeof o.model === "string" && o.model && typeof o.label === "string" && o.label && o.credits > 0; })
-      .map(function (o) { return { model: o.model, label: o.label, credits: o.credits, d: o.default === true }; });
+      .map(function (o) { return { model: o.model, label: o.label, credits: o.credits, d: o.default === true, vision: o.vision !== false }; });
     if (!ok.length) return null;
     var d = ok.filter(function (o) { return o.d; })[0] || ok[0];
-    return [d].concat(ok.filter(function (o) { return o !== d; })).map(function (o) { return { model: o.model, label: o.label, credits: o.credits }; });
+    return [d].concat(ok.filter(function (o) { return o !== d; })).map(function (o) { var x = { model: o.model, label: o.label, credits: o.credits }; if (!o.vision) x.vision = false; return x; });
   }
   function setWebCredits(n) { if (typeof n === "number" && n >= 0 && n <= 50 && Math.floor(n) === n) pro.webCredits = n; }
   var PAUSED = "Answers here are paused right now. Open your question in each AI below.";           // only when switched off
@@ -1670,10 +2040,13 @@
   function askPro() {
     var q = askQ.trim(), pick = getPick();
     if (!q) { askSay("askqmsg", "Type a question first."); var b = document.getElementById("askq"); if (b) b.focus(); return; }
+    var afp = filePayload(pro.files);
+    if (afp.reading) { askSay("askqmsg", "Wait until the files are read."); return; }
     if (!pick.length || pro.busy) return;
     pro.busy = true; pro.asked = pick; pro.askedChoice = getChoice(); pro.answers = null; pro.notice = ""; pro.short = false; pro.codeMsg = ""; pro.paid = null; pro.charged = null;
     askRedraw();
     var code = stored("ait.code"), body = { question: q, models: pick, choice: pro.askedChoice };   // choice: only non-defaults; the helper checks them and decides about the web
+    if (afp.attachments.length) body.attachments = afp.attachments;
     if (code) body.code = code;
     askApi("/ask", body, 150000).then(function (r) {
       var j = r.json;
@@ -1689,6 +2062,8 @@
         pro.asked = null; pro.notice = "Please wait a few seconds before asking again.";
       } else if (r.status === 400 && j.error === "bad_models") {
         setModels(j.models); pro.asked = null; pro.notice = "The list of AIs changed. Check your ticks and ask again.";
+      } else if (r.status === 400 && (j.error === "bad_attachments" || j.error === "attachments_too_big")) {
+        pro.asked = null; pro.notice = FILES_REFUSED;
       } else if (r.status === 400 && j.error === "unknown_model") {
         setModels(j.models); pro.asked = null; pro.notice = "The list of models changed. Check your choices (▾) and ask again.";
       } else if (j.reason === "disabled" || j.error === "disabled") {
@@ -1765,6 +2140,7 @@
       return;
     }
     var rp = e.target && e.target.getAttribute && e.target.getAttribute("data-rpick");
+    if (e.target && e.target.id === "raceb3") { race.best3 = !!e.target.checked; race.short = false; askRedraw("#raceb3"); return; }
     if (rp) {
       var rids = [];
       document.querySelectorAll("[data-rpick]").forEach(function (x) { if (x.checked) rids.push(x.getAttribute("data-rpick")); });
@@ -1869,7 +2245,7 @@
   // fresh data from the network (the service worker falls back to the saved copy when offline)
   var btn = document.getElementById("refresh");
   var offline = document.getElementById("offline");
-  // the refresh button says what happened, for about 2 s: "Up to date", "New data loaded" or "You're offline"
+  // the refresh button says what happened, for about 2 s: "Updated", "You're offline" or "Couldn't check right now"
   var toastTimer = null;
   function toast(msg) {
     var t = document.getElementById("toast");
@@ -1891,7 +2267,7 @@
       .then(function (ok) {
         btn.classList.remove("spin");
         showOffline();
-        if (manual) toast(isOffline() ? "You're offline" : fresh ? "New data loaded" : ok ? "Up to date" : "Couldn't check right now");
+        if (manual) toast(isOffline() ? "You're offline" : ok ? "Updated" : "Couldn't check right now");
       });
   }
   btn.addEventListener("click", function () { pull(true); });
@@ -1914,6 +2290,263 @@
   }
   window.addEventListener("online", function () { netChanged(); pull(false); });
   window.addEventListener("offline", netChanged);
+
+  // ---- files: libraries, readers and the attach events (v16f)
+  // Each library is loaded once, only when a file of its type is attached, from an exact version with SRI (the browser
+  // refuses a file whose hash doesn't match). pdf.js is a module: its worker is fetched with the same check and started
+  // from a blob, so it runs off the main thread.
+  var PDFJS = "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.2.108/";
+  var LIBS = {
+    jszip: { url: "https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js", sri: "sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG", global: "JSZip" },
+    xlsx: { url: "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js", sri: "sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT", global: "XLSX" },
+    pdf: { url: PDFJS + "legacy/build/pdf.min.mjs", sri: "sha384-YzR7Q88uWohu1vX4vuDiPCeT46Pk8qPXuDLcDO7a/LOb6syUvYvYYcQclRT2VSPT", global: "pdfjsLib", module: true },
+    pdfworker: { url: PDFJS + "legacy/build/pdf.worker.min.mjs", sri: "sha384-xmo046yHKZIFB8fX6VJCV8nUAOARH/5lJdjB/bgsbvRwnVXay7R4ebX/EkVjhHoT", global: "pdfjsWorker", module: true }
+  };
+  var libWait = {};
+  function loadLib(key) {
+    var L = LIBS[key];
+    if (root[L.global]) return Promise.resolve(root[L.global]);
+    if (!libWait[key]) {
+      libWait[key] = new Promise(function (ok, no) {
+        var sc = document.createElement("script");
+        if (L.module) sc.type = "module";
+        sc.src = L.url; sc.integrity = L.sri; sc.crossOrigin = "anonymous"; sc.async = true;
+        sc.onload = function () { if (root[L.global]) ok(root[L.global]); else no(new Error("lib")); };
+        sc.onerror = function () { no(new Error("lib")); };
+        document.head.appendChild(sc);
+      });
+      libWait[key].catch(function () { delete libWait[key]; });        // a failed load (offline) can be tried again
+    }
+    return libWait[key];
+  }
+  var pdfReady = null;
+  function pdfLib() {
+    if (pdfReady) return pdfReady;
+    pdfReady = loadLib("pdf").then(function (lib) {
+      return fetch(LIBS.pdfworker.url, { integrity: LIBS.pdfworker.sri, mode: "cors", credentials: "omit" })
+        .then(function (r) { if (!r.ok) throw new Error("worker"); return r.blob(); })
+        .then(function (b) { lib.GlobalWorkerOptions.workerPort = new Worker(URL.createObjectURL(new Blob([b], { type: "text/javascript" })), { type: "module" }); return lib; })
+        .catch(function () { return loadLib("pdfworker").then(function () { return lib; }); });   // no module workers: read on the page
+    });
+    pdfReady.catch(function () { pdfReady = null; });
+    return pdfReady;
+  }
+  function readErr(text) { var e = new Error(text); e.userMsg = text; return e; }
+  var LIB_FAIL = "couldn't be read right now. Check your connection and try again.";
+  function lib(key) { return (key === "pdf" ? pdfLib() : loadLib(key)).catch(function () { throw readErr(LIB_FAIL); }); }
+  function buf(file) { return file.arrayBuffer ? file.arrayBuffer() : new Response(file).arrayBuffer(); }
+  // the text of a Word or PowerPoint XML part: paragraphs on their own lines, tabs and line breaks kept; a table comes out
+  // one row per line with its cells split by a tab
+  function ooxmlText(xml) {
+    var doc = new DOMParser().parseFromString(xml, "application/xml"), out = [];
+    (function walk(n, cell) {
+      for (var c = n.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType !== 1) continue;
+        var t = c.localName;
+        if (t === "t") out.push(c.textContent);
+        else if (t === "tab") out.push("\t");
+        else if (t === "br" || t === "cr") out.push(cell ? " " : "\n");
+        else if (t === "tc") { walk(c, true); out.push("\t"); }
+        else { walk(c, cell); if (t === "p") out.push(cell ? " " : "\n"); else if (t === "tr") out.push("\n"); }
+      }
+    })(doc.documentElement, false);
+    return out.join("").replace(/ +\t/g, "\t").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  }
+  function zipOf(file) {
+    return lib("jszip").then(function (JSZip) {
+      return buf(file).then(function (b) { return JSZip.loadAsync(b); }).catch(function () { throw readErr("couldn't be read. Is it password-protected?"); });
+    });
+  }
+  var READERS = {
+    text: function (file) { return file.text(); },
+    pdf: function (file) {
+      var task = null;
+      return lib("pdf").then(function (pdfjs) {
+        return buf(file).then(function (b) {
+          task = pdfjs.getDocument({ data: new Uint8Array(b), cMapUrl: PDFJS + "cmaps/", cMapPacked: true, standardFontDataUrl: PDFJS + "standard_fonts/",
+                                   isEvalSupported: false, disableFontFace: true, useSystemFonts: false });
+          return task.promise;
+        });
+      }).then(function (pdf) {
+        var pages = [], n = 0, total = 0;
+        function next() {
+          if (n >= pdf.numPages || total > FILE_TEXT_MAX) { try { task.destroy(); } catch (e) {} return pages.join("\n\n"); }
+          n++;
+          return pdf.getPage(n).then(function (pg) { return pg.getTextContent(); }).then(function (tc) {
+            var t = tc.items.map(function (i) { return (i.str || "") + (i.hasEOL ? "\n" : ""); }).join("").replace(/[ \t]+\n/g, "\n").trim();
+            if (t) { pages.push("Page " + n + "\n" + t); total += t.length; }
+            return next();
+          });
+        }
+        return next();
+      }, function (e) {
+        if (e && e.name === "PasswordException") throw readErr("is password-protected.");
+        throw e && e.userMsg ? e : readErr("couldn't be read.");
+      }).then(function (t) { if (!t.trim()) throw readErr("has no text to read (a scanned PDF?)."); return t; });
+    },
+    sheet: function (file) {
+      return lib("xlsx").then(function (XLSX) {
+        return buf(file).then(function (b) {
+          var wb;
+          try { wb = XLSX.read(new Uint8Array(b), { type: "array" }); }
+          catch (e) { throw readErr(/password|encrypt/i.test(String(e && e.message)) ? "is password-protected." : "couldn't be read."); }
+          return wb.SheetNames.map(function (n) { return "Sheet: " + n + "\n" + XLSX.utils.sheet_to_csv(wb.Sheets[n], { blankrows: false }).trim(); }).join("\n\n");
+        });
+      });
+    },
+    docx: function (file) {
+      return zipOf(file).then(function (zip) {
+        var part = zip.file("word/document.xml");
+        if (!part) throw readErr("couldn't be read.");
+        return part.async("string").then(ooxmlText);
+      });
+    },
+    pptx: function (file) {
+      return zipOf(file).then(function (zip) {
+        var slides = zip.file(/^ppt\/slides\/slide\d+\.xml$/).sort(function (a, b) { return +a.name.match(/(\d+)\.xml$/)[1] - +b.name.match(/(\d+)\.xml$/)[1]; });
+        if (!slides.length) throw readErr("couldn't be read.");
+        return Promise.all(slides.map(function (f) { return f.async("string"); })).then(function (xs) {
+          return xs.map(function (x, i) { return "Slide " + (i + 1) + "\n" + ooxmlText(x); }).join("\n\n");
+        });
+      });
+    },
+    // a picture: longest side at most 1600 px, sent as JPEG (quality 0.85); a small PNG that needs no shrinking is kept as it is
+    image: function (file) {
+      var url = URL.createObjectURL(file);
+      return new Promise(function (ok, no) {
+        var im = new Image();
+        im.onload = function () { ok(im); };
+        im.onerror = function () { no(readErr("couldn't be read.")); };
+        im.src = url;
+      }).then(function (im) {
+        var w = im.naturalWidth, h = im.naturalHeight, k = Math.min(1, 1600 / Math.max(w, h, 1));
+        if (k === 1 && file.type === "image/png" && file.size <= 1048576) {
+          return new Promise(function (ok, no) { var fr = new FileReader(); fr.onload = function () { ok({ mime: "image/png", data: fr.result }); }; fr.onerror = no; fr.readAsDataURL(file); });
+        }
+        var c = document.createElement("canvas");
+        c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
+        var g = c.getContext("2d");
+        g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);              // transparent parts turn white, not black
+        g.drawImage(im, 0, 0, c.width, c.height);
+        var data = c.toDataURL("image/jpeg", 0.85);
+        if (data.length > 3200000) data = c.toDataURL("image/jpeg", 0.7);         // stay under the helper's 2.5 MB per image
+        return { mime: "image/jpeg", data: data };
+      }).then(function (r) { URL.revokeObjectURL(url); return r; }, function (e) { URL.revokeObjectURL(url); throw e; });
+    }
+  };
+  var fileSeq = 0;
+  function fileState(w) { return w === "race" ? race : pro; }
+  // redraw the tab the files belong to, keeping the cursor in the question / task box
+  function filesRedraw(w) {
+    if (state.tab !== (w === "race" ? "race" : "ask") || state.story) return;
+    var a = document.activeElement, keep = a && (a.id === "askq" || a.id === "raceq") ? "#" + a.id : null;
+    var s1 = keep ? a.selectionStart : null, s2 = keep ? a.selectionEnd : null;
+    askRedraw(keep);
+    var nb = keep && document.querySelector(keep);
+    if (nb && s1 != null) { try { nb.setSelectionRange(s1, s2); } catch (e) {} }
+  }
+  function addFiles(w, picked) {
+    var st = fileState(w), msgs = [];
+    [].slice.call(picked || []).forEach(function (file) {
+      var k = fileKind(file.name);
+      if (st.files.length >= FILE_MAX) { if (msgs.indexOf("Up to 3 files. Remove one to add another.") < 0) msgs.push("Up to 3 files. Remove one to add another."); return; }
+      if (k === "olddoc") return msgs.push(file.name + ": save it as .docx first.");
+      if (k === "oldppt") return msgs.push(file.name + ": save it as .pptx first.");
+      if (!k) return msgs.push(file.name + ": this file type isn't supported.");
+      if (file.size > FILE_MAX_BYTES) return msgs.push(file.name + " is over 10 MB.");
+      var f = { id: ++fileSeq, name: file.name, size: file.size, kind: k, status: "reading" };
+      st.files.push(f);
+      READERS[k](file).then(function (r) {
+        if (st.files.indexOf(f) < 0) return;                                     // removed while it was being read
+        if (k === "image") { f.mime = r.mime; f.data = r.data; }
+        else {
+          var t = String(r || "").replace(/\r\n?/g, "\n").replace(/\u0000/g, "");
+          if (!t.trim()) throw readErr("is empty.");
+          f.text = t.length > FILE_TEXT_MAX ? t.slice(0, FILE_TEXT_MAX + 1) : t;  // more than is ever sent; enough to know it was cut
+        }
+        f.status = "ok";
+        filesRedraw(w);
+      }).catch(function (e) {
+        var i = st.files.indexOf(f);
+        if (i < 0) return;
+        st.files.splice(i, 1);
+        st.fileMsg = file.name + " " + (e && e.userMsg ? e.userMsg : (isOffline() ? "couldn't be read while offline." : "couldn't be read."));
+        filesRedraw(w);
+      });
+    });
+    st.fileMsg = msgs.join(" ");
+    st.short = false;
+    filesRedraw(w);
+  }
+  document.addEventListener("click", function (e) {
+    if (!e.target.closest) return;
+    var b = e.target.closest("[data-attach]");
+    if (b) { var inp = document.getElementById(b.getAttribute("data-attach") + "file"); if (inp) inp.click(); return; }
+    var x = e.target.closest("[data-fremove]");
+    if (x) {
+      var p = x.getAttribute("data-fremove").split("|"), st = fileState(p[0]);
+      st.files = st.files.filter(function (f) { return String(f.id) !== p[1]; });
+      st.fileMsg = "";
+      filesRedraw(p[0]);
+      var again = document.querySelector('[data-attach="' + p[0] + '"]'); if (again && !document.activeElement.closest("textarea")) again.focus();
+    }
+  });
+  document.addEventListener("change", function (e) {
+    var w = e.target && e.target.getAttribute && e.target.getAttribute("data-filein");
+    if (!w) return;
+    addFiles(w, e.target.files);
+    e.target.value = "";
+  });
+
+  // ---- New releases: the sheet about one model (v16f3). Same sheet as the model picker; closes on ×, the backdrop and
+  // Escape; focus goes to × when it opens and back to the model's card when it closes; Tab stays inside it.
+  var relFrom = null;
+  function relOpen() { var w = document.getElementById("relsheet"); return !!(w && !w.hidden); }
+  function openRel(key, from) {
+    var r = relFind(key);
+    if (!r) return;
+    var wrap = document.getElementById("relsheet");
+    if (!wrap) { wrap = document.createElement("div"); wrap.id = "relsheet"; wrap.className = "sheetwrap"; document.body.appendChild(wrap); }
+    wrap.innerHTML = relSheetHtml(r); wrap.hidden = false; relFrom = from || null;
+    document.documentElement.classList.add("sheetopen");
+    var x = wrap.querySelector(".sheetx"); if (x) x.focus();
+  }
+  function closeRel(noFocus) {
+    var wrap = document.getElementById("relsheet");
+    if (!wrap || wrap.hidden) return;
+    sheetGhost(wrap);
+    wrap.hidden = true; wrap.innerHTML = "";
+    if (!pro.sheet) document.documentElement.classList.remove("sheetopen");
+    if (!noFocus && relFrom && document.body.contains(relFrom)) relFrom.focus();
+    relFrom = null;
+  }
+  document.addEventListener("click", function (e) {
+    if (!e.target.closest) return;
+    var b = e.target.closest("[data-rel]");
+    if (b) { openRel(b.getAttribute("data-rel"), b); return; }
+    if (e.target.closest("[data-relclose]")) { closeRel(); return; }
+    var a = e.target.closest("[data-relask]");
+    if (a) {                                                                   // "Ask it": Explore with that AI and model chosen
+      var tp = a.getAttribute("data-relask").split("|");
+      closeRel(true);
+      setPick([tp[0]]); setChoice(tp[0], tp[1]); goTab("ask");
+      var qb = document.getElementById("askq"); if (qb) qb.focus();
+    }
+  });
+  document.addEventListener("keydown", function (e) {
+    if (!relOpen()) return;
+    if (e.key === "Escape") { e.preventDefault(); closeRel(); return; }
+    if (e.key !== "Tab") return;
+    var f = [].slice.call(document.querySelectorAll("#relsheet .sheet button, #relsheet .sheet a[href]"));
+    var i = f.indexOf(document.activeElement);
+    if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+    else if (!e.shiftKey && (i === f.length - 1 || i < 0)) { e.preventDefault(); f[0].focus(); }
+  });
+  // a maker logo that can't load (offline, missing file) shows its letter instead
+  document.addEventListener("error", function (e) {
+    var t = e.target;
+    if (t && t.tagName === "IMG" && t.parentNode && t.parentNode.classList && t.parentNode.classList.contains("mlogo")) t.parentNode.classList.add("broken");
+  }, true);
 
   // ---- "Install app" (header): only in a normal browser tab, never inside the installed app.
   // Chrome / Edge / Android: the browser's own prompt (beforeinstallprompt, kept until tapped; used once).
