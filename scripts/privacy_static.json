@@ -1,0 +1,431 @@
+{
+ "_about": "Hand-checked privacy facts per app for the Find your AI 'Privacy' choice (v16g). Edit by hand when a policy changes and update 'checked'. Each fact: v = 1 (good for privacy) / 0 (bad), 'unverified': true when only a news/third-party page says so (counts half). Score = 50% Incogni 2026 privacy-risk ranking (independent, lower risk = better) + 50% these 5 facts. Computed by scripts/update_data.py build_privacy().",
+ "checked": "2026-11-06",
+ "incogni": {
+  "name": "Incogni Gen AI and LLM Data Privacy Ranking 2026",
+  "url": "https://blog.incogni.com/gen-ai-llm-privacy-ranking-2026/",
+  "published": "2026-08",
+  "note": "Total privacy-risk score = 'AI and user data' + 'Transparency' + 'Data collection and sharing' from Incogni's published chart data (lower = less privacy-invasive). 13 platforms scored.",
+  "best": 11.9,
+  "worst": 17.8
+ },
+ "facts": [
+  [
+   "noTrainDefault",
+   "Chats not used for training by default"
+  ],
+  [
+   "optOut",
+   "You can turn training off"
+  ],
+  [
+   "tempChat",
+   "Temporary / incognito chat"
+  ],
+  [
+   "delete30",
+   "Deleted chats gone within 30 days"
+  ],
+  [
+   "usEu",
+   "Data kept in the US or EU"
+  ]
+ ],
+ "apps": {
+  "ChatGPT": {
+   "maker": "OpenAI",
+   "incogni": 12.0,
+   "line": "Temporary Chat; you can turn off training (on by default)",
+   "facts": {
+    "noTrainDefault": {
+     "v": 0,
+     "src": "help"
+    },
+    "optOut": {
+     "v": 1,
+     "src": "help"
+    },
+    "tempChat": {
+     "v": 1,
+     "src": "help"
+    },
+    "delete30": {
+     "v": 1,
+     "src": "nyt",
+     "note": "court order to keep deleted chats ended Sep 26, 2025"
+    },
+    "usEu": {
+     "v": 1,
+     "src": "policy",
+     "unverified": true
+    }
+   },
+   "sources": {
+    "help": {
+     "label": "OpenAI Data controls in ChatGPT",
+     "url": "https://help.openai.com/en/articles/7730893-data-controls-in-chatgpt",
+     "how": "search snippet (page blocks automated readers)"
+    },
+    "nyt": {
+     "label": "OpenAI: response to NYT data demands (update Oct 22, 2025)",
+     "url": "https://openai.com/index/response-to-nyt-data-demands/",
+     "how": "search snippet"
+    },
+    "policy": {
+     "label": "OpenAI Privacy Policy",
+     "url": "https://openai.com/policies/row-privacy-policy/",
+     "how": "not read today (blocked)"
+    }
+   }
+  },
+  "Claude": {
+   "maker": "Anthropic",
+   "incogni": 14.3,
+   "line": "Incognito chats; training is your choice, kept 5 years if on",
+   "facts": {
+    "noTrainDefault": {
+     "v": 0,
+     "src": "terms",
+     "unverified": true,
+     "note": "you choose at sign-up; press reported the switch was pre-set to on"
+    },
+    "optOut": {
+     "v": 1,
+     "src": "terms"
+    },
+    "tempChat": {
+     "v": 1,
+     "src": "retention"
+    },
+    "delete30": {
+     "v": 1,
+     "src": "retention"
+    },
+    "usEu": {
+     "v": 1,
+     "src": "retention",
+     "unverified": true
+    }
+   },
+   "sources": {
+    "terms": {
+     "label": "Anthropic: Updates to Consumer Terms and Privacy Policy",
+     "url": "https://www.anthropic.com/news/updates-to-our-consumer-terms",
+     "how": "read 2026-11-06"
+    },
+    "retention": {
+     "label": "Anthropic Privacy Center: How long do you store my data? (Jul 1, 2026)",
+     "url": "https://privacy.claude.com/en/articles/10023548-how-long-do-you-store-my-data",
+     "how": "read 2026-11-06"
+    }
+   }
+  },
+  "Gemini": {
+   "maker": "Google",
+   "incogni": 14.1,
+   "line": "Temporary chats, but by default chats help train and some are read by reviewers",
+   "facts": {
+    "noTrainDefault": {
+     "v": 0,
+     "src": "hub"
+    },
+    "optOut": {
+     "v": 1,
+     "src": "hub",
+     "note": "turn Keep Activity off (chats kept 72 h)"
+    },
+    "tempChat": {
+     "v": 1,
+     "src": "hub"
+    },
+    "delete30": {
+     "v": 0,
+     "src": "hub",
+     "note": "default auto-delete 18 months; reviewed chats kept up to 3 years even if you delete them"
+    },
+    "usEu": {
+     "v": 1,
+     "src": "hub",
+     "unverified": true
+    }
+   },
+   "sources": {
+    "hub": {
+     "label": "Gemini Apps Privacy Hub",
+     "url": "https://support.google.com/gemini/answer/13594961?hl=en",
+     "how": "read 2026-11-06"
+    }
+   }
+  },
+  "Grok": {
+   "maker": "xAI",
+   "incogni": 14.4,
+   "line": "Private Chat (deleted in 30 days); training on unless you turn it off",
+   "facts": {
+    "noTrainDefault": {
+     "v": 0,
+     "src": "faq"
+    },
+    "optOut": {
+     "v": 1,
+     "src": "faq"
+    },
+    "tempChat": {
+     "v": 1,
+     "src": "faq"
+    },
+    "delete30": {
+     "v": 1,
+     "src": "policy"
+    },
+    "usEu": {
+     "v": 1,
+     "src": "policy",
+     "unverified": true
+    }
+   },
+   "sources": {
+    "faq": {
+     "label": "xAI Consumer FAQs",
+     "url": "https://x.ai/legal/faq",
+     "how": "read 2026-11-06"
+    },
+    "policy": {
+     "label": "xAI Privacy Policy",
+     "url": "https://x.ai/legal/privacy-policy",
+     "how": "read 2026-11-06"
+    }
+   }
+  },
+  "Le Chat": {
+   "maker": "Mistral",
+   "incogni": 11.9,
+   "line": "Ranked most private by Incogni; EU company; training on unless you turn it off",
+   "facts": {
+    "noTrainDefault": {
+     "v": 0,
+     "src": "optout"
+    },
+    "optOut": {
+     "v": 1,
+     "src": "optout"
+    },
+    "tempChat": {
+     "v": 1,
+     "src": "memory",
+     "note": "incognito chat"
+    },
+    "delete30": {
+     "v": 1,
+     "src": "reddit",
+     "unverified": true
+    },
+    "usEu": {
+     "v": 1,
+     "src": "policy"
+    }
+   },
+   "sources": {
+    "optout": {
+     "label": "Mistral Help: Can I opt out of training? (Sep 3, 2026)",
+     "url": "https://help.mistral.ai/en/articles/455207-can-i-opt-out-of-my-input-or-output-data-being-used-for-training",
+     "how": "read 2026-11-06"
+    },
+    "memory": {
+     "label": "Mistral: Make Memory work for you",
+     "url": "https://mistral.ai/news/memory/",
+     "how": "search snippet"
+    },
+    "policy": {
+     "label": "Mistral Privacy Policy",
+     "url": "https://legal.mistral.ai/terms/privacy-policy/",
+     "how": "read 2026-11-06"
+    },
+    "reddit": {
+     "label": "User report (Reddit): incognito chats deleted within minutes",
+     "url": "https://www.reddit.com/r/Nefhis_Lumen_Lab/comments/1pjweyx/mistral_le_chat_vs_chatgpt_honest_comparison/",
+     "how": "search snippet, not official"
+    }
+   }
+  },
+  "DeepSeek": {
+   "maker": "DeepSeek",
+   "incogni": 14.3,
+   "line": "Data stored in China; kept as long as needed; training on unless you turn it off",
+   "facts": {
+    "noTrainDefault": {
+     "v": 0,
+     "src": "policy"
+    },
+    "optOut": {
+     "v": 1,
+     "src": "guide",
+     "unverified": true
+    },
+    "tempChat": {
+     "v": 0,
+     "src": "policy",
+     "unverified": true
+    },
+    "delete30": {
+     "v": 0,
+     "src": "policy"
+    },
+    "usEu": {
+     "v": 0,
+     "src": "policy"
+    }
+   },
+   "sources": {
+    "policy": {
+     "label": "DeepSeek Privacy Policy (Feb 10, 2026)",
+     "url": "https://cdn.deepseek.com/policies/en-US/deepseek-privacy-policy.html",
+     "how": "read 2026-11-06"
+    },
+    "guide": {
+     "label": "mePrism: DeepSeek training opt-out guide",
+     "url": "https://meprism.com/opt-out-guides/blog/deepseek-ai-model-training-opt-out",
+     "how": "search snippet, not official"
+    }
+   }
+  },
+  "Meta AI": {
+   "maker": "Meta",
+   "incogni": 17.4,
+   "line": "No way to stop chats being used; chats also used for ads since Dec 2025",
+   "facts": {
+    "noTrainDefault": {
+     "v": 0,
+     "src": "reuters"
+    },
+    "optOut": {
+     "v": 0,
+     "src": "norton",
+     "unverified": true
+    },
+    "tempChat": {
+     "v": 0,
+     "src": "norton",
+     "unverified": true
+    },
+    "delete30": {
+     "v": 0,
+     "src": "norton",
+     "unverified": true
+    },
+    "usEu": {
+     "v": 1,
+     "src": "reuters",
+     "unverified": true
+    }
+   },
+   "sources": {
+    "reuters": {
+     "label": "Reuters: Meta to use AI chats to personalize content and ads from December (no opt-out)",
+     "url": "https://www.reuters.com/business/media-telecom/meta-use-ai-chats-personalize-content-ads-december-2025-10-01/",
+     "how": "search snippet"
+    },
+    "norton": {
+     "label": "Norton: How to opt out of Meta AI",
+     "url": "https://us.norton.com/blog/ai/how-to-opt-out-of-meta-ai",
+     "how": "search snippet, not official"
+    }
+   }
+  },
+  "Perplexity": {
+   "maker": "Perplexity",
+   "incogni": 13.5,
+   "line": "Incognito mode; training on unless you turn off AI data retention",
+   "facts": {
+    "noTrainDefault": {
+     "v": 0,
+     "src": "strac",
+     "unverified": true
+    },
+    "optOut": {
+     "v": 1,
+     "src": "help"
+    },
+    "tempChat": {
+     "v": 1,
+     "src": "cape",
+     "unverified": true
+    },
+    "delete30": {
+     "v": 0,
+     "src": "help",
+     "unverified": true
+    },
+    "usEu": {
+     "v": 1,
+     "src": "help",
+     "unverified": true
+    }
+   },
+   "sources": {
+    "help": {
+     "label": "Perplexity Help: Data Collection at Perplexity",
+     "url": "https://www.perplexity.ai/help-center/en/articles/11564572-data-collection-at-perplexity",
+     "how": "search snippet (page blocks automated readers)"
+    },
+    "strac": {
+     "label": "Strac: Perplexity data privacy (2026)",
+     "url": "https://www.strac.io/blog/perplexity-data-privacy",
+     "how": "search snippet, not official"
+    },
+    "cape": {
+     "label": "Cape: Perplexity privacy policy, a closer look",
+     "url": "https://www.cape.co/blog/perplexity-ai-data-privacy-policy",
+     "how": "search snippet, not official"
+    }
+   }
+  },
+  "Copilot": {
+   "maker": "Microsoft",
+   "incogni": 17.8,
+   "line": "Training and ads on unless you turn them off; history kept 18 months",
+   "facts": {
+    "noTrainDefault": {
+     "v": 0,
+     "src": "controls"
+    },
+    "optOut": {
+     "v": 1,
+     "src": "controls"
+    },
+    "tempChat": {
+     "v": 1,
+     "src": "qa",
+     "unverified": true
+    },
+    "delete30": {
+     "v": 0,
+     "src": "controls",
+     "note": "history kept 18 months unless you delete it"
+    },
+    "usEu": {
+     "v": 1,
+     "src": "faq",
+     "unverified": true
+    }
+   },
+   "sources": {
+    "controls": {
+     "label": "Microsoft Copilot privacy controls",
+     "url": "https://support.microsoft.com/en-us/microsoft-copilot/microsoft-copilot-privacy-controls",
+     "how": "read 2026-11-06"
+    },
+    "faq": {
+     "label": "Privacy FAQ for Microsoft Copilot",
+     "url": "https://support.microsoft.com/en-us/microsoft-copilot/privacy-faq-for-microsoft-copilot",
+     "how": "read 2026-11-06"
+    },
+    "qa": {
+     "label": "Microsoft Q&A: Temporary chat",
+     "url": "https://learn.microsoft.com/en-us/answers/questions/5930671/temporary-chat-access",
+     "how": "search snippet"
+    }
+   }
+  }
+ }
+}

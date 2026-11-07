@@ -1558,5 +1558,96 @@ class AAOff(unittest.TestCase):
             NEWS["TechCrunch"].pop()
 
 
+class FinderExtrasTest(unittest.TestCase):
+    """v16g: Find your AI extra tasks (Research, Video, Voice & talking, Translation) and the Privacy choice."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.m = load(self.tmp)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def lmb(self, label, rows, date="2026-11-05"):
+        return {"label": label, "date": date, "url": "https://lmarena.ai/leaderboard",
+                "rows": [{"k": self.m.normalize(n), "n": n, "o": o, "s": s, "lo": s - 5, "hi": s + 5, "votes": v}
+                         for n, o, s, v in rows]}
+
+    def raw(self):
+        m = self.m
+        return {
+            "lmarena": {"boards": {
+                "text": self.lmb("Text, overall", [("GPT-6 Astra", "OpenAI", 1500, 20000), ("Gemini 4 Carbon", "Google", 1540, 4403)]),
+                "search": self.lmb("Search Arena", [("gpt-6.1-sol-max", "openai", 1250, 9000), ("claude-opus-4-6-search", "anthropic", 1245, 170000),
+                                                    ("claude-opus-4-6", "anthropic", 1200, 9000), ("grok-4.5", "xai", 1190, 70000)], "2026-10-13"),
+                "text_to_video": self.lmb("Text-to-video", [("Gemini Omni 1.2 Flash", "google", 1541, 1742), ("Wan 3.0", "alibaba", 1477, 3082),
+                                                            ("MiniMax H3", "minimax", 1456, 28443)]),
+                "image_to_video": self.lmb("Image-to-video", [("MiniMax H3", "minimax", 1493, 120401), ("Gemini Omni 1.2 Flash", "google", 1502, 2745)]),
+                "text_non_english": self.lmb("Non-English questions", [("Gemini 4 Carbon (High)", "google", 1536, 2845),
+                                                                      ("Claude Fable 5.1 (Max)", "anthropic", 1509, 10256)], "2026-10-28"),
+            }},
+            "taubench": {"voice": m.parse_tau_voice(json.loads(fx("taubench_voice.json"))), "date": "2026-10-29"},
+        }
+
+    def test_tau_voice_parse(self):
+        rows = self.m.parse_tau_voice(json.loads(fx("taubench_voice.json")))
+        self.assertGreaterEqual(len(rows), 5)
+        self.assertEqual([r["s"] for r in rows], sorted([r["s"] for r in rows], reverse=True))
+        gpt = next(r for r in rows if r["o"] == "OpenAI")
+        self.assertAlmostEqual(gpt["s"], 79.9, places=1)
+        self.assertTrue(all(0 < r["s"] <= 100 and r["date"] for r in rows))
+
+    def test_finder_tasks_shape_and_rules(self):
+        tasks = {t["id"]: t for t in self.m.build_finder_tasks(self.raw(), mods={})}
+        self.assertEqual(set(tasks), {"research", "video", "voice", "translate"})
+        for t in tasks.values():
+            self.assertEqual(t["status"], "single")               # 1 source: never called best
+            self.assertTrue(t["why"] and t["how"] and t["boards"] and t["winners"])
+            self.assertTrue(all(b["url"] and b["date"] for b in t["boards"]))
+            self.assertTrue(t["finder"])
+        # Search Arena: "...-search" runs are the same model; the better-ranked one counts once
+        ks = [c["k"] for c in tasks["research"]["winners"] + tasks["research"]["candidates"]]
+        self.assertEqual(len(ks), len(set(ks)))
+        self.assertNotIn("search", " ".join(ks))
+        # video: names from the board (not the raw key), image-to-video rank shown beside it
+        w = tasks["video"]["winners"][0]
+        self.assertEqual(w["n"], "Gemini Omni 1.2 Flash")
+        self.assertEqual(len(w["ranks"]), 2)
+        self.assertTrue(w["notSure"])                             # 1,742 votes < 5,000
+        # voice: developer-only voice agents (no app in the Cost data) are left out
+        makers = {c["o"] for c in tasks["voice"]["winners"] + tasks["voice"]["candidates"]}
+        self.assertTrue(makers <= {"OpenAI", "Google", "xAI", "Anthropic", "Microsoft", "Meta", "Mistral", "Perplexity", "DeepSeek"}, makers)
+        self.assertEqual(tasks["voice"]["winners"][0]["o"], "OpenAI")
+        # translation carries the hand-checked Hebrew / Yiddish note
+        langs = [x["lang"] for x in tasks["translate"]["note"]["langs"]]
+        self.assertEqual(langs, ["Hebrew", "Yiddish"])
+
+    def test_finder_task_left_out_without_data(self):
+        r = self.raw()
+        r.pop("taubench")
+        del r["lmarena"]["boards"]["search"]
+        ids = [t["id"] for t in self.m.build_finder_tasks(r, mods={})]
+        self.assertEqual(ids, ["video", "translate"])
+
+    def test_privacy_scores(self):
+        p = self.m.build_privacy()
+        apps = {a["app"] for a in self.m.PRICE_APPS}
+        self.assertTrue(apps <= set(p["apps"]), apps - set(p["apps"]))   # every app in the Cost tab has a privacy row
+        for name, a in p["apps"].items():
+            self.assertTrue(0 <= a["score"] <= 1 and a["line"] and a["rank"] >= 1)
+            self.assertEqual(len(a["checks"]), 5)
+            self.assertTrue(all(c["src"].get("url") for c in a["checks"]), name)
+        self.assertEqual([p["apps"][n]["rank"] for n in p["order"]], list(range(1, len(p["order"]) + 1)))
+        self.assertTrue(p["incogni"]["url"].startswith("https://"))
+
+    def test_privacy_unverified_counts_half(self):
+        inc = {"best": 10, "worst": 20}
+        full = {"incogni": 10, "facts": {str(i): {"v": 1} for i in range(5)}}
+        half = {"incogni": 10, "facts": dict({str(i): {"v": 1} for i in range(4)}, x={"v": 1, "unverified": True})}
+        self.assertEqual(self.m.privacy_score(full, inc)[0], 1.0)
+        self.assertEqual(self.m.privacy_score(half, inc)[0], 0.95)
+        self.assertEqual(self.m.privacy_score({"incogni": 20, "facts": {}}, inc)[0], 0.0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

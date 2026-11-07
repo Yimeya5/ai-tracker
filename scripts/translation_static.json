@@ -1,0 +1,61 @@
+{
+ "_about": "Hand-checked Hebrew and Yiddish translation results for the Find your AI 'Translation' task (v16g). Intento tested one model generation older than the app's top models; shown as a note, not used for ranking. Edit by hand; update 'checked'.",
+ "checked": "2026-11-06",
+ "source": {
+  "name": "Intento, The State of Translation Automation 2026",
+  "credit": "Intento (inten.to)"
+ },
+ "langs": [
+  {
+   "lang": "Hebrew",
+   "url": "https://inten.to/state-of-translation-automation/languages/english-to-hebrew-translation.html",
+   "best": "Claude Fable 5",
+   "maker": "Anthropic",
+   "app": "Claude",
+   "line": "Hebrew: Claude made the fewest mistakes of 11 AIs tested (16.5 per 1,000 words; GPT-5.6 Sol 20.4)",
+   "rows": [
+    {
+     "n": "Claude Fable 5",
+     "o": "Anthropic",
+     "errors": 16.5
+    },
+    {
+     "n": "GPT-5.6 Sol",
+     "o": "OpenAI",
+     "errors": 20.4
+    },
+    {
+     "n": "DeepL Next Gen",
+     "o": "DeepL",
+     "errors": 33.6
+    }
+   ]
+  },
+  {
+   "lang": "Yiddish",
+   "url": "https://inten.to/state-of-translation-automation/languages/english-to-yiddish-translation.html",
+   "best": "Claude Fable 5",
+   "maker": "Anthropic",
+   "app": "Claude",
+   "line": "Yiddish: no AI is reliable yet; Claude made the fewest mistakes (44.2 per 1,000 words; GPT-5.5 54.7)",
+   "rows": [
+    {
+     "n": "Claude Fable 5",
+     "o": "Anthropic",
+     "errors": 44.2
+    },
+    {
+     "n": "GPT-5.5",
+     "o": "OpenAI",
+     "errors": 54.7
+    },
+    {
+     "n": "DeepL Next Gen",
+     "o": "DeepL",
+     "errors": 83.1
+    }
+   ]
+  }
+ ],
+ "unit": "weighted errors per 1,000 words, one-step translation (lower is better; the industry bar is 20)"
+}

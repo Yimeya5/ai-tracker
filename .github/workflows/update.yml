@@ -72,6 +72,14 @@ jobs:
           assert len(ag["news"]["items"]) <= 8 and all(n["u"] and n["s"] and n["d"] for n in ag["news"]["items"]), "bad agent news"
           assert all(a.get("src") and a["src"].get("url") for a in d["cost"]["apps"]), "price without its source page"
           assert all(r["u"] and r["src"] for r in d["releases"]["items"]), "release without source"
+          fi = d.get("finder") or {}
+          for t in fi.get("tasks", []):
+              assert t["why"] and t["boards"] and t["winners"], "finder task without reason, sources or models: " + t["id"]
+              assert t["status"] == "single" or t["n"] >= 2, "finder task called best from 1 source: " + t["id"]
+              assert all(b["url"] and b["date"] for b in t["boards"]), "finder task source without link or date: " + t["id"]
+          pv = fi.get("privacy")
+          assert pv and pv["apps"], "no privacy data for Find your AI"
+          assert all(c["src"].get("url") for a in pv["apps"].values() for c in a["checks"]), "privacy fact without its source"
           if not d["aaEnabled"]:
               raw = json.load(open("data/raw.json"))
               assert "aa" not in raw and "aa" not in d["status"], "Artificial Analysis data while it is switched off"
@@ -102,6 +110,10 @@ jobs:
                   print(f"::warning::Agent test left out: {t['name']} ({t['skipWhy']})")
               elif not t["ok"]:
                   print(f"::warning::Agent test not updated today: {t['name']} - using the last good copy")
+          pv = (d.get("finder") or {}).get("privacy") or {}
+          if pv.get("stale"):
+              print(f"::warning::Privacy facts (scripts/privacy_static.json) were checked on {pv.get('checked')}, more than {pv.get('staleDays')} days ago")
+          print("Find your AI extra tasks:", ", ".join(t["id"] for t in (d.get("finder") or {}).get("tasks", [])) or "none today")
           b = d["agents"]["best"]
           print("Best for agents:", ", ".join(f"{w['n']} ({w['top3']} of {b['n']})" for w in b["winners"]) or "no clear winner")
           print(f"{len(d.get('stalePrices', []))} stale prices")

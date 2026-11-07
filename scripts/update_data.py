@@ -207,6 +207,11 @@ LM_BOARDS = [  # (board id, dataset config, category, label, page link)
     ("webdev", "webdev", "overall", "Building websites and apps", "https://lmarena.ai/leaderboard/webdev"),
     ("text_to_image", "text_to_image", "overall", "Making pictures", "https://lmarena.ai/leaderboard/text-to-image"),
     ("agent", "agent", "overall", "Agent Arena", "https://lmarena.ai/leaderboard/agent"),
+    # v16g, Find your AI extra tasks (see FINDER_TASKS)
+    ("search", "search", "overall", "Search Arena", "https://lmarena.ai/leaderboard/search"),
+    ("text_to_video", "text_to_video", "overall", "Text-to-video", "https://lmarena.ai/leaderboard/text-to-video"),
+    ("image_to_video", "image_to_video", "overall", "Image-to-video", "https://lmarena.ai/leaderboard/image-to-video"),
+    ("text_non_english", "text", "non_english", "Non-English questions", "https://lmarena.ai/leaderboard/text"),
 ]
 # The Agent Arena uses other column names: score (IPS, higher = better), score_ci_lower/upper, observation_count.
 # Every row of every board is kept in raw.json: a model ranked #75 is still "covered" (with its votes),
@@ -1554,6 +1559,10 @@ SRC = {
                   "what": "What each agent app costs (Agents tab), read every day from its own pricing page or App Store listing. "
                           "For agents that come with a ChatGPT, Claude or Gemini plan, a line on the company's own page shows "
                           "which plans include it.", "license": "", "licenseUrl": ""},
+    "taubench": {"name": "τ³-Voice (Sierra)", "credit": "τ-bench by Sierra (taubench.com)", "url": "https://taubench.com/leaderboard/?benchmark=voice",
+                 "what": "Live voice modes must finish real customer-service tasks by talking, with noise and interruptions, "
+                         "in six languages. Used for Voice & talking in Find your AI.",
+                 "license": "Public leaderboard (τ-bench code is MIT licensed)", "licenseUrl": "https://github.com/sierra-research/tau2-bench"},
 }
 NOT_SURE_VOTES = 5000
 
@@ -1970,6 +1979,203 @@ def build_picks(raw, aa_on=False):
     return picks
 
 
+# ======================================================================= Find your AI: extra tasks + Privacy (v16g)
+# Four more tasks for the Find your AI finder. They live in data.json "finder" (NOT in "picks"), so the Top Picks
+# cards, their 'best' rule and the Action's checks for picks stay exactly as they are. Each new task has only one
+# independent source today, so (like pictures with AA off) it is never called "best": the app shows the source's
+# order and says "1 source only".
+#   research  = LMArena Search Arena (people vote between two answers that searched the web)
+#   video     = LMArena text-to-video (image-to-video ranks shown beside it; same source, so still 1 source)
+#   voice     = Sierra's tau3-Voice leaderboard (real-time voice agents finishing real tasks by talking), only the
+#               voice models of apps the app lists (ChatGPT, Gemini, Grok...): developer-only voice agents are left out
+#   translate = LMArena questions in languages other than English (+ hand-checked Hebrew / Yiddish note, Intento 2026)
+# Privacy is a choice under "Most important": a score per app from scripts/privacy_static.json (hand-checked).
+TAU_VOICE = "https://taubench.com/voice-leaderboard.json"
+TAU_PAGE = "https://taubench.com/leaderboard/?benchmark=voice"
+PRIVACY_FILE = Path(__file__).resolve().parent / "privacy_static.json"
+TRANSLATION_FILE = Path(__file__).resolve().parent / "translation_static.json"
+PRIVACY_STALE_DAYS = 120          # hand-checked facts older than this are flagged (the Action prints a warning)
+FINDER_TASKS = [  # (id, label, icon, boards: (source, board id) - the first one decides the order)
+    ("research", "Research", "🔎", [("lmarena", "search")]),
+    ("video", "Video", "🎬", [("lmarena", "text_to_video"), ("lmarena", "image_to_video")]),
+    ("voice", "Voice & talking", "🎙️", [("taubench", "voice")]),
+    ("translate", "Translation", "🌐", [("lmarena", "text_non_english")]),
+]
+
+
+def parse_tau_voice(data):
+    """tau3-Voice leaderboard JSON -> rows sorted by score (pass rate, %). Only complete, standard submissions."""
+    rows, seen = [], set()
+    for r in (data or {}).get("rows") or []:
+        m, s = r.get("metadata") or {}, (r.get("submission") or {}).get("summary") or {}
+        if m.get("submission_type", "standard") != "standard" or not s.get("complete") or num(s.get("score")) is None:
+            continue
+        k = normalize(m.get("model_name"))
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        rows.append({"k": k, "n": display_name(m.get("model_name")), "o": org_name(m.get("model_organization")),
+                     "s": round(num(s["score"]) * 100, 1), "date": str(m.get("submission_date") or "")[:10]})
+    rows.sort(key=lambda r: -r["s"])
+    return rows
+
+
+def fetch_taubench(prev=None):
+    rows = parse_tau_voice(get(TAU_VOICE, timeout=40).json())
+    if len(rows) < 3:
+        raise ValueError(f"tau3-Voice leaderboard looks incomplete ({len(rows)} rows)")
+    return {"voice": rows, "date": max(r["date"] for r in rows)}
+
+
+def board_tau_voice(raw):
+    t = raw.get("taubench") or {}
+    if not t.get("voice"):
+        return None
+    return {"src": "taubench", "board": "τ³-Voice (real tasks by voice)", "date": t.get("date") or "", "url": TAU_PAGE,
+            "rows": [dict(r) for r in t["voice"]]}
+
+
+def consumer_makers():
+    """Makers that have an app in the Cost data (ChatGPT, Claude, Gemini, Grok, ...)."""
+    return {org_name(a.get("maker") or "").lower().split()[0] for a in PRICE_APPS if a.get("maker")} | \
+           {str(a.get("maker") or "").lower().split()[0] for a in PRICE_APPS if a.get("maker")}
+
+
+SEARCH_SUFFIX = re.compile(r"[\s\-]+(search|grounding)$", re.I)   # "claude-opus-4-6-search" = Claude Opus 4.6 with search
+
+
+def finder_board(raw, src, bid):
+    if src == "lmarena":
+        b = board_lm(raw, bid)
+        if b and bid == "search":
+            rows, seen = [], set()
+            for r in b["rows"]:
+                k, n = SEARCH_SUFFIX.sub("", r["k"]), SEARCH_SUFFIX.sub("", str(r.get("n") or ""))
+                if k in seen:
+                    continue                          # the better-ranked run of the same model counts
+                seen.add(k)
+                rows.append(dict(r, k=k, n=n or k))
+            b["rows"] = rows
+        return b
+    if src == "taubench":
+        b = board_tau_voice(raw)
+        if b:
+            makers = consumer_makers()
+            b["rows"] = [r for r in b["rows"] if str(r.get("o") or "").lower().split()[:1] and
+                         str(r["o"]).lower().split()[0] in makers]
+        return b
+    return None
+
+
+def finder_how(tid):
+    return {
+        "research": "LMArena Search Arena: people ask a question, two anonymous AIs search the web and answer, people vote "
+                    "for the better answer. 1 source only, so nothing is called best.",
+        "video": "LMArena video arenas: people vote between two anonymous videos made from the same prompt (text-to-video "
+                 "decides the order; image-to-video is shown beside it). 1 source only.",
+        "voice": "Sierra's τ³-Voice test: each AI's live voice mode has to finish real customer-service tasks by talking, "
+                 "with noise and interruptions, in six languages. Only voice modes of apps listed here. 1 source only.",
+        "translate": "LMArena, questions asked in languages other than English (people's votes). Hebrew and Yiddish are "
+                     "not tested there; see the note from Intento's 2026 translation test. 1 source only.",
+    }.get(tid, "")
+
+
+def load_static(path):
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except Exception as e:
+        log(f"could not read {Path(path).name}: {e}")
+        return None
+
+
+def translation_note(path=None):
+    t = load_static(path or TRANSLATION_FILE)
+    if not t:
+        return None
+    return {"checked": t.get("checked"), "credit": (t.get("source") or {}).get("credit", ""), "unit": t.get("unit", ""),
+            "langs": [{"lang": x["lang"], "line": x["line"], "url": x["url"], "app": x.get("app", "")} for x in t.get("langs") or []]}
+
+
+def build_finder_tasks(raw, mods=None):
+    names = names_index(raw)
+    mods = mods if mods is not None else mods_index(raw)[0]
+    text_votes = lm_votes(raw, "text")
+    out = []
+    for tid, label, icon, spec in FINDER_TASKS:
+        boards = [b for b in (finder_board(raw, s, bid) for s, bid in spec) if b and b.get("rows")]
+        if not boards or not boards[0]["rows"]:
+            log(f"finder: no data for {tid}; left out today")
+            continue
+        nm = dict(names)
+        for b in boards:                          # video / voice models are not in the text sources: use the board's names
+            for r in b["rows"]:
+                nm.setdefault(r["k"], {"n": r.get("n") or r["k"], "o": r.get("o") or ""})
+        own_votes = lm_votes(raw, spec[0][1]) if spec[0][0] == "lmarena" else {}
+        votes = text_votes if tid == "translate" else own_votes      # category boards use text-overall votes, arenas their own
+        label_v = "text overall" if tid == "translate" else spec[0][1].replace("_", "-")
+        first = boards[0]["rows"]
+        ws = [describe(first[0]["k"], boards, nm, votes, label_v)]
+        cs = [describe(r["k"], boards, nm, votes, label_v) for r in first[1:6]]
+        for c in ws + cs:                          # 1 source: "covered by 1 of 2 boards" is not a reason to doubt
+            c["why"] = [w for w in c["why"] if "sources have tested it" not in w]
+            c["notSure"] = bool(c["why"])
+        b0 = boards[0]
+        task = {
+            "id": tid, "label": label, "icon": icon, "status": "single", "need": 2, "n": 1, "finder": True,
+            "winners": [slim(c, mods) for c in ws], "candidates": [slim(c, mods) for c in cs], "new": [],
+            "why": (f"Top on {SRC[b0['src']]['name']} {b0['board']}. Only 1 source covers {label.lower()} right now, "
+                    f"so nothing is called best."),
+            "how": finder_how(tid), "usesAA": False,
+            "boards": [{"src": b["src"], "name": SRC[b["src"]]["name"], "board": b["board"], "date": b.get("date") or "",
+                        "url": b.get("url") or "", "top": [r.get("n") or r["k"] for r in b["rows"][:3]]} for b in boards],
+        }
+        if tid == "translate":
+            note = translation_note()
+            if note:
+                task["note"] = note
+        out.append(task)
+    return out
+
+
+def privacy_score(app, inc):
+    """50% Incogni 2026 privacy-risk score (lower risk = better, scaled best..worst to 1..0) + 50% the 5 hand-checked
+    facts (1 each; a fact only a news or third-party page supports counts half)."""
+    span = (inc["worst"] - inc["best"]) or 1
+    i = max(0.0, min(1.0, (inc["worst"] - app["incogni"]) / span))
+    f = sum((0.5 if x.get("unverified") else 1.0) * (1 if x.get("v") else 0) for x in (app.get("facts") or {}).values())
+    return round(0.5 * i + 0.5 * f / 5, 3), round(i, 3), round(f, 1)
+
+
+def build_privacy(path=None):
+    p = load_static(path or PRIVACY_FILE)
+    if not p:
+        return None
+    inc, labels = p["incogni"], dict(p["facts"])
+    apps = {}
+    for name, a in p["apps"].items():
+        score, inc_part, facts = privacy_score(a, inc)
+        apps[name] = {"maker": a["maker"], "score": score, "incogni": a["incogni"], "incogniPart": inc_part, "facts": facts,
+                      "line": a["line"],
+                      "checks": [{"id": fid, "label": labels.get(fid, fid), "ok": bool(x.get("v")),
+                                  "unverified": bool(x.get("unverified")), "note": x.get("note", ""),
+                                  "src": dict(a["sources"].get(x.get("src"), {}))} for fid, x in a["facts"].items()],
+                      "sources": [dict(s, id=sid) for sid, s in a["sources"].items()]}
+    order = sorted(apps, key=lambda n: -apps[n]["score"])
+    for i, n in enumerate(order):
+        apps[n]["rank"] = i + 1
+    stale = days_old(p.get("checked") or "2000-01-01") > PRIVACY_STALE_DAYS
+    return {"checked": p.get("checked"), "stale": stale, "staleDays": PRIVACY_STALE_DAYS, "apps": apps, "order": order,
+            "incogni": {k: inc[k] for k in ("name", "url", "published", "note")},
+            "how": "Score = half Incogni's 2026 privacy ranking (independent) + half 5 checks we read on each company's "
+                   "own pages: no training on your chats by default, a way to turn training off, a temporary chat, "
+                   "deleted chats gone within 30 days, data kept in the US or EU. A check only a news page supports "
+                   "counts half."}
+
+
+def build_finder(raw, mods=None):
+    return {"tasks": build_finder_tasks(raw, mods), "privacy": build_privacy()}
+
+
 # ======================================================================= cost, releases
 def build_cost(raw, picks):
     apps = []
@@ -2276,9 +2482,9 @@ def build_agents(raw, news_items, official):
 # ======================================================================= main
 SECTIONS = [("lmarena", fetch_lmarena), ("aa", fetch_aa), ("livebench", fetch_livebench), ("epoch", fetch_epoch),
             ("openrouter", fetch_openrouter), ("official", fetch_official), ("prices", fetch_prices), ("news", fetch_news),
-            ("agentapps", fetch_agentapps)]
+            ("agentapps", fetch_agentapps), ("taubench", fetch_taubench)]
 TEXT_SOURCES = ("lmarena", "aa", "livebench", "epoch")
-SOURCE_ORDER = ("lmarena", "aa", "livebench", "epoch", "openrouter", "official", "prices", "news", "agentapps")
+SOURCE_ORDER = ("lmarena", "aa", "livebench", "epoch", "openrouter", "official", "prices", "news", "agentapps", "taubench")
 
 
 def load_json(p):
@@ -2411,6 +2617,7 @@ def main():
                              "funding of about $1B or more, acquisitions of or by AI labs, and IPO filings."},
         "officialSources": official_status(raw),
         "agents": build_agents(raw, news_items, official_posts(raw)),
+        "finder": build_finder(raw),
         "stalePrices": stale, "staleDays": STALE_DAYS,
         "rule": ri["text"], "ruleInfo": ri, "fastNote": FAST_NOTE, "fastWords": list(FAST_WORDS),
     }
