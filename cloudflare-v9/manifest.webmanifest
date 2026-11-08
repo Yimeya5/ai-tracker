@@ -2,7 +2,7 @@
  "name": "AI Pro",
  "short_name": "AI Pro",
  "description": "Know AI. Be Pro. Top AI picks for each task, what each AI costs, new releases, AI updates, and one place to ask ChatGPT, Claude, Gemini and more.",
- "start_url": "./index.html#best",
+ "start_url": "./index.html#home",
  "scope": "./",
  "id": "./",
  "display": "standalone",

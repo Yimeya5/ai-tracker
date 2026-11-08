@@ -514,7 +514,7 @@ test("v7b: both themes, every group open, nothing wider than 390 px", { skip: ((
 // ---- v16h (cloudflare-v9, the live app): picker fix, no outside links, finder wording
 test("v16h: cloudflare-v9 app - tapping the already-chosen model ticks the AI; no outside links; no '1 test' note on finder tasks", () => {
   const app = read("cloudflare-v9/app.js"), sw = read("cloudflare-v9/sw.js");
-  assert.match(sw, /const VERSION = "v16[hi]\d-2026-11-\d\d"/);
+  assert.match(sw, /const VERSION = "(v16[hi]\d|v17d)-2026-11-\d\d"/);
   assert.match(app, /function chooseSame\(input\)/);                                   // the same-row handler
   assert.match(app, /addEventListener\("click", function \(e\) \{\s*if \(e\.target && e\.target\.name === "mopt" && pro\.sheet\) chooseSame\(e\.target\);/);
   assert.match(app, /e\.key === "Enter" \|\| e\.key === " "\) && e\.target && e\.target\.name === "mopt"\) \{ chooseSame\(e\.target\)/);
@@ -540,7 +540,7 @@ test("v16h: cloudflare-v9 app - tapping the already-chosen model ticks the AI; n
 // ---- v16i (cloudflare-v9): AI-written detailed story summaries + the 4 extra tests in Top Picks
 test("v16i: story page shows the AI summary (xd) with its note, else x; boards graded by AI are marked", () => {
   const sw = read("cloudflare-v9/sw.js");
-  assert.match(sw, /const VERSION = "v16i\d-2026-11-\d\d"/);
+  assert.match(sw, /const VERSION = "(v16i\d|v17d)-2026-11-\d\d"/);
   const ctx = { AI_DATA: data() };
   ctx.window = ctx;
   vm.createContext(ctx);

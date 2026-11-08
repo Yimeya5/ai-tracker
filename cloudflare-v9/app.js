@@ -1,7 +1,7 @@
 (function (root) {
   "use strict";
-  // AI Pro: 5 tabs that answer 5 questions, plus "Ask" (ask the AIs here with credits, or open the question in each AI).
-  //   Top Picks · Cost · New releases · Big news · Agents · Explore · Race   (+ a Sources view)
+  // AI Pro (v17): a home screen with 3 sections, each with its tabs (+ a Sources view):
+  //   Find your AI: Top Picks · Cost · Agents   Try it: Explore · Race   Updates: What's New · News
   // Each tab shows a short simple view first, and "See more" opens the full details.
   // All picks are made by fixed rules in scripts/update_data.py; this file only shows them.
   // ---- settings for Explore ("Ask the AIs", see worker/README.md). Leave ASK_API empty and the Ask tab is the free v8 tab.
@@ -10,7 +10,7 @@
     PAY_LINK: "https://buy.stripe.com/test_fZu8wRan4foLbQwdEU2wU00",           // the Stripe Payment Link URL ($5 for 100 credits)
     FREE: 10, PACK: 100, PRICE: 5,  // free credits, credits in the $5 pack, its price: only for the wording; the Worker decides
     WEB: 2,                         // web search: extra credits per AI that searched (fallback; GET /status sends the Worker's web_credits)
-    ASK_NAME: "Explore"             // the Ask tab's name: nav label, its heading and the first screen's banner
+    ASK_NAME: "Explore"             // the Ask tab's name: its heading and the first screen's banner
   };
   // the subtitle under each main screen's title (the "See more" pages keep their longer text)
   var SUBS = {
@@ -25,8 +25,19 @@
   var D = oneWinner(root.AI_DATA || null);
 
   var TABS = ["best", "cost", "releases", "news", "agents", "ask", "race"];
-  var VIEWS_ALL = TABS.concat(["sources"]);
-  var state = { tab: "best", more: false, open: {} };
+  var VIEWS_ALL = TABS.concat(["sources", "home"]);
+  // v17: a home screen with 3 sections replaces the tab bar. Each section = a title + segmented tabs (today's views).
+  var SECTIONS = [
+    { id: "find", title: "Find your AI", line: "Top Picks, Cost, Agents", tabs: [["best", "Top Picks"], ["cost", "Cost"], ["agents", "Agents"]],
+      icon: '<path d="M8 4h8v6a4 4 0 0 1-8 0V4z"/><path d="M8 6H5.5A1.5 1.5 0 0 0 4 7.5 3.5 3.5 0 0 0 7.5 11H8"/><path d="M16 6h2.5A1.5 1.5 0 0 1 20 7.5a3.5 3.5 0 0 1-3.5 3.5H16"/><path d="M12 14v4"/><path d="M8 20h8"/>' },
+    { id: "try", title: "Try it", line: "Explore, Race", tabs: [["ask", "Explore"], ["race", "Race"]],
+      icon: '<path d="M20 12a8 8 0 0 1-11.7 7.1L4 20l1-4.2A8 8 0 1 1 20 12z"/>' },
+    { id: "updates", title: "Updates", line: "What's New, News", tabs: [["releases", "What's New"], ["news", "News"]],
+      icon: '<path d="M4 4h12a1 1 0 0 1 1 1v14a1 1 0 0 0 1 1H6a2 2 0 0 1-2-2V4z"/><path d="M17 8h2a1 1 0 0 1 1 1v9a2 2 0 0 1-2 2"/><path d="M8 8h5M8 12h5M8 16h3"/>' }
+  ];
+  var lastTab = {};                                                   // the last tab per section, for this visit only
+  function sectionOf(tab) { return SECTIONS.filter(function (x) { return x.tabs.some(function (t) { return t[0] === tab; }); })[0] || null; }
+  var state = { tab: "home", more: false, open: {} };
 
   // ---------------------------------------------------------------- helpers
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
@@ -50,6 +61,31 @@
     return v >= 100 ? "$" + Math.round(v) : v >= 1 ? "$" + (+v.toFixed(2)) : "$" + (+v.toFixed(3));
   }
   function monthly(v) { return v == null ? "" : (v % 1 ? "$" + v.toFixed(2) : "$" + v) + "/mo"; }
+  // v17b: line icons (stroke = the text colour, or the accent where the CSS says so) instead of colour emoji
+  var ICONS = {
+    check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>', cross: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
+    warn: '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/>', bolt: '<path d="M13 3L5 14h6l-1 7 8-11h-6z"/>',
+    bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/>',
+    globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+    agent: '<rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V4.5"/><circle cx="12" cy="3.5" r="1"/><path d="M9 13v2M15 13v2"/>',
+    chat: '<path d="M20 12a8 8 0 0 1-11.7 7.1L4 20l1-4.2A8 8 0 1 1 20 12z"/>',
+    writing: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/>',
+    coding: '<path d="M8 8l-4 4 4 4M16 8l4 4-4 4M14 5l-4 14"/>',
+    math: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8.5 12h.01M12 12h.01M15.5 12h.01M8.5 16h.01M12 16h.01M15.5 16h.01"/>',
+    pictures: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M21 16l-5-5-8 8"/>',
+    cheap: '<circle cx="12" cy="12" r="9"/><path d="M15 9.5c-.5-1-1.6-1.5-3-1.5-1.7 0-3 .9-3 2s1.3 1.6 3 2 3 .9 3 2-1.3 2-3 2c-1.4 0-2.5-.5-3-1.5M12 6v2M12 16v2"/>',
+    research: '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/>',
+    video: '<rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3"/>',
+    voice: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+    translate: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+    dot: '<circle cx="12" cy="12" r="4"/>'
+  };
+  function ic(name, cls) {
+    return '<svg class="ic' + (cls ? " " + cls : "") + '" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
+      (ICONS[name] || ICONS.dot) + "</svg>";
+  }
+  // a task's icon by its id (never the data's emoji); an unknown task gets a plain dot
+  function taskIcon(id, cls) { return ic(own(ICONS, id) && ["check", "cross", "warn", "bolt", "bulb", "globe", "agent", "dot"].indexOf(id) < 0 ? id : "dot", cls); }
   function n0(v) { return v == null ? "" : Number(v).toLocaleString("en-US"); }
   function src(id) { return list(D && D.sources).filter(function (s) { return s.id === id; })[0] || { name: id, url: "" }; }
   function stat(id) { return (D && D.status && D.status[id]) || {}; }
@@ -124,16 +160,15 @@
     if (r.date) bits.push(day(r.date));
     return "<li" + (r.top3 ? ' class="agree"' : "") + ">" + head + ": <b>" + esc(bits.join(" · ")) + "</b></li>";
   }
-  // "⚡ Fast" is guessed from the model's name (see FAST_WORDS in scripts/update_data.py), not measured. Label only.
+  // "Fast" is guessed from the model's name (see FAST_WORDS in scripts/update_data.py), not measured. Label only.
   function fastNote() { return (D && D.fastNote) || "Fast = guessed from the model's name (Flash, Mini, Haiku…), not a speed test."; }
   function fastTag(isFast) {
-    return isFast ? ' <span class="fast" title="' + esc(fastNote()) + '">⚡ Fast</span>' : "";
+    return isFast ? ' <span class="fast" title="' + esc(fastNote()) + '">' + ic("bolt") + " Fast</span>" : "";
   }
   function candDetail(c, showFast) {
     var h = '<div class="cand"><p class="cn"><b>' + esc(c.n) + "</b>" + (showFast ? fastTag(c.fast) : "") + (c.o ? " <span class=\"muted\">by " + esc(makerName(c.o)) + "</span>" : "") +
-      (c.notSure ? ' <span class="badge new">New, not sure yet</span>' : "") + "</p>";
-    var note = (c.votes != null ? n0(c.votes) + " LMArena votes on its main board." : "") +
-      (c.notSure && list(c.why).length ? (c.votes != null ? " " : "") + "Not sure yet: " + esc(plainRule(c.why.join("; "), "fewer tests so far")) + "." : "");
+      (c.notSure ? ' <span class="badge new">New model</span>' : "") + "</p>";
+    var note = c.votes != null ? n0(c.votes) + " LMArena votes on its main board." : "";   // v17d: no "not sure" reason
     if (note) h += '<p class="note">' + note + "</p>";
     if (c.price) h += '<p class="note">Developer price: <b>' + money(c.price.pin) + " in / " + money(c.price.pout) + " out</b> per million tokens · " +
       "Source: " + ext(c.price.u, esc(c.price.srcName)) + (c.price.date ? ", " + esc(day(c.price.date)) : "") + "</p>";
@@ -149,8 +184,8 @@
         "Price is for developers (per million tokens ≈ 750,000 words). For the cheapest app plan, see Cost."
         : "None of the strongest models has a known price yet.";
     }
-    if (p.status === "single") return "Rated #1 by people's votes. Only 1 test covers pictures right now, so no picture model is called best yet.";
-    if (p.status === "lead") return String(p.why || "");             // as given ("Top 3 in 2 of 3 tests, best average rank.")
+    if (p.status === "single") return "Rated #1 by people's votes.";
+    if (p.status === "lead") return noOne(p.why) || topLine(w[0], n);   // as given ("Top 3 in 2 of 3 tests, best average rank."); emptied -> from the tests
     var c = w[0] || {};
     var votes1 = list(c.ranks).some(function (r) { return r.src === VOTES_SRC && r.rank === 1; });
     return votes1 ? "Rated #1 by people's votes." : "";
@@ -163,22 +198,22 @@
     var id = idPrefix + p.id;
     var w = list(p.winners);
     var badge = "";
-    if (p.status === "single") badge = '<span class="badge one">Rated #1 by people\'s votes · 1 test only</span>';
-    else if (w[0] && w[0].notSure) badge = '<span class="badge new">New, not sure yet</span>';
+    if (w[0] && w[0].notSure) badge = '<span class="badge new">New model</span>';
+    // v17b: one compact row (icon · task · winner · ›); the maker, badges and everything else open under it
     var h = '<details class="pick" id="' + esc(id) + '"' + (state.open[id] ? " open" : "") + "><summary>" +
-      '<span class="ico" aria-hidden="true">' + esc(p.icon || "•") + "</span>" +
-      '<span class="pt"><span class="lab">' + esc(p.label) + "</span>" +
-      '<span class="name">' + esc(pickTitle(p)) + "</span>" +
-      (pickMaker(p) ? '<span class="who">' + esc(pickMaker(p)) + "</span>" : "") + (badge ? '<span class="badges">' + badge + "</span>" : "") + "</span>" +
-      '<span class="chev" aria-hidden="true"></span></summary><div class="body">';
+      '<span class="pico" aria-hidden="true">' + taskIcon(p.id) + "</span>" +
+      '<span class="plab">' + esc(p.label) + "</span>" +
+      '<span class="pwin">' + esc(pickTitle(p)) + "</span>" +
+      '<span class="chev" aria-hidden="true"></span></summary><div class="body">' +
+      (pickMaker(p) || badge ? '<p class="who">' + esc(pickMaker(p)) + (badge ? (pickMaker(p) ? " " : "") + badge : "") + "</p>" : "");
     var why = plainWhy(p);
     if (why) h += '<p class="why">' + esc(why) + "</p>";
     if (p.id === "cheap") h += plainPrice(w[0]);
     if (p.status === "single" && list(p.candidates).length) h += '<p class="note">Next: ' + esc(list(p.candidates).slice(0, 3).map(function (c) { return c.n; }).join(", ")) + ".</p>";
     list(p["new"]).forEach(function (c) {
       var votes1 = list(c.ranks).some(function (r) { return r.src === VOTES_SRC && r.rank === 1; });
-      h += '<p class="newnote"><span class="badge new">New, not sure yet</span> <b>' + esc(c.n) + "</b>" +
-        (votes1 ? " is rated #1 by people's votes" : " looks strong") + ", but it's too new to be sure.</p>";
+      h += '<p class="newnote"><span class="badge new">New model</span> <b>' + esc(c.n) + "</b>" +
+        (votes1 ? " is rated #1 by people's votes." : " looks strong.") + "</p>";
     });
     if (p.usesAA) h += aaNote();
     return h + "</div></details>";
@@ -194,7 +229,7 @@
     return !(pro.left && (pro.left.paid_left != null || (pro.left.free_left != null && pro.left.free_left < CONFIG.FREE)));
   }
   function askCta() {
-    return ctaOn() ? '<a class="askcta" href="#ask" data-tab="ask"><span aria-hidden="true">💬</span> <b>' + esc(CONFIG.ASK_NAME) + "</b> — " + CONFIG.FREE +
+    return ctaOn() ? '<a class="askcta" href="#ask" data-tab="ask"><span aria-hidden="true">' + ic("chat") + '</span> <b>' + esc(CONFIG.ASK_NAME) + "</b> — " + CONFIG.FREE +
       ' free credits <span class="go" aria-hidden="true">›</span></a>' : "";
   }
   // ---- AI tip of the week (tips.js: window.AI_TIPS). One tip per week, changing every Monday: weeks are counted
@@ -215,7 +250,7 @@
   function tipHtml(d) {
     var t = tipsList(), tip = tipFor(d);
     if (!tip) return "";
-    return '<aside class="tip card" aria-labelledby="tiph"><p class="tiphead" id="tiph"><span aria-hidden="true">💡</span> AI tip of the week</p>' +
+    return '<aside class="tip card" aria-labelledby="tiph"><p class="tiphead" id="tiph"><span aria-hidden="true">' + ic("bulb") + '</span> AI tip of the week</p>' +
       '<p class="tiptext">' + esc(tip) + "</p>" +
       '<details class="tipall"><summary>See all tips</summary><ol>' + t.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ol></details></aside>";
   }
@@ -331,7 +366,7 @@
   }
   function finderWhy(r, prio, plan) {
     var w = [];
-    if (r.fast) w.push("⚡ Fast");
+    if (r.fast) w.push("Fast");
     if (plan === "paid" && r.plan) w.push(planName(r.app, r.plan.name) + " " + money(r.plan.usd_month) + "/month");
     else if (r.free) w.push(r.freeLevel === "limited" ? "May be limited on free" : "Free in " + r.app);
     else w.push("Paid plan needed" + (r.plan ? ": " + planName(r.app, r.plan.name) + " " + money(r.plan.usd_month) + "/month" : ""));
@@ -372,7 +407,7 @@
       var x = p.apps[a] || {};
       var checks = list(x.checks).map(function (c) {
         var src = c.src && c.src.label ? ' <span class="pnote">· Source: ' + esc(c.src.label) + "</span>" : "";
-        return '<li><span class="' + (c.ok ? "pvok" : "pvno") + '" aria-label="' + (c.ok ? "Yes" : "No") + '">' + (c.ok ? "✓" : "✗") + "</span><span>" + esc(c.label) +
+        return '<li><span class="' + (c.ok ? "pvok" : "pvno") + '" aria-label="' + (c.ok ? "Yes" : "No") + '">' + (c.ok ? ic("check") : ic("cross")) + "</span><span>" + esc(c.label) +
           (c.unverified ? ' <span class="pnote">(not confirmed)</span>' : "") + src + "</span></li>";
       }).join("");
       return '<div class="pvapp"><span class="pl"><span class="pln"><b>#' + esc(String(privRank(a))) + " " + esc(a) + "</b></span>" +
@@ -458,25 +493,34 @@
   }
   function vBest() {
     var picks = list(D.picks).filter(function (p) { return !p.hide; });
-    var h = "<h2>Top Picks</h2><p class=\"sub\">" + esc(SUBS.best) + "</p>" + askCta() + finderHtml() + tipHtml(new Date());   // the full rule is under See more
+    // v17b: the winners first (all six on the first phone screen), then the Explore banner, the finder and the tip
+    var h = "<h2>Top Picks</h2><p class=\"sub\">" + esc(SUBS.best) + "</p>";   // the full rule is under See more
+    h += '<div class="picklist card">' + (picks.map(function (p) { return pickCard(p, "p-"); }).join("") || '<p class="note">No picks yet.</p>') + "</div>";
     h += staleList(["lmarena", "aa", "livebench", "epoch", "eqbench", "lechmazur", "vals", "matharena"]);
     if (list(D.picks).some(function (p) { return p.usesAA; })) h += aaNote();
-    h += '<h3 class="stackh">Top Picks by task</h3><div class="stack">' + (picks.map(function (p) { return pickCard(p, "p-"); }).join("") || '<p class="note">No picks yet.</p>') + "</div>";
+    h += '<div class="afterpicks">' + askCta() + finderHtml() + tipHtml(new Date()) + "</div>";
     h += '<p class="note pickslink"><a href="#best-more" data-more="best">See the test scores and how picks work</a></p>';
     h += moreButton("best") + plainCredits();
     return h;
   }
-  // the daily data's older wording "1 source only" reads "1 test only", like the Top Picks card
-  function oneTest(t) { return String(t || "").replace(/\b1 source only\b/g, "1 test only"); }
+  // v17c: no "only 1 source / 1 test" notes on screen. The data's why / how text drops every sentence that says so;
+  // what is left is shown (or the caller's fallback when nothing is left). Sentences end at . ! ? followed by a space,
+  // so "Opus 5.5" stays whole.
+  // v17d: also any sentence that counts how few sources or tests rated a model ("1 of 3 sources", "sources have tested")
+  var ONE_RE = /\b(only|just)\s+1\s+(source|test)s?\b|\b1\s+(source|test)s?\s+only\b|\bbased on 1\b|\b\d+\s+of\s+\d+\s+sources?\b|\bsources?\s+ha(ve|s)\s+tested\b|\btested by\s+\d+\b|\bonly\s+\d+\s+(sources?|tests?)\b/i;
+  function noOne(t) {
+    return String(t || "").replace(/([.!?])\s+/g, "$1\u0000").split("\u0000").map(function (x) { return x.trim(); })
+      .filter(function (x) { return x && !ONE_RE.test(x); }).join(" ");
+  }
   function vBestMore() {
     var h = backButton() + "<h2>Top Picks: full details</h2>";
     h += howPicks();
     list(D.picks).forEach(function (p) {
       if (p.hide) return;
-      h += '<section class="job"><h3>' + esc(p.icon) + " " + esc(p.label) + ": " + esc(pickTitle(p)) + (p.status === "single" ? " (1 test only)" : "") + "</h3>";
-      var pw = p.status === "lead" ? String(p.why || "") : plainRule(p.why, p.id === "cheap" ? "Cheapest to build apps with, among the strongest models." : p.status === "best" ? BEST_RULE : plainWhy(p));
-      if (pw) h += '<p class="why">' + esc(oneTest(pw)) + "</p>";
-      h += '<p class="note"><b>Sources used:</b> ' + esc(oneTest(plainRule(p.how, p.id === "cheap" ? CHEAP_HOW : "The independent tests listed below."))) + "</p>";
+      h += '<section class="job"><h3>' + taskIcon(p.id, "acc") + " " + esc(p.label) + ": " + esc(pickTitle(p)) + "</h3>";
+      var pw = p.status === "lead" ? plainWhy(p) : plainRule(noOne(p.why) || (p.status === "single" ? plainWhy(p) : ""), p.id === "cheap" ? "Cheapest to build apps with, among the strongest models." : p.status === "best" ? BEST_RULE : plainWhy(p));
+      if (pw) h += '<p class="why">' + esc(pw) + "</p>";
+      h += '<p class="note"><b>Sources used:</b> ' + esc(plainRule(noOne(p.how), p.id === "cheap" ? CHEAP_HOW : "The independent tests listed below.") || "The independent tests listed below.") + "</p>";
       h += '<ul class="boards">' + list(p.boards).map(function (b) {
         return "<li>" + (b.src === "aa" ? "Source: " + ext(b.url, AA_CREDIT) : ext(b.url, esc(b.name))) + " · " + esc(b.board) + (b.ai ? " (graded by AI)" : "") + (b.date ? " · " + esc(day(b.date)) : "") + "</li>";
       }).join("") + "</ul>";
@@ -494,10 +538,23 @@
   // ---------------------------------------------------------------- views: Cost
   // Each app shows where today's price came from (its own pricing page, or its own App Store listing),
   // when it was last checked, and a "stale" mark when that check is more than D.staleDays (30) days old.
-  function staleMark(isStale) { return isStale ? ' <span class="stale" title="Not confirmed for more than ' + ((D && D.staleDays) || 30) + ' days">⚠ stale</span>' : ""; }
+  function staleMark(isStale) { return isStale ? ' <span class="stale" title="Not confirmed for more than ' + ((D && D.staleDays) || 30) + ' days">' + ic("warn") + ' stale</span>' : ""; }
   // a plan's price: "from $99.99/mo" when its note starts with "from" (the raw note isn't shown), else "$19.99/mo (note)"
+  // v17b: a plan whose note lists several prices ("from; $99.99 or $199.99") has several tiers: show each price.
+  // The prices come from the note, so they follow the data. Returns {prices: [99.99, 199.99], rest: "other note text"}.
+  function planTiers(p) {
+    var note = String(p && p.note || ""), parts = note.split(/\s*;\s*/), prices = [], rest = [];
+    parts.forEach(function (x) {
+      var m = x.match(/\$\s?\d[\d,]*(\.\d+)?/g);
+      if (m && m.length > 1 && /^[\s$\d.,]*(or|and|\/)?[\s$\d.,or]*$/i.test(x)) prices = m.map(function (v) { return Number(v.replace(/[$,\s]/g, "")); });
+      else if (x && !/^from$/i.test(x)) rest.push(x);
+    });
+    return { prices: prices.filter(function (v) { return isFinite(v) && v > 0; }), rest: rest.join("; "), from: /^from\b/i.test(note) };
+  }
+  function priceList(vs) { var m = vs.map(function (v) { return monthly(v).replace("/mo", ""); }); return m.length > 1 ? m.slice(0, -1).join(", ") + " or " + m[m.length - 1] + "/mo" : monthly(vs[0]); }
   function planPrice(p) {
-    var note = String(p.note || "");
+    var note = String(p.note || ""), t = planTiers(p);
+    if (t.prices.length > 1) return "<b>" + esc(priceList(t.prices)) + "</b>" + (t.rest ? " (" + esc(t.rest) + ")" : "");
     if (/^from\b/i.test(note)) return "<b>from " + esc(monthly(p.usd_month)) + "</b>";
     return "<b>" + esc(monthly(p.usd_month)) + "</b>" + (note ? " (" + esc(note) + ")" : "");
   }
@@ -508,6 +565,11 @@
     if (!ps.length && a.free !== true) return "";
     return '<span class="xmore"><span class="plist">' + (a.free === true ? '<span class="pl"><span class="pln">Free</span><span class="plp">$0</span></span>' : "") +
       ps.map(function (p) {
+        var t = planTiers(p);
+        if (t.prices.length > 1) return t.prices.map(function (v) {             // one line per tier ($99.99, $199.99)
+          return '<span class="pl"><span class="pln">' + esc(p.name) + (t.rest ? ' <span class="pnote">(' + esc(t.rest) + ")</span>" : "") + "</span>" +
+            '<span class="plp">' + esc(monthly(v)) + staleMark(p.stale) + "</span></span>";
+        }).join("");
         var from = /^from\b/i.test(String(p.note || ""));
         return '<span class="pl"><span class="pln">' + esc(p.name) + (p.note && !from ? ' <span class="pnote">(' + esc(p.note) + ")</span>" : "") + "</span>" +
           '<span class="plp">' + (from ? "from " : "") + esc(monthly(p.usd_month)) + staleMark(p.stale) + "</span></span>";
@@ -515,7 +577,7 @@
   }
   function appRow(a, full) {
     var src = a.src || { label: "Pricing page", url: a.page };
-    var right = a.free ? '<span class="free">Free ✓</span>' : '<span class="muted">No free plan</span>';
+    var right = a.free ? '<span class="free">Free ' + ic("check") + "</span>" : '<span class="muted">No free plan</span>';
     var paid = a.cheapest ? "Paid plans from " + monthly(a.cheapest.usd_month) + staleMark(a.cheapest.stale) : esc(a.note || "No paid plan");
     var h = "<li><span class=\"rn\"><b>" + esc(a.app) + "</b>" + (a.formerly ? ' <span class="muted">(formerly ' + esc(a.formerly) + ")</span>" : "") +
       "<small>" + esc(a.maker) + " · " + paid + "</small>";
@@ -544,7 +606,7 @@
       "<p class=\"sub\">Monthly prices in US dollars, read every day from each company's own pricing page, or from the company's own App Store listing (US prices) when its web page blocks servers. App Store prices can differ from web prices by a few cents. If a page can't be read, the last good price stays with the date it was last checked; after " + ((D && D.staleDays) || 30) + " days it is marked stale.</p>" + staleNote("prices");
     h += '<ul class="rows card">' + apps.map(function (a) { return appRow(a, true); }).join("") + "</ul>";
     h += "<h3>For developers: price per million tokens</h3><p class=\"sub\">What it costs to use each model through its API: to send / to get back. A million tokens is about 750,000 words. Cheapest first.</p>" +
-      '<p class="note">⚡ ' + esc(fastNote()) + "</p>";
+      '<p class="note">' + ic("bolt") + " " + esc(fastNote()) + "</p>";
     h += staleNote("openrouter");
     h += '<ul class="rows card">' + (dev.map(function (d) {
       return '<li><span class="rn"><b>' + esc(d.n) + "</b>" + fastTag(d.fast) + "<small>" + esc(makerName(d.o)) + '</small><small class="checked">Source: ' + ext(d.u, esc(d.srcName)) + (d.date ? ", " + esc(day(d.date)) : "") +
@@ -640,14 +702,14 @@
     var items = relSorted(D.releases && D.releases.items);
     var h = "<h2>New releases</h2><p class=\"sub\">" + esc(SUBS.releases) + "</p>" + staleNote("openrouter");
     h += '<ul class="rels">' + (items.slice(0, 6).map(relRowPlain).join("") || '<li class="relcard muted">Nothing new yet.</li>') + "</ul>";
-    if (items.slice(0, 6).some(function (r) { return r.fast; })) h += '<p class="note">⚡ ' + esc(fastNote()) + "</p>";
+    if (items.slice(0, 6).some(function (r) { return r.fast; })) h += '<p class="note">' + ic("bolt") + " " + esc(fastNote()) + "</p>";
     h += moreButton("releases", items.length > 6) + plainCredits();
     return h;
   }
   function vReleasesMore() {
     var items = relSorted(D.releases && D.releases.items);
     var h = backButton() + "<h2>New releases: last " + ((D.releases && D.releases.days) || 60) + " days</h2>" +
-      "<p class=\"sub\">Date and link = the company's own announcement when it has one (OpenAI, Google, Anthropic, Mistral, xAI, Meta, DeepSeek), otherwise the date it became available on OpenRouter" + (D.aaEnabled ? " or the release date listed by " + AA_CREDIT : "") + ". Each model is listed once. ⚡ " + esc(fastNote()) + "</p>" + staleNote("openrouter");
+      "<p class=\"sub\">Date and link = the company's own announcement when it has one (OpenAI, Google, Anthropic, Mistral, xAI, Meta, DeepSeek), otherwise the date it became available on OpenRouter" + (D.aaEnabled ? " or the release date listed by " + AA_CREDIT : "") + ". Each model is listed once. " + ic("bolt") + " " + esc(fastNote()) + "</p>" + staleNote("openrouter");
     var lastMo = "", body = "";
     items.forEach(function (r) {
       var mo = /^\d{4}-\d{2}/.test(String(r.d || "")) ? String(r.d).slice(0, 7) : "none";
@@ -701,13 +763,13 @@
   function creditsText(ids) { return credits(ids).replace(/<a [^>]*href="(?!#)[^"]*"[^>]*>([\s\S]*?)<\/a>/g, "$1"); }
   function vNews() {
     var items = list(D.bignews && D.bignews.items);
-    var h = "<h2>Updates</h2><p class=\"sub\">Only the big stories: new models, price changes and major company updates.</p>" + staleNote("news");
+    var h = "<h2>News</h2><p class=\"sub\">Only the big stories: new models, price changes and major company updates.</p>" + staleNote("news");
     h += '<ul class="rows card">' + (items.slice(0, 5).map(function (n, i) { return newsRow(n, "news", i); }).join("") || '<li class="muted">No updates right now.</li>') + "</ul>";
     return h + moreButton("news", items.length > 5) + creditsText(["official", "news"]);
   }
   function vNewsMore() {
     var items = list(D.bignews && D.bignews.items);
-    var h = backButton() + "<h2>Updates: last 30 days</h2><p class=\"sub\">" + esc((D.bignews && D.bignews.rules) || "") + " From the companies' own pages, AI lab blogs and tech sites, picked by fixed word rules (opinion, lawsuits, rumors, partnerships and customer stories are left out). The same story from several sites is shown once, from the company's own page when there is one.</p>" + staleNote("news");
+    var h = backButton() + "<h2>News: last 30 days</h2><p class=\"sub\">" + esc((D.bignews && D.bignews.rules) || "") + " From the companies' own pages, AI lab blogs and tech sites, picked by fixed word rules (opinion, lawsuits, rumors, partnerships and customer stories are left out). The same story from several sites is shown once, from the company's own page when there is one.</p>" + staleNote("news");
     h += '<ul class="rows card">' + (items.slice(0, 30).map(function (n, i) { return newsRow(n, "news", i); }).join("") || '<li class="muted">No updates right now.</li>') + "</ul>";
     return h + backButton() + creditsText(["official", "news"]);
   }
@@ -732,9 +794,10 @@
   function agentBestCard(full) {
     var b = AG().best || {}, w = list(b.winners);
     if (!w.length || b.hide) return "";                              // never a "no winner" card
-    var h = '<section class="card abest"><h3><span class="ico sm" aria-hidden="true">🤖</span>Best AI for agents</h3>' +
+    var h = '<section class="card abest"><h3><span class="ico sm" aria-hidden="true">' + ic("agent") + '</span>Best AI for agents</h3>' +
       '<p class="note">' + (full ? esc(plainRule(AG().rule, AGENT_RULE)) : "The AI model inside an agent. " + esc(AGENT_RULE)) + "</p>";
-    if (b.status === "lead" && b.why) h += '<p class="why">' + esc(b.why) + "</p>";
+    var bwhy = b.status === "lead" ? noOne(b.why) || topLine(w[0], b.n || list(b.boards).length || 3) : "";
+    if (bwhy) h += '<p class="why">' + esc(bwhy) + "</p>";
     if (w.length) {
       h += '<ul class="rows">' + w.map(function (c) {
         return '<li><span class="rn"><b class="big">' + esc(c.n) + "</b>" + (full ? fastTag(c.fast) : "") + (agentWho(c, b.n) ? "<small>" + agentWho(c, b.n) + "</small>" : "") +
@@ -750,7 +813,7 @@
     return list(a.plans).length ? "" : "no price found";
   }
   function agentFree(a) {
-    if (a.free === true) return '<span class="free">Free ✓</span>';
+    if (a.free === true) return '<span class="free">Free ' + ic("check") + "</span>";
     if (a.free === false) return '<span class="muted">Paid</span>';
     return "";                                                       // unknown: no badge
   }
@@ -1187,7 +1250,7 @@
         var a = pro.answers && !pro.busy ? pro.answers.filter(function (x) { return x.id === id; })[0] : null;
         return '<section class="acard card" data-card="' + esc(id) + '"><h4>' + esc(m.name) +
           (isDefault(m, o) ? "" : '<span class="amodel"> · ' + esc(o.label) + "</span>") +
-          (a && a.searched === true && !a.error ? ' <span class="searched">🌐 Searched the web</span>' : "") +
+          (a && a.searched === true && !a.error ? ' <span class="searched">' + ic("globe") + " Searched the web</span>" : "") +
           (a && a.images_skipped === true && !a.error ? ' <span class="imgskip">Can\'t read images</span>' : "") +
           '</h4><p class="atext" dir="auto"></p><p class="asrcs" hidden></p></section>';
       }).join("") + "</div>" + '<p class="note fastmodel">Answered by each company\'s fast model, unless you pick another (▾).</p>';
@@ -1426,7 +1489,7 @@
     var live = !done && l.text ? '<p class="lmeta live">Round ' + Math.min(race.round || 1, l.rounds) + " of " + l.rounds + "…</p>" : "";
     return '<section class="lane card ' + state2 + '" data-lane="' + esc(l.id) + '"><div class="lhead"><b>' + esc(l.name) + "</b>" +
       (l.label ? '<span class="amodel"> · ' + esc(l.label) + "</span>" : "") +
-      (l.searched && !l.error ? ' <span class="searched">🌐 Searched the web</span>' : "") +
+      (l.searched && !l.error ? ' <span class="searched">' + ic("globe") + " Searched the web</span>" : "") +
       (l.imgSkip && !l.error ? ' <span class="imgskip">Can\'t read images</span>' : "") +
       '<span class="lright">' + (l.place ? '<span class="lplace p' + l.place + '">' + PLACES[l.place - 1] + "</span>" : "") +
       (done && l.error ? "" : '<span class="ltime' + (done ? "" : " live") + '">' + (done ? esc(secs1(l.total)) : "0.0 s") + "</span>") + "</span></div>" +
@@ -1444,7 +1507,7 @@
     var srcs = done && !l.error ? webSources(l.sources) : [];
     return '<section class="lane card ' + state2 + '" data-lane="' + esc(l.id) + '"><div class="lhead"><b>' + esc(l.name) + "</b>" +
       (l.label ? '<span class="amodel"> · ' + esc(l.label) + "</span>" : "") +
-      (l.searched && !l.error ? ' <span class="searched">🌐 Searched the web</span>' : "") +
+      (l.searched && !l.error ? ' <span class="searched">' + ic("globe") + " Searched the web</span>" : "") +
       (l.imgSkip && !l.error ? ' <span class="imgskip">Can\'t read images</span>' : "") +
       '<span class="lright">' + (l.place ? '<span class="lplace p' + l.place + '">' + PLACES[l.place - 1] + "</span>" : "") +
       (done && l.error ? "" : '<span class="ltime">' + (done ? laneSecs(l.ms) : "0.0 s") + "</span>") + "</span></div>" +
@@ -1720,11 +1783,11 @@
 
   // ---------------------------------------------------------------- Sources view
   function vSources() {
-    var h = "<h2>Sources</h2><p class=\"sub\">Where every number comes from. The app rebuilds itself every day. If a source doesn't answer, its last good copy is kept.</p>";
+    var h = "<h2 class=\"sr\">Sources</h2><p class=\"sub\">Where every number comes from. The app rebuilds itself every day. If a source doesn't answer, its last good copy is kept.</p>";
     h += '<ul class="rows card srcs">' + list(D.sources).map(function (s) {
       var st = stat(s.id);
-      var line = st.ok ? '<span class="ok">✓ Working</span>'
-        : st.updated ? '<span class="warn">⚠ Using last good copy from ' + esc(day(st.updated)) + "</span>" : '<span class="warn">⚠ No data yet</span>';
+      var line = st.ok ? '<span class="ok">' + ic("check") + " Working</span>"
+        : st.updated ? '<span class="warn">' + ic("warn") + " Using last good copy from " + esc(day(st.updated)) + "</span>" : '<span class="warn">' + ic("warn") + " No data yet</span>";
       return '<li><span class="rn"><b>' + (s.url ? ext(s.url, esc(s.credit || s.name)) : esc(s.credit || s.name)) + "</b>" +
         "<small>" + esc(s.what) + "</small>" +
         (s.license ? "<small>License: " + (s.licenseUrl ? ext(s.licenseUrl, esc(s.license)) : esc(s.license)) + "</small>" : "") +
@@ -1733,20 +1796,20 @@
     var offs = list(D.officialSources);
     if (offs.length) {
       h += "<h3>Official company pages (new models)</h3><ul class=\"rows card\">" + offs.map(function (o) {
-        var line = o.ok ? '<span class="ok">✓ Working</span>'
-          : o.updated ? '<span class="warn">⚠ Failed today, using the copy from ' + esc(day(o.updated)) + "</span>" : '<span class="warn">⚠ No copy yet</span>';
+        var line = o.ok ? '<span class="ok">' + ic("check") + " Working</span>"
+          : o.updated ? '<span class="warn">' + ic("warn") + " Failed today, using the copy from " + esc(day(o.updated)) + "</span>" : '<span class="warn">' + ic("warn") + " No copy yet</span>";
         return '<li><span class="rn"><b>' + ext(o.url, esc(o.label)) + "</b><small>" + line + (o.err ? ' · <span class="muted">' + esc(o.err) + "</span>" : "") + "</small></span></li>";
       }).join("") + "</ul>";
     }
     var apps = list(D.cost && D.cost.apps);
     if (apps.length) {
       var stale = list(D.stalePrices);
-      h += "<h3>App prices</h3>" + (stale.length ? '<p class="note bad">⚠ ' + stale.length + " price" + (stale.length > 1 ? "s" : "") +
+      h += "<h3>App prices</h3>" + (stale.length ? '<p class="note bad">' + ic("warn") + " " + stale.length + " price" + (stale.length > 1 ? "s" : "") +
         " not confirmed for more than " + ((D && D.staleDays) || 30) + " days: " + esc(stale.map(function (x) { return x.app + (x.plan ? " " + x.plan : ""); }).join(", ")) + "</p>" : "");
       h += '<ul class="rows card">' + apps.map(function (a) {
         var src = a.src || { label: "Pricing page", url: a.page };
         var read = a.readToday === undefined ? a.read_ok : a.readToday;
-        var line = read ? '<span class="ok">✓ Read today</span>' : '<span class="warn">⚠ Failed today</span>';
+        var line = read ? '<span class="ok">' + ic("check") + " Read today</span>" : '<span class="warn">' + ic("warn") + " Failed today</span>";
         var failed = list(a.tried).filter(function (t) { return !t.ok; }).map(function (t) { return t.label + ": " + t.err; });
         return '<li><span class="rn"><b>' + esc(a.app) + "</b><small>" + ext(src.url || a.page, esc(src.label || "Pricing page")) + " · last checked " + esc(day(a.checked)) + staleMark(a.stale) + "</small>" +
           "<small>" + line + (failed.length ? ' · <span class="muted">' + esc(failed.join("; ")) + "</span>" : "") + "</small></span></li>";
@@ -1755,9 +1818,9 @@
     var ag = AG();
     if (ag && list(ag.tests).length) {
       h += "<h3>Agent tests (Agents tab)</h3><ul class=\"rows card\">" + list(ag.tests).map(function (t) {
-        var line = t.skipped ? '<span class="warn">⚠ Left out today: ' + esc(t.skipWhy) + "</span>"
-          : t.ok ? '<span class="ok">✓ OK</span>' + (t.date ? " · newest result " + esc(day(t.date)) : "")
-          : '<span class="warn">⚠ Using last good copy' + (t.updated ? " from " + esc(day(t.updated)) : "") + "</span>";
+        var line = t.skipped ? '<span class="warn">' + ic("warn") + " Left out today: " + esc(t.skipWhy) + "</span>"
+          : t.ok ? '<span class="ok">' + ic("check") + " OK</span>" + (t.date ? " · newest result " + esc(day(t.date)) : "")
+          : '<span class="warn">' + ic("warn") + " Using last good copy" + (t.updated ? " from " + esc(day(t.updated)) : "") + "</span>";
         return '<li><span class="rn"><b>' + ext(t.url, esc(t.credit)) + "</b><small>" + esc(t.name) + ": " + esc(t.what) + (t.inRule ? "" : " Information only.") + "</small>" +
           (t.license ? "<small>License: " + (t.licenseUrl ? ext(t.licenseUrl, esc(t.license)) : esc(t.license)) + "</small>" : "") +
           "<small>" + line + "</small></span></li>";
@@ -1766,7 +1829,7 @@
       h += '<details class="agrp" id="src-agentpages"' + (state.open["src-agentpages"] ? " open" : "") + '><summary><span>Agent app pages <span class="cnt">(' + aps.length +
         ')</span></span><span class="chev" aria-hidden="true"></span></summary><ul class="rows card">' + aps.map(function (a) {
         var pg = a.check || a.proof || a.src || {};
-        var line = pg.readToday ? '<span class="ok">✓ Read today</span>' : '<span class="warn">⚠ Failed today</span>';
+        var line = pg.readToday ? '<span class="ok">' + ic("check") + " Read today</span>" : '<span class="warn">' + ic("warn") + " Failed today</span>";
         var failed = list(pg.tried).filter(function (t) { return !t.ok; }).map(function (t) { return t.label + ": " + t.err; });
         return '<li><span class="rn"><b>' + esc(a.app) + "</b><small>" + ext(pg.url, esc(pg.label || "Pricing page")) + " · last checked " + esc(day(pg.checked)) + staleMark(pg.stale) +
           (a.plansFrom ? " · prices from the " + esc(a.plansFrom) + " row above" : "") + "</small>" +
@@ -1776,15 +1839,15 @@
     var feeds = list(D.bignews && D.bignews.feeds);
     if (feeds.length) {
       h += "<h3>Update feeds</h3><ul class=\"rows card\">" + feeds.map(function (f) {
-        return '<li><span class="rn"><b>' + esc(f[0]) + '</b></span><span class="rv ' + (f[1] === "ok" ? "ok" : "warn") + '">' + (f[1] === "ok" ? "✓ " + esc(f[2]) + " stories" : "⚠ didn't answer") + "</span></li>";
+        return '<li><span class="rn"><b>' + esc(f[0]) + '</b></span><span class="rv ' + (f[1] === "ok" ? "ok" : "warn") + '">' + (f[1] === "ok" ? ic("check") + " " + esc(f[2]) + " stories" : ic("warn") + " didn't answer") + "</span></li>";
       }).join("") + "</ul>";
     }
     h += '<div class="card prose"><h3>How to read the numbers</h3>' +
       "<p><b>LMArena points:</b> people chat with two hidden models and vote for the better answer. The range in brackets is the margin of error.</p>" +
       (D.aaEnabled ? "<p><b>Artificial Analysis index:</b> the same set of hard tests run on every model, as one score. Private use only.</p>" : "") +
       "<p><b>LiveBench:</b> new tasks every release, kept hidden, so models can't have learned the answers.</p>" +
-      "<p><b>⚡ Fast:</b> " + esc(fastNote()) + " A rough guide only; it never changes a pick.</p>" +
-      "<p><b>Prices:</b> \u201cApp Store price (US)\u201d comes from the company's own App Store listing. A price not confirmed for more than " + ((D && D.staleDays) || 30) + " days is marked \u26a0 stale.</p>" +
+      "<p><b>" + ic("bolt") + " Fast:</b> " + esc(fastNote()) + " A rough guide only; it never changes a pick.</p>" +
+      "<p><b>Prices:</b> \u201cApp Store price (US)\u201d comes from the company's own App Store listing. A price not confirmed for more than " + ((D && D.staleDays) || 30) + " days is marked " + ic("warn") + " stale.</p>" +
       "<p><b>New releases:</b> taken from each company's own page when it announced the model (that date and link), otherwise the date it appeared on OpenRouter.</p>" +
       "<p><b>Epoch Capabilities Index:</b> many benchmarks combined into one score, with a margin of error.</p>" +
       (ag ? "<p><b>Agent tests:</b> LMArena Agent Arena score (people's votes between two agents, higher is better), LiveBench Long Agentic (0 to 100), APEX-Agents (share of work tasks solved on the first try). " + esc(AGENT_RULE) + "</p>" : "") +
@@ -1802,20 +1865,20 @@
       ". These picks are made by this app and are not endorsed by Artificial Analysis.</p>";
   }
   function howPicks() {
-    var ri = D.ruleInfo || {}, aa = !!D.aaEnabled, v = n0(ri.votes || 5000);
+    var ri = D.ruleInfo || {}, aa = !!D.aaEnabled;
     var names = ri.names ? String(ri.names) : aa ? "LMArena, Artificial Analysis, LiveBench and Epoch AI" : "LMArena, LiveBench and Epoch AI";
     // v16i1: the pipeline's own rule (minus a pictures sentence; the pictures line below says it) and test names
     var rule = (String(D.rule || "").match(/[^.]+(\.|$)/g) || []).map(function (x) { return x.trim(); }).filter(function (x) { return x && !/picture/i.test(x); }).join(" ");
     var best = rule ? rule + (ri.names ? " The tests: " + names + "." : "")
       : "a model counts as best only when the independent sources (" + names + ") agree it is one of the strongest.";
     var pics = aa ? "For pictures there are 2 sources (LMArena and Artificial Analysis), so both must agree."
-      : "For pictures only LMArena has data, so no picture model is called best. The app shows LMArena's #1 marked \u201c1 test only\u201d, and the next ones under See more.";
+      : "For pictures, the pick is LMArena's #1 (people's blind votes); the next ones are under See more.";
     return '<div class="card prose"><h3>How the picks work</h3>' +
       "<p><b>Best</b>: " + esc(best) + " " + esc(pics) + "</p>" +
-      "<p><b>New, not sure yet</b>: fewer than 3 sources have tested the model, or it has fewer than " + v + " votes on LMArena's main text board (the text-to-image board for pictures).</p>" +
+      "<p><b>New model</b>: recently released; its place may change as more results come in.</p>" +
       "<p><b>Lead</b>: when no model passes the rule, the one that does best across the tests is shown as #1, with the reason.</p>" +
       "<p>No AI is used to choose; it's the same rule every day.</p>" +
-      "<p><b>⚡ Fast</b>: " + esc(fastNote()) + " It is only a label and never changes a pick.</p>" + (aa ? aaNote() : "") + "</div>";
+      "<p><b>" + ic("bolt") + " Fast</b>: " + esc(fastNote()) + " It is only a label and never changes a pick.</p>" + (aa ? aaNote() : "") + "</div>";
   }
   function backButton() { return '<button type="button" class="backbtn" data-less="1">‹ Back to the simple view</button>'; }
   function staleList(ids) { return ids.map(staleNote).join(""); }
@@ -1830,10 +1893,36 @@
       '. <a href="#sources" data-tab="sources">All sources and update status</a></p>';
   }
 
-  var VIEWS = { best: vBest, cost: vCost, releases: vReleases, news: vNews, agents: vAgents, ask: vAsk, race: vRace, sources: vSources };
+  // ---------------------------------------------------------------- v17: home and the section bar
+  function svg(paths, size) {
+    return '<svg viewBox="0 0 24 24" width="' + size + '" height="' + size + '" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + paths + "</svg>";
+  }
+  var CHEV_R = '<path d="M9 6l6 6-6 6"/>', CHEV_L = '<path d="M15 6l-6 6 6 6"/>';
+  function vHome() {
+    var h = '<h2 class="sr">Home</h2><div class="home">' + SECTIONS.map(function (x) {
+      return '<button type="button" class="hcard" data-tab="' + (lastTab[x.id] || x.tabs[0][0]) + '" data-sec="' + x.id + '">' +
+        '<span class="hib">' + svg(x.icon, 28) + '</span><span class="htx"><b>' + esc(x.title) + "</b><small>" + esc(x.line) + "</small></span>" +
+        '<span class="hch">' + svg(CHEV_R, 20) + "</span></button>";
+    }).join("") + "</div>";
+    var upd = D && D.built ? day(D.built) : "";
+    return h + '<p class="homefoot"><button type="button" class="linkbtn" data-tab="sources">Sources</button>' + (upd ? '<span class="muted"> · updated ' + esc(upd) + "</span>" : "") + "</p>";
+  }
+  // the bar on a section's tabs: ‹ Home, the section title, its tabs (Sources: only ‹ Home and the title)
+  function sectionBar(tab) {
+    var x = sectionOf(tab), title = x ? x.title : tab === "sources" ? "Sources" : "";
+    if (!title) return "";
+    var h = '<div class="secbar"><button type="button" class="secback" data-tab="home" aria-label="Home">' + svg(CHEV_L, 22) + '<span aria-hidden="true">Home</span></button>' +
+      '<p class="sectt">' + esc(title) + "</p>";
+    if (x) h += '<div class="stabs" role="group" aria-label="' + esc(title) + '">' + x.tabs.map(function (t) {
+      return '<button type="button" class="stab' + (t[0] === tab ? " on" : "") + '" data-tab="' + t[0] + '"' + (t[0] === tab ? ' aria-current="page"' : "") + ">" + esc(t[1]) + "</button>";
+    }).join("") + "</div>";
+    return h + "</div>";
+  }
+  var VIEWS = { best: vBest, cost: vCost, releases: vReleases, news: vNews, agents: vAgents, ask: vAsk, race: vRace, sources: vSources, home: vHome };
   var MORE = { best: vBestMore, cost: vCostMore, releases: vReleasesMore, news: vNewsMore, agents: vAgentsMore };
 
   function viewHtml(tab, more) {
+    if (tab === "home") return vHome();                        // works without any data
     if (tab === "ask") return vAsk();                          // works without any data
     if (tab === "race") return vRace();
     if (!D) return '<h2>No data yet</h2><p class="sub">' + (typeof navigator !== "undefined" && navigator.onLine === false
@@ -1843,7 +1932,7 @@
     catch (e) { return '<h2>Something went wrong</h2><p class="sub">This part could not be shown. Pull to refresh or try again later.</p>'; }
   }
 
-  // #best #cost #releases #news #agents #sources, and "#<tab>-more" for the details. Anything else (old links) -> first tab.
+  // #home #best #cost #releases #news #agents #ask #race #sources, and "#<tab>-more" for the details. Anything else -> home.
   function routeFor(hash) {
     var h = String(hash || "").replace(/^#/, "").toLowerCase();
     if (h === "main") return null;                           // skip link
@@ -1853,7 +1942,7 @@
     var t = h.replace(/-more$/, "");
     if (t === "updates") t = "news";                        // v16f: the News tab is called Updates; #news still works
     if (VIEWS_ALL.indexOf(t) >= 0) return { tab: t, more: more && !!MORE[t] };
-    return { tab: "best", more: false };
+    return { tab: "home", more: false };
   }
 
   root.AITracker = { routeFor: routeFor, pickTitle: pickTitle, tabs: TABS, setData: function (d) { D = oneWinner(d); }, askLinks: askLinks, askAIs: ASK_AIS,
@@ -1867,13 +1956,6 @@
     view: viewHtml, views: VIEWS, more: MORE, storyHtml: storyHtml, plainRule: plainRule };
 
   if (!hasDom) return;
-  // the Ask tab's name lives in CONFIG.ASK_NAME (index.html carries the same words for the first paint)
-  (function () {
-    var nb = document.querySelector('#tabs [data-tab="ask"]');
-    if (!nb) return;
-    nb.setAttribute("aria-label", CONFIG.ASK_NAME);
-    nb.querySelectorAll(".long, .short").forEach(function (x) { x.textContent = CONFIG.ASK_NAME; });
-  })();
   store("ait.web", null);               // v13: the web switch is gone (the helper decides); forget the old setting
 
   // ---------------------------------------------------------------- page wiring
@@ -1914,36 +1996,36 @@
   });
   function render() {
     setStamp();
-    view.innerHTML = state.story && D ? storyHtml(state.story.src, state.story.i) : viewHtml(state.tab, state.more);
+    // v17: a section's tab (not its See more page, not a story) gets the section bar on top
+    var bar = !state.story && !state.more ? sectionBar(state.tab) : "";
+    view.innerHTML = state.story && D ? storyHtml(state.story.src, state.story.i) : bar + viewHtml(state.tab, state.more);
+    var sx = sectionOf(state.tab); if (sx) lastTab[sx.id] = state.tab;
     xrows();
     if (state.tab === "ask") fourFill();
-    document.querySelectorAll("#tabs button").forEach(function (b) {
-      if (b.getAttribute("data-tab") === state.tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
-    });
     var sb = document.getElementById("srcbtn");
     if (sb) { if (state.tab === "sources") sb.setAttribute("aria-current", "page"); else sb.removeAttribute("aria-current"); }
   }
-  // History (v16f): each entry carries d = how many steps it sits above Top Picks. Leaving Top Picks for another tab
-  // ADDS one entry (aitTab); later tab switches replace it, so the phone's Back from any tab returns to Top Picks and
-  // Back on Top Picks leaves the app. "See more" ADDS one (aitMore), so Back returns to the simple view; "‹ Back to the
-  // simple view" then just goes back. The Top Picks tab steps back to the Top Picks entry (the history doesn't grow).
+  // History (v16f, v17): each entry carries d = how many steps it sits above Home. Opening a tab from Home ADDS one entry
+  // (aitTab); later tab switches (in a section or across) replace it, so the phone's Back from any tab returns to Home
+  // and Back on Home leaves the app. "See more" and a story ADD one each, so Back returns to the tab. "‹ Home" steps
+  // back to the Home entry (the history doesn't grow).
   function histD() { var s2 = history.state; return s2 && s2.d > 0 ? s2.d : 0; }
   function setHash(h, push) {
     if (location.hash === h) return;
     try { if (push) history.pushState({ aitMore: 1, d: histD() + 1 }, "", h); else history.replaceState(histD() ? { aitTab: 1, d: histD() } : null, "", h); } catch (e) {}
   }
   function goTab(tab) {
-    tab = VIEWS_ALL.indexOf(tab) >= 0 ? tab : "best";
+    tab = VIEWS_ALL.indexOf(tab) >= 0 ? tab : "home";
     var d = histD();
-    if (tab === "best" && d > 0) { try { history.go(-d); return; } catch (e) {} }
-    if (tab !== "best" && d === 0 && !(state.tab === tab && !state.more && !state.story)) {
+    if (tab === "home" && d > 0) { try { history.go(-d); return; } catch (e) {} }
+    if (tab !== "home" && d === 0 && !(state.tab === tab && !state.more && !state.story)) {
       try { history.pushState({ aitTab: 1, d: 1 }, "", "#" + tab); } catch (e) {}
     }
     go(tab);
   }
   function go(tab, more, keepScroll, push) {
     state.story = null;
-    state.tab = VIEWS_ALL.indexOf(tab) >= 0 ? tab : "best";
+    state.tab = VIEWS_ALL.indexOf(tab) >= 0 ? tab : "home";
     state.more = !!more && !!MORE[state.tab];
     setHash("#" + state.tab + (state.more ? "-more" : ""), !!push && state.more);
     render();
@@ -2694,17 +2776,22 @@
   });
   installSync();
 
-  var start = routeFor(location.hash) || { tab: "best", more: false };
+  var start = routeFor(location.hash) || { tab: "home", more: false };
   // back from Stripe: ?session_id=cs_...#ask -> turn the payment into a code (the helper checks it with Stripe)
   var sm = /[?&]session_id=(cs_[A-Za-z0-9_]{3,250})/.exec(location.search);
   if (sm && CONFIG.ASK_API) { sessionId = sm[1]; start = { tab: "ask", more: false }; redeem(); }
   else loadLeft();
-  if (!start.story && (start.tab !== "best" || start.more) && !histD()) {
-    try { history.replaceState(null, "", location.pathname + "#best"); history.pushState(start.more ? { aitMore: 1, d: 1 } : { aitTab: 1, d: 1 }, "", location.pathname + "#" + start.tab + (start.more ? "-more" : "")); } catch (e) {}
+  // a deep link (#news, #best-more, #story/news/2): Home first, then its tab, then the page, so Back walks down to Home
+  if (start.tab !== "home" && !histD()) {
+    try {
+      history.replaceState(null, "", location.pathname + "#home");
+      history.pushState({ aitTab: 1, d: 1 }, "", location.pathname + "#" + start.tab);
+      if (start.more) history.pushState({ aitMore: 1, d: 2 }, "", location.pathname + "#" + start.tab + "-more");
+    } catch (e) {}
   }
   go(start.tab, start.more, true);
   showOffline();
-  if (start.story) showStory(start.story, false, { tab: start.tab, more: false, y: 0 });   // a shared #story/… link
+  if (start.story) showStory(start.story, true, { tab: start.tab, more: false, y: 0 });   // a shared #story/… link
   pull(false);
   setInterval(setStamp, 60000);
 

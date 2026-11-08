@@ -3,7 +3,7 @@
    - a card is ONE soft surface (no border, no shadow, 12px corners); rows inside it are split by at most one hairline
    - spacing on an 8px grid (4px for tight inner gaps)
    - primary = solid brand purple; secondary = soft surface; text buttons = accent text only
-   Phone: 7 tabs in a bar at the bottom (line icons + short labels). Tablet: one row at the top; wide screens: full labels.
+   v17: no tab bar. A home screen with 3 big cards opens 3 sections; each section has a back bar and segmented tabs.
    Light and dark follow the phone's setting (no switch). */
 :root{
   --bg:#f6f6f8;--card:#ffffff;--soft:#eeeef2;--soft-2:#e4e4ea;--text:#16161d;--muted:#5f606c;--line:#e6e6ec;
@@ -12,7 +12,7 @@
   --tie:#6d28d9;--tie-soft:#f1ecfd;--new:#6d28d9;--new-soft:#f1ecfd;--none-soft:#eeeef2;
   --brand-soft:#f1ecfd;--pro:#6d28d9;
   --shadow:none;--float:0 8px 28px rgba(16,16,24,.14);
-  --r:12px;--nav:72px;
+  --r:12px;--nav:0px;
   --ease:cubic-bezier(.2,.8,.2,1);
   color-scheme:light;
 }
@@ -79,21 +79,37 @@ button{font:inherit;color:inherit}
 .iother{list-style:none;margin:0 4px;padding:0;font-size:14px;line-height:1.45;color:var(--muted)}
 .iother li{padding:4px 0}
 
-/* ---------------------------------------------------------------- tabs: bottom bar on phones */
-.tabs{position:fixed;left:0;right:0;bottom:0;z-index:30;
-  background:color-mix(in srgb,var(--card) 88%,transparent);-webkit-backdrop-filter:saturate(1.6) blur(18px);backdrop-filter:saturate(1.6) blur(18px);
-  border-top:1px solid var(--line);
-  padding:6px max(4px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(4px,env(safe-area-inset-left,0px))}
-.tabs .pill{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:0;max-width:620px;margin:0 auto}
-.tabs button{border:0;background:none;cursor:pointer;color:var(--muted);border-radius:12px;min-height:56px;min-width:0;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:11.5px;font-weight:550;line-height:1.1;
-  padding:4px 1px;text-align:center;letter-spacing:-.005em;transition:color .15s ease}
-.tabs .ti{display:grid;place-items:center;width:52px;height:30px;border-radius:15px;transition:background-color .2s ease,color .2s ease}
-.tabs .ti svg{width:22px;height:22px;display:block}
-.tabs .long{display:none}
-.tabs button:hover{color:var(--text)}
-.tabs button[aria-current="page"]{color:var(--accent);font-weight:650}
-.tabs button[aria-current="page"] .ti{background:var(--tint)}
+/* ---------------------------------------------------------------- v17: home (3 big cards) and the section bar */
+.home{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;margin-top:24px}
+.hcard{display:flex;align-items:center;gap:16px;width:100%;min-height:96px;margin:0;padding:20px;border:0;border-radius:16px;background:var(--card);
+  color:var(--text);font:inherit;text-align:left;cursor:pointer;transition:background-color .15s ease}
+.hcard:hover{background:color-mix(in srgb,var(--card) 70%,var(--tint))}
+.hib{flex:none;display:grid;place-items:center;width:56px;height:56px;border-radius:16px;background:var(--tint);color:var(--accent)}
+.hib svg,.hch svg,.secback svg{display:block}
+.htx{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+.htx b{font-size:21px;line-height:1.25;font-weight:650;letter-spacing:-.01em}
+.htx small{margin-top:2px;font-size:15px;color:var(--muted)}
+.hch{flex:none;color:var(--muted)}
+.homefoot{margin:24px 0 0;text-align:center;font-size:14px;color:var(--muted)}
+.homefoot .linkbtn{font-weight:600}
+.secbar{margin:16px 0 0}
+.secback{display:inline-flex;align-items:center;gap:2px;min-height:44px;margin:0 0 0 -10px;padding:0 12px 0 4px;border:0;border-radius:10px;
+  background:none;color:var(--accent);font:inherit;font-size:16px;font-weight:550;cursor:pointer}
+.secback:hover{background:var(--tint)}
+.sectt{margin:4px 0 12px;font-size:30px;line-height:1.15;font-weight:700;letter-spacing:-.025em}
+/* segmented tabs: one soft track, the current tab is purple (the only accent) */
+.stabs{display:flex;gap:4px;padding:4px;border-radius:12px;background:var(--soft)}
+.stab{flex:1 1 0;min-width:0;min-height:44px;margin:0;padding:0 8px;border:0;border-radius:9px;background:none;color:var(--text);
+  font:inherit;font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background-color .15s ease,color .15s ease}
+.stab:hover{background:var(--soft-2)}
+.stab.on{background:var(--brand);color:var(--on-accent)}
+.secbar + h2{margin-top:24px}
+
+/* v17b: small line icons next to words (stale, Fast, Searched the web, ✓/✗ lines); they take the text's colour */
+.ic{display:inline-block;flex:none;width:1em;height:1em;vertical-align:-.14em}
+.ic.acc{color:var(--accent)}
+.askcta .ic{width:20px;height:20px;vertical-align:-.25em}
+.tiphead .ic{width:16px;height:16px;color:var(--accent)}
 
 /* ---------------------------------------------------------------- content */
 main:focus{outline:none}
@@ -111,11 +127,23 @@ main:focus{outline:none}
 .prose b{color:var(--text);font-weight:600}
 
 /* ---------------------------------------------------------------- Top Picks cards */
-details.pick{background:var(--card);border:0;border-radius:var(--r);box-shadow:none}
+/* v17b: one flat list, one compact row per task (icon · task · winner · ›), one hairline between rows; tap = details */
+.picklist{overflow:hidden}
+details.pick{background:none;border:0;border-radius:0;box-shadow:none}
+details.pick + details.pick{border-top:1px solid var(--line)}
 details > summary{list-style:none;cursor:pointer}
 details > summary::-webkit-details-marker{display:none}
-.pick > summary{display:grid;grid-template-columns:48px minmax(0,1fr) 20px;gap:16px;align-items:center;padding:16px;border-radius:var(--r);transition:background-color .15s ease}
+.pick > summary{display:flex;align-items:center;gap:12px;min-height:52px;padding:0 16px;transition:background-color .15s ease}
 .pick > summary:hover{background:color-mix(in srgb,var(--soft) 45%,transparent)}
+.pick > summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:var(--r)}
+.pico{flex:none;display:grid;place-items:center;width:24px;height:24px;color:var(--accent)}
+.pico .ic{width:22px;height:22px}
+/* the winner keeps its full name first (up to 64% of the row); the task name takes the rest */
+.plab{flex:1 1 0;min-width:0;font-size:15.5px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pwin{flex:0 1 auto;max-width:64%;min-width:0;text-align:right;font-size:15.5px;font-weight:650;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pick > summary .chev{flex:none}
+.afterpicks{margin-top:24px}
+.picklist + .note{margin-top:12px}
 .ico{width:48px;height:48px;border-radius:12px;background:var(--soft);display:grid;place-items:center;font-size:24px;line-height:1}
 .pt{display:flex;flex-direction:column;min-width:0}
 .lab{font-size:13px;font-weight:600;letter-spacing:.02em;color:var(--muted)}
@@ -133,7 +161,9 @@ details > summary::-webkit-details-marker{display:none}
 .chev{width:9px;height:9px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);
   transform:rotate(-45deg);justify-self:center;transition:transform .2s var(--ease)}
 details[open] > summary .chev{transform:rotate(45deg) translate(-2px,-2px)}
-.pick .body{padding:0 16px 16px 80px}
+.pick > summary .chev{width:8px;height:8px}
+.pick .body{padding:0 16px 16px 52px}
+.pick .body .who{margin:0 0 8px}
 .pick .body p{margin:0 0 8px}
 .why{font-size:16px;color:var(--text)}
 .newnote{color:var(--muted);font-size:15px}
@@ -212,7 +242,8 @@ details[open] > summary .chev{transform:rotate(45deg) translate(-2px,-2px)}
 /* ---------------------------------------------------------------- Agents */
 .abest{padding:20px 20px 8px;margin-bottom:8px}
 .abest h3{margin:0 0 8px;display:flex;align-items:center;gap:12px}
-.ico.sm{width:36px;height:36px;border-radius:10px;font-size:20px;flex:none}
+.ico.sm{width:36px;height:36px;border-radius:10px;font-size:20px;flex:none;background:var(--tint);color:var(--accent)}
+.ico.sm .ic{width:20px;height:20px}
 .abest .rows{padding:0}
 .abest .why{margin:8px 0 12px}
 b.big{font-size:20px;font-weight:700;letter-spacing:-.02em}
@@ -591,6 +622,7 @@ html.sheetopen{overflow:hidden}
 .newsitem .nlink{display:block;margin:-8px;padding:8px;border-radius:10px;color:inherit;text-decoration:none;transition:background-color .15s ease}
 .newsitem .nlink:hover,.newsitem .nlink:active{background:var(--soft)}
 .newsitem .nlink:focus-visible{outline:2px solid var(--accent);outline-offset:0;border-radius:10px}
+.newsitem .nlink{padding-right:32px}                              /* v17: room for the › (the padding above reset it) */
 .newsitem .nlink .nt{color:var(--text)}
 .newsitem .go{color:var(--accent);font-weight:700;font-size:16px;margin-left:4px;line-height:1}
 .story{max-width:680px}
@@ -614,19 +646,14 @@ html.sheetopen{overflow:hidden}
 .rellist li{padding:4px 0;font-size:15px;line-height:1.45}
 .relsrc{margin:16px 4px 0;font-size:13.5px}
 
-/* ---------------------------------------------------------------- tablet and wider: tabs become one row at the top */
+/* ---------------------------------------------------------------- tablet and wider */
 @media (min-width:700px){
   :root{--nav:0px}
   body{padding-bottom:48px}
+  .home{grid-template-columns:repeat(3,minmax(0,1fr))}           /* wide: the 3 cards in one row */
+  .hcard{flex-direction:column;align-items:flex-start;min-height:0}
+  .hch{display:none}
   .top{padding-top:calc(32px + env(safe-area-inset-top,0px))}
-  .tabs{position:sticky;top:0;bottom:auto;background:color-mix(in srgb,var(--bg) 86%,transparent);border-top:0;
-    padding:calc(16px + env(safe-area-inset-top,0px)) max(20px,env(safe-area-inset-right,0px)) 8px max(20px,env(safe-area-inset-left,0px))}
-  /* a segmented control: one soft track, the current tab is a raised card-coloured segment */
-  .tabs .pill{max-width:760px;grid-template-columns:repeat(7,auto);justify-content:space-between;background:var(--soft);border:0;border-radius:12px;padding:4px;box-shadow:none}
-  .tabs button{flex-direction:row;gap:8px;min-height:44px;border-radius:9px;font-size:14.5px;font-weight:550;padding:0 12px;white-space:nowrap;transition:background-color .15s ease,color .15s ease}
-  .tabs .ti{width:auto;height:auto;border-radius:0;background:none!important}
-  .tabs .ti svg{width:18px;height:18px}
-  .tabs button[aria-current="page"]{background:var(--card);color:var(--accent)}
   .wide-only{display:inline-flex}
   .askbar.isempty{min-height:44px;margin-top:8px}       /* wide: "Open all" is there */
   .phone-only{display:none}
@@ -637,17 +664,10 @@ html.sheetopen{overflow:hidden}
   .toast,.swupdate,.offline{bottom:24px}
   .view h2{font-size:32px;margin-top:40px}
 }
-@media (min-width:900px){
-  .tabs .long{display:inline}
-  .tabs .short{display:none}
-  .tabs .pill{max-width:940px}                               /* 7 full labels fit in one row */
-  .tabs button{padding:0 14px}
-}
 @media (max-width:420px){
   .wordmark{font-size:24px}
   .brand .mark{width:42px;height:42px}
   .tagline{font-size:13.5px}
-  .pick > summary{grid-template-columns:44px minmax(0,1fr) 20px;gap:12px;padding:16px}
   .ico{width:44px;height:44px;font-size:22px}
   .name{font-size:19px}
   .pick .body{padding:0 16px 16px 16px}
@@ -674,9 +694,6 @@ html.sheetopen{overflow:hidden}
   .chip input{width:16px;height:16px;border-radius:5px}
   .chip b{font-size:14px}
   .chipmodel{width:30px}
-  .tabs{padding-left:max(2px,env(safe-area-inset-left,0px));padding-right:max(2px,env(safe-area-inset-right,0px))}
-  .tabs button{font-size:11px;letter-spacing:-.015em;padding:4px 0}
-  .tabs .ti{width:40px}
 }
 /* narrow phones: "Install" (420 px and less), icon only under 370 px; it keeps aria-label "Install app" and a 40 px target */
 @media (max-width:420px){ .installbtn .iapp{display:none} }
