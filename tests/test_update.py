@@ -2261,5 +2261,116 @@ class AiSummariesV16i(unittest.TestCase):
         self.assertEqual(len(calls), 2)
 
 
+class AiSummariesV16j(unittest.TestCase):
+    """v16j: reasoning off/low + more room, so answers are not cut off; old cut-off answers get a fresh try."""
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.m = load(self.root)
+        self.logs = []
+        self.m.log = lambda *a: self.logs.append(" ".join(str(x) for x in a))
+        self.sent = []
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def fake_post(self, answers):
+        """answers: list of (status, content, finish_reason), one per call in order."""
+        test, it = self, iter(answers)
+        class R:
+            def __init__(self, status, content, fin):
+                self.status_code, self._j = status, {"choices": [{"message": {"content": content}, "finish_reason": fin}]}
+            def json(self):
+                return self._j
+            def raise_for_status(self):
+                if self.status_code >= 400:
+                    raise RuntimeError(f"{self.status_code} Client Error")
+        class P:
+            @staticmethod
+            def post(url, timeout=None, headers=None, json=None):
+                test.sent.append({"url": url, "headers": headers, "json": json})
+                return R(*next(it))
+        self.m.requests = P
+
+    def test_request_shape_reasoning_off_or_low_and_room_for_the_answer(self):
+        self.fake_post([(200, GOOD_SUMMARY, "stop")])
+        text, model = self.m.openrouter_summary("sk-or-TEST-1", "Title", "Mistral", "feed", "body text")
+        self.assertEqual((text, model), (GOOD_SUMMARY, "anthropic/claude-haiku-5.5"))
+        req = self.sent[0]
+        self.assertEqual(req["url"], "https://openrouter.ai/api/v1/chat/completions")
+        body = req["json"]
+        self.assertEqual(body["model"], "anthropic/claude-haiku-5.5")
+        self.assertEqual(body["reasoning"], {"effort": "none", "exclude": True})
+        self.assertGreaterEqual(body["max_tokens"], 2000)
+        self.assertEqual(req["headers"]["Authorization"], "Bearer sk-or-TEST-1")
+        self.assertNotIn("sk-or-TEST-1", json.dumps(body))                      # the key rides the header only
+        for mdl in self.m.AISUM_MODELS:                                          # every model: reasoning off or low, hidden
+            r = self.m.aisum_request(mdl, "p")["reasoning"]
+            self.assertIn(r["effort"], ("none", "low"))
+            self.assertTrue(r["exclude"])
+        self.assertEqual(self.m.aisum_request("google/gemini-3.8-flash", "p")["reasoning"]["effort"], "low")   # mandatory there
+        self.assertEqual(self.m.aisum_request("some/new-model", "p")["reasoning"], {"effort": "low", "exclude": True})
+
+    def test_cut_off_answer_moves_to_the_next_model(self):
+        self.fake_post([(200, "Half an ans", "length"), (200, GOOD_SUMMARY, "stop")])
+        self.assertEqual(self.m.openrouter_summary("k", "T", "S", "f", "b"), (GOOD_SUMMARY, "openai/gpt-6-luna"))
+        self.assertTrue(any("cut off" in l for l in self.logs))
+
+    def test_empty_answer_moves_to_the_next_model(self):
+        self.fake_post([(200, "", "stop"), (404, "", ""), (200, GOOD_SUMMARY, "stop")])
+        self.assertEqual(self.m.openrouter_summary("k", "T", "S", "f", "b"), (GOOD_SUMMARY, "google/gemini-3.8-flash"))
+
+    def test_every_model_cut_off_returns_the_last_cut_answer(self):
+        cut = GOOD_SUMMARY + " Access is rol"
+        self.fake_post([(200, cut, "length")] * 3)
+        text, model = self.m.openrouter_summary("k", "T", "S", "f", "b")
+        self.assertEqual(model, "google/gemini-3.8-flash")
+        self.assertEqual(self.m.clean_ai_summary(text, "unrelated"), GOOD_SUMMARY)   # full sentences kept
+
+    def test_bad_key_stops_and_never_logs_the_key(self):
+        self.fake_post([(401, "", "")])
+        self.assertEqual(self.m.openrouter_summary("sk-or-SECRET-9", "T", "S", "f", "b"), ("", ""))
+        self.assertEqual(len(self.sent), 1)
+        self.assertFalse(any("sk-or-SECRET-9" in l for l in self.logs))
+
+    def test_answers_rejected_before_v16j_get_a_fresh_try(self):
+        u = "https://mistral.ai/news/voxtral-3/"
+        cache = {u: {"xd": "", "m": "anthropic/claude-haiku-5.5", "d": "2026-11-08", "tries": 1, "retry": True},
+                 "https://e.com/given-up": {"xd": "", "m": "anthropic/claude-haiku-5.5", "d": "2026-11-07", "tries": 2},
+                 "https://e.com/short": {"xd": "", "m": "", "d": "2026-11-08", "why": "too little article text"},
+                 "https://e.com/done": {"xd": GOOD_SUMMARY, "m": "anthropic/claude-haiku-5.5", "d": "2026-11-08", "tries": 1}}
+        items = [{"u": x, "t": "T", "x": "feed"} for x in cache]
+        calls = []
+        ask = lambda *a: (calls.append(1) or (GOOD_SUMMARY, "anthropic/claude-haiku-5.5"))
+        _, st = self.m.fill_ai_summaries(items, cache, key="k", fetch=lambda u: ARTICLE, ask=ask)
+        self.assertEqual(len(calls), 2)                                          # the 2 old rejected answers only
+        self.assertEqual(items[0]["xd"], GOOD_SUMMARY)
+        self.assertEqual(items[1]["xd"], GOOD_SUMMARY)
+        self.assertNotIn("xd", items[2])                                         # too little text: not retried
+        self.assertEqual(items[3]["xd"], GOOD_SUMMARY)                           # good one: from the cache
+        self.assertEqual(cache[u]["v"], self.m.AISUM_SETTINGS)
+        self.assertEqual(cache[u]["tries"], 1)
+        self.assertEqual((st["new"], st["cached"]), (2, 1))
+
+    def test_fresh_failure_under_new_settings_retries_once_then_gives_up(self):
+        u = "https://e.com/a"
+        cache = {u: {"xd": "", "m": "anthropic/claude-haiku-5.5", "d": "2026-11-08", "tries": 1, "retry": True}}
+        calls = []
+        ask = lambda *a: (calls.append(1) or ("SKIP", "anthropic/claude-haiku-5.5"))
+        for _ in range(4):
+            self.m.fill_ai_summaries([{"u": u, "t": "T", "x": ""}], cache, key="k", fetch=lambda u: ARTICLE, ask=ask)
+        self.assertEqual(len(calls), 2)                                          # fresh try + one retry, then given up
+        self.assertEqual(cache[u]["tries"], 2)
+        self.assertFalse(cache[u].get("retry"))
+        self.assertEqual(cache[u]["v"], self.m.AISUM_SETTINGS)
+
+    def test_cap_per_run_still_holds_for_retries(self):
+        cache = {f"https://e.com/{i}": {"xd": "", "m": "m", "d": "2026-11-08", "tries": 1, "retry": True} for i in range(5)}
+        calls = []
+        self.m.fill_ai_summaries([{"u": u, "t": "T", "x": ""} for u in cache], cache, key="k", max_new=2,
+                                 fetch=lambda u: ARTICLE, ask=lambda *a: (calls.append(1) or (GOOD_SUMMARY, "m")))
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(self.m.AISUM_MAX_NEW, 20)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

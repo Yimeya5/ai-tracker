@@ -1849,6 +1849,15 @@ def board_extra(raw, sid):
 # only once. No key (OPENROUTER_API_KEY not set) or any error -> no "xd", and the app shows the short "x" as before.
 OPENROUTER_CHAT = "https://openrouter.ai/api/v1/chat/completions"
 AISUM_MODELS = ("anthropic/claude-haiku-5.5", "openai/gpt-6-luna", "google/gemini-3.8-flash")   # cheap + good, in order
+# v16j: with reasoning at its default (medium) the models spent the whole output budget thinking, the answer was cut
+# off and rejected. Reasoning is now off where the model allows it ("none"), low where it is mandatory (Gemini Flash),
+# and never sent back (exclude). max_tokens leaves room for a 5-8 sentence answer (~250 tokens) plus any low reasoning.
+AISUM_MAX_TOKENS = 3000
+AISUM_REASONING = {"anthropic/claude-haiku-5.5": {"effort": "none", "exclude": True},
+                   "openai/gpt-6-luna": {"effort": "none", "exclude": True},
+                   "google/gemini-3.8-flash": {"effort": "low", "exclude": True}}
+AISUM_REASONING_DEFAULT = {"effort": "low", "exclude": True}
+AISUM_SETTINGS = 2            # bump when the request changes: answers rejected under older settings get a fresh try
 AISUM_MAX_NEW = 20            # new summaries per run at most
 AISUM_MIN_SOURCE = 600        # characters of real article text needed; less -> no AI summary (nothing to summarise)
 AISUM_PROMPT = (
@@ -1900,27 +1909,44 @@ def clean_ai_summary(text, source):
     return t
 
 
+def aisum_request(model, prompt):
+    """The JSON body sent to OpenRouter for one summary."""
+    return {"model": model, "max_tokens": AISUM_MAX_TOKENS, "temperature": 0.3,
+            "reasoning": dict(AISUM_REASONING.get(model, AISUM_REASONING_DEFAULT)),
+            "messages": [{"role": "user", "content": prompt}]}
+
+
 def openrouter_summary(key, title, source, feed, body, timeout=60):
-    """One summary from the first model that answers. Returns (text, model) or ('', '')."""
+    """One summary from the first model that gives a complete answer. Returns (text, model) or ('', '').
+    An answer cut off at the token limit (finish_reason "length") or empty is not used while another model can
+    still answer; if every model is cut off, the last cut-off answer is returned (clean_ai_summary keeps only its
+    full sentences, or rejects it)."""
     prompt = AISUM_PROMPT.format(title=title, source=source, feed=feed or "-", body=body)
+    cut = ("", "")
     for model in AISUM_MODELS:
         try:
             r = requests.post(OPENROUTER_CHAT, timeout=timeout, headers={
                 "Authorization": "Bearer " + key, "Content-Type": "application/json",
                 "HTTP-Referer": "https://ai-tracker-3x2.pages.dev", "X-Title": "AI Pro"},
-                json={"model": model, "max_tokens": 1500, "temperature": 0.3,
-                      "messages": [{"role": "user", "content": prompt}]})
+                json=aisum_request(model, prompt))
             if r.status_code in (400, 404):            # model gone or renamed: try the next one
                 log(f"aisum: {model} answered {r.status_code}")
                 continue
             r.raise_for_status()
-            msg = ((r.json().get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+            ch = (r.json().get("choices") or [{}])[0] or {}
+            msg = (ch.get("message") or {}).get("content") or ""
+            fin = ch.get("finish_reason") or ch.get("native_finish_reason") or ""
+            if fin == "length" or not msg.strip():
+                log(f"aisum: {model} answer {'cut off at the token limit' if fin == 'length' else 'empty'}; trying the next model")
+                if msg.strip():
+                    cut = (msg, model)
+                continue
             return msg, model
         except Exception as e:
             log(f"aisum: {model} failed ({scrub_key(str(e), key)[:120]})")
             if "401" in str(e) or "402" in str(e):
                 return "", ""                          # bad key or no credit: no point trying other models
-    return "", ""
+    return cut
 
 
 def scrub_key(text, key):
@@ -1929,7 +1955,9 @@ def scrub_key(text, key):
 
 def fill_ai_summaries(items, cache, key=None, max_new=AISUM_MAX_NEW, fetch=None, ask=None):
     """Add 'xd' (+ 'xdBy') to each item. cache = {url: {"xd": text, "m": model, "d": date}} kept between runs;
-    an empty xd in the cache means 'tried, nothing usable' and is not retried. Returns (items, stats)."""
+    an empty xd in the cache means 'tried, nothing usable': retried once (tries < 2), then given up. An answer rejected
+    under older request settings ("v" below AISUM_SETTINGS, e.g. cut off before v16j) starts again with a fresh try.
+    Returns (items, stats)."""
     key = key if key is not None else (os.environ.get("OPENROUTER_API_KEY") or "").strip()
     fetch = fetch or (lambda u: get(u, timeout=15, headers=POLITE_UA).text)
     ask = ask or (lambda title, src, feed, body: openrouter_summary(key, title, src, feed, body))
@@ -1938,6 +1966,8 @@ def fill_ai_summaries(items, cache, key=None, max_new=AISUM_MAX_NEW, fetch=None,
     for it in items:
         u = it.get("u") or ""
         c = cache.get(u)
+        if c is not None and not c.get("xd") and c.get("m") and int(c.get("v", 1)) < AISUM_SETTINGS:
+            c = None                                 # rejected under older request settings (cut off): a fresh try
         if c is not None and not c.get("retry"):
             if c.get("xd"):
                 it["xd"], it["xdBy"] = c["xd"], "AI summary"
@@ -1967,7 +1997,7 @@ def fill_ai_summaries(items, cache, key=None, max_new=AISUM_MAX_NEW, fetch=None,
             continue
         xd = clean_ai_summary(text, body + "\n" + (it.get("x") or ""))
         tries = int((c or {}).get("tries", 0)) + 1
-        cache[u] = {"xd": xd, "m": model, "d": TODAY, "tries": tries}
+        cache[u] = {"xd": xd, "m": model, "d": TODAY, "tries": tries, "v": AISUM_SETTINGS}
         if not xd and tries < 2:
             cache[u]["retry"] = True                 # the answer was not usable; one more try on the next run
         if xd:
