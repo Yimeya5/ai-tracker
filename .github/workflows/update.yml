@@ -46,6 +46,8 @@ jobs:
           # Artificial Analysis is OFF unless the repository variable AA_ENABLED is "1" or "true".
           # Keep it off while the app is public: AA's Data Platform Terms don't allow its data in a public product.
           AA_ENABLED: ${{ vars.AA_ENABLED }}
+          # AI-written detailed summaries for Updates stories (v16i). No key = no AI summaries; stories keep the short one.
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: timeout 1800 python scripts/update_data.py
 
       - name: Check the data file is valid before saving it

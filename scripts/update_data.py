@@ -36,6 +36,7 @@ from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import urljoin
+from html.parser import HTMLParser
 
 import requests
 
@@ -1621,6 +1622,363 @@ def aa_enabled():
     return (os.environ.get("AA_ENABLED") or "").strip().lower() in ("1", "true")
 
 
+# ======================================================================= v16i: more independent tests
+# Four more independent leaderboards. Each is its own section in SECTIONS, so a fetch or parse that breaks keeps
+# yesterday's copy (raw.json) and the Sources page flags it; it never stops the run. No AI is used to read them.
+#   eqbench    = EQ-Bench Creative Writing v3 (eqbench.com): a CSV inside creative_writing.js. Graded by AI judges.
+#   lechmazur  = Lech Mazur's creative story-writing test: the leaderboard table in the GitHub README. Graded by AI.
+#   vals       = Vals AI Terminal-Bench 4 (vals.ai): the server-rendered table on the benchmark page.
+#   matharena  = MathArena ArXivMath (ETH Zurich): the newest monthly board, JSON {"table": "<html table>"}.
+EQB_URL = "https://eqbench.com/creative_writing.js"
+LECH_URL = "https://raw.githubusercontent.com/lechmazur/writing/main/README.md"
+LECH_COMMITS = "https://api.github.com/repos/lechmazur/writing/commits?path=README.md&per_page=1"
+VALS_TB4 = "https://www.vals.ai/benchmarks/terminal-bench-4"
+MA_HOME = "https://matharena.ai/"
+MA_TABLE = "https://matharena.ai/competition_tables/"
+EXTRA_MIN_ROWS = 8          # fewer rows than this = the page changed; keep yesterday's copy
+
+
+class _TableParser(HTMLParser):
+    """Every <table> as a list of rows; each row a list of (cell text, first link href in the cell)."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.tables, self._row, self._cell, self._href, self._depth = [], None, None, None, 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "table":
+            self.tables.append([])
+            self._depth += 1
+        elif tag == "tr" and self._depth:
+            self._row = []
+        elif tag in ("td", "th") and self._row is not None:
+            self._cell, self._href = [], None
+        elif tag == "a" and self._cell is not None and self._href is None:
+            self._href = dict(attrs).get("href")
+
+    def handle_endtag(self, tag):
+        if tag in ("td", "th") and self._row is not None and self._cell is not None:
+            self._row.append((" ".join("".join(self._cell).split()), self._href))
+            self._cell = None
+        elif tag == "tr" and self._row is not None:
+            if self._row and self.tables:
+                self.tables[-1].append(self._row)
+            self._row = None
+        elif tag == "table":
+            self._depth = max(0, self._depth - 1)
+
+    def handle_data(self, data):
+        if self._cell is not None:
+            self._cell.append(data)
+
+
+def html_tables(text):
+    p = _TableParser()
+    p.feed(text or "")
+    p.close()
+    return p.tables
+
+
+def _num(s):
+    m = re.search(r"-?\d+(?:\.\d+)?", str(s or "").replace(",", ""))
+    return float(m.group(0)) if m else None
+
+
+def _rank_rows(rows):
+    """Sort by score (best first) and keep each model once (its best run)."""
+    out, seen = [], set()
+    for r in sorted(rows, key=lambda r: -r["s"]):
+        if r["k"] and r["k"] not in seen:
+            seen.add(r["k"])
+            out.append(r)
+    return out
+
+
+def _http_date(r):
+    try:
+        return parsedate_to_datetime(r.headers.get("Last-Modified")).astimezone(timezone.utc).date().isoformat()
+    except Exception:
+        return TODAY
+
+
+def _check_rows(rows, what):
+    if len(rows) < EXTRA_MIN_ROWS:
+        raise ValueError(f"{what}: only {len(rows)} rows (page changed?)")
+    return rows
+
+
+def parse_eqbench(js):
+    """creative_writing.js holds `let leaderboardDataCreativeWritingV3 = `<csv>``. '*' before a name = new model."""
+    m = re.search(r"leaderboardDataCreativeWritingV3\s*=\s*`([^`]+)`", js or "")
+    if not m:
+        raise ValueError("EQ-Bench: creative writing table not found")
+    rows = []
+    for r in csv.DictReader(io.StringIO(m.group(1).strip())):
+        name = (r.get("model_name") or "").strip().lstrip("*").strip()
+        s = _num(r.get("elo_score"))
+        if name and s is not None:
+            rows.append({"k": normalize(name), "n": display_name(name), "s": round(s, 1)})
+    return _check_rows(_rank_rows(rows), "EQ-Bench")
+
+
+def fetch_eqbench(prev=None):
+    r = get(EQB_URL, timeout=40)
+    return {"rows": parse_eqbench(r.text), "date": _http_date(r), "board": "Creative Writing v3 (Elo)"}
+
+
+def parse_lechmazur(md):
+    """The README's '| Rank | Model | Comparison score | ...' table. Bold and footnote marks are removed."""
+    lines = (md or "").splitlines()
+    start = next((i for i, l in enumerate(lines) if re.match(r"\s*\|\s*Rank\s*\|\s*Model\s*\|\s*Comparison score", l, re.I)), None)
+    if start is None:
+        raise ValueError("Lech Mazur: leaderboard table not found")
+    rows = []
+    for l in lines[start + 2:]:
+        if not l.strip().startswith("|"):
+            break
+        cells = [c.strip() for c in l.strip().strip("|").split("|")]
+        if len(cells) < 3:
+            continue
+        name = re.sub(r"[*§†‡※¶#]+", "", cells[1]).strip()
+        s = _num(cells[2])
+        if name and s is not None:
+            rows.append({"k": normalize(name), "n": display_name(name), "s": round(s, 3)})
+    return _check_rows(_rank_rows(rows), "Lech Mazur")
+
+
+def fetch_lechmazur(prev=None):
+    r = get(LECH_URL, timeout=40)
+    rows = parse_lechmazur(r.text)
+    date = ""
+    try:                                   # the README has no date; its last commit is the update date
+        c = get(LECH_COMMITS, timeout=20, headers={"Accept": "application/vnd.github+json"}).json()
+        date = (c[0]["commit"]["committer"]["date"] or "")[:10]
+    except Exception as e:
+        log(f"lechmazur: commit date not read ({str(e)[:80]})")
+        date = (prev or {}).get("date") or TODAY
+    return {"rows": rows, "date": date, "board": "Creative story-writing"}
+
+
+def parse_vals(page):
+    """The Vals benchmark table: Rank | Model (link /models/<maker>_<model-id>) | Harness | Score | Cost..."""
+    for t in html_tables(page):
+        head = [c[0].lower() for c in t[0]] if t else []
+        if "model" not in head or "score" not in head:
+            continue
+        im, isc = head.index("model"), head.index("score")
+        rows = []
+        for r in t[1:]:
+            if len(r) <= max(im, isc):
+                continue
+            name, href = r[im]
+            s = _num(r[isc][0])
+            if not name or s is None:
+                continue
+            slug = (href or "").rstrip("/").split("/")[-1]
+            k = normalize(slug.split("_", 1)[1]) if "_" in slug else normalize(name)
+            rows.append({"k": k, "n": display_name(name), "s": round(s, 2)})
+        return _check_rows(_rank_rows(rows), "Vals")
+    raise ValueError("Vals: leaderboard table not found")
+
+
+def fetch_vals(prev=None):
+    r = get(VALS_TB4, timeout=40)
+    m = re.search(r"Updated\s+(\d{1,2})/(\d{1,2})/(20\d\d)", r.text)
+    date = f"{m.group(3)}-{int(m.group(1)):02d}-{int(m.group(2)):02d}" if m else _http_date(r)
+    return {"rows": parse_vals(r.text), "date": date, "board": "Terminal-Bench 4"}
+
+
+def matharena_latest(home):
+    """The newest ArXivMath month on the MathArena home page: buttons data-competition-id="arxiv--<month>">MM/YYYY<."""
+    best = None
+    for m in re.finditer(r'data-competition-id="(arxiv--[a-z0-9_]+)"[^>]*>\s*(\d{2})/(20\d\d)\s*<', home or ""):
+        key = (int(m.group(3)), int(m.group(2)))
+        if not best or key > best[0]:
+            best = (key, m.group(1))
+    if not best:
+        raise ValueError("MathArena: no ArXivMath board found on the home page")
+    (y, mo), cid = best
+    return cid, f"{y}-{mo:02d}"
+
+
+def parse_matharena(table_html):
+    for t in html_tables(table_html):
+        head = [c[0].lower() for c in t[0]] if t else []
+        im = next((i for i, h in enumerate(head) if h.startswith("model")), None)
+        ia = next((i for i, h in enumerate(head) if h.startswith("accuracy")), None)
+        if im is None or ia is None:
+            continue
+        rows = []
+        for r in t[1:]:
+            if len(r) <= max(im, ia):
+                continue
+            name = re.sub(r"[\u26a0\ufe0f]+", "", r[im][0]).strip()
+            s = _num(r[ia][0])
+            if name and s is not None:
+                rows.append({"k": normalize(name), "n": display_name(name), "s": round(s, 2)})
+        rows = _rank_rows(rows)
+        if len(rows) < 5:                # a monthly board has 10-20 models
+            raise ValueError(f"MathArena: only {len(rows)} rows (page changed?)")
+        return rows
+    raise ValueError("MathArena: leaderboard table not found")
+
+
+def fetch_matharena(prev=None):
+    cid, month = matharena_latest(get(MA_HOME, timeout=40).text)
+    r = get(MA_TABLE + cid, timeout=60)
+    rows = parse_matharena((r.json() or {}).get("table") or "")
+    label = datetime.strptime(month, "%Y-%m").strftime("%B %Y")
+    return {"rows": rows, "date": _http_date(r), "board": f"ArXivMath {label}", "competition": cid, "month": month}
+
+
+EXTRA = {   # src id -> is it graded by AI?
+    "eqbench": True, "lechmazur": True, "vals": False, "matharena": False,
+}
+
+
+def board_extra(raw, sid):
+    sec = raw.get(sid) or {}
+    if not sec.get("rows"):
+        return None
+    return {"src": sid, "board": sec.get("board") or SRC[sid]["name"], "date": sec.get("date") or (sec.get("_updated") or "")[:10],
+            "url": "", "rows": [dict(r) for r in sec["rows"]], "ai": EXTRA.get(sid, False)}
+
+
+# ======================================================================= v16i: AI-written detailed story summaries
+# Each Updates story (bignews) gets "xd": a 5-8 sentence summary in the AI's own words, written from the article's
+# own page text and its feed text. It is made once per URL and kept in raw.json ("aisum"), so a story is summarised
+# only once. No key (OPENROUTER_API_KEY not set) or any error -> no "xd", and the app shows the short "x" as before.
+OPENROUTER_CHAT = "https://openrouter.ai/api/v1/chat/completions"
+AISUM_MODELS = ("anthropic/claude-haiku-5.5", "openai/gpt-6-luna", "google/gemini-3.8-flash")   # cheap + good, in order
+AISUM_MAX_NEW = 20            # new summaries per run at most
+AISUM_MIN_SOURCE = 600        # characters of real article text needed; less -> no AI summary (nothing to summarise)
+AISUM_PROMPT = (
+    "Summarise this news article for a general reader, in your own words.\n"
+    "Rules: 5 to 8 sentences of plain text (about 100 to 160 words), no title, no lists, no markdown, no links. "
+    "Do not copy sentences from the "
+    "article and do not quote more than 6 words in a row. Only use facts that are in the text below; do not add "
+    "anything. If the text is not a real article (a cookie notice, a paywall, an error page), answer only: SKIP\n\n"
+    "Headline: {title}\nSource: {source}\nFeed text: {feed}\n\nArticle text:\n{body}")
+
+
+def article_text(raw_html, limit=9000):
+    """The readable text of an article page: <p> paragraphs of the <article>/<main> part (else the whole page)."""
+    h = raw_html if isinstance(raw_html, str) else raw_html.decode("utf-8", "replace")
+    h = re.sub(r"(?is)<(script|style|noscript|svg|nav|header|footer|form|aside)[^>]*>.*?</\1>", " ", h[:1500000])
+    m = re.search(r"(?is)<article[^>]*>(.*)</article>", h) or re.search(r"(?is)<main[^>]*>(.*)</main>", h)
+    part = m.group(1) if m else h
+    paras = []
+    for p in re.findall(r"(?is)<p[^>]*>(.*?)</p>", part):
+        t = " ".join(html.unescape(TAG_RE.sub(" ", p)).split())
+        if len(t) >= 40:
+            paras.append(t)
+    return "\n".join(paras)[:limit]
+
+
+def _shingles(text, n=8):
+    w = re.findall(r"[a-z0-9]+", (text or "").lower())
+    return {" ".join(w[i:i + n]) for i in range(max(0, len(w) - n + 1))}
+
+
+def clean_ai_summary(text, source):
+    """Plain text, 5-8ish sentences, no links, not copied (at most a few 8-word runs shared with the source)."""
+    t = str(text or "").strip()
+    if not t or t.upper().startswith("SKIP"):
+        return ""
+    t = re.sub(r"https?://\S+", "", t)
+    t = re.sub(r"[*_#`>]+", "", t)
+    t = "\n\n".join(" ".join(p.split()) for p in re.split(r"\n\s*\n", t) if p.strip())
+    if not re.search(r"[.!?][\"”’)]?$", t):          # cut off mid-sentence (token limit): keep the full sentences only
+        ends = [m.end() for m in re.finditer(r"[.!?][\"”’)]?(?=\s+[A-Z0-9\"“‘(])", t)]
+        t = t[:ends[-1]].rstrip() if ends else ""
+    # sentences end at . ! ? followed by a space and a capital/digit/quote, so "U.S." and "Grok Voice 3.0" don't count
+    sents = [x for x in re.split(r"(?<=[.!?])[\"”’)]?\s+(?=[A-Z0-9\"“‘(])", t.replace("\n\n", " ")) if len(x.strip()) > 2]
+    if len(t) < 250 or len(t) > 1600 or len(sents) < 4 or len(sents) > 12:
+        return ""
+    sh = _shingles(t)
+    if sh and len(sh & _shingles(source)) / len(sh) > 0.3:
+        return ""                     # too close to the article's own words (over 30% of its 8-word runs copied)
+    return t
+
+
+def openrouter_summary(key, title, source, feed, body, timeout=60):
+    """One summary from the first model that answers. Returns (text, model) or ('', '')."""
+    prompt = AISUM_PROMPT.format(title=title, source=source, feed=feed or "-", body=body)
+    for model in AISUM_MODELS:
+        try:
+            r = requests.post(OPENROUTER_CHAT, timeout=timeout, headers={
+                "Authorization": "Bearer " + key, "Content-Type": "application/json",
+                "HTTP-Referer": "https://ai-tracker-3x2.pages.dev", "X-Title": "AI Pro"},
+                json={"model": model, "max_tokens": 1500, "temperature": 0.3,
+                      "messages": [{"role": "user", "content": prompt}]})
+            if r.status_code in (400, 404):            # model gone or renamed: try the next one
+                log(f"aisum: {model} answered {r.status_code}")
+                continue
+            r.raise_for_status()
+            msg = ((r.json().get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+            return msg, model
+        except Exception as e:
+            log(f"aisum: {model} failed ({scrub_key(str(e), key)[:120]})")
+            if "401" in str(e) or "402" in str(e):
+                return "", ""                          # bad key or no credit: no point trying other models
+    return "", ""
+
+
+def scrub_key(text, key):
+    return str(text).replace(key, "***") if key else str(text)
+
+
+def fill_ai_summaries(items, cache, key=None, max_new=AISUM_MAX_NEW, fetch=None, ask=None):
+    """Add 'xd' (+ 'xdBy') to each item. cache = {url: {"xd": text, "m": model, "d": date}} kept between runs;
+    an empty xd in the cache means 'tried, nothing usable' and is not retried. Returns (items, stats)."""
+    key = key if key is not None else (os.environ.get("OPENROUTER_API_KEY") or "").strip()
+    fetch = fetch or (lambda u: get(u, timeout=15, headers=POLITE_UA).text)
+    ask = ask or (lambda title, src, feed, body: openrouter_summary(key, title, src, feed, body))
+    st = {"cached": 0, "new": 0, "skipped": 0, "failed": 0, "key": bool(key)}
+    made = 0
+    for it in items:
+        u = it.get("u") or ""
+        c = cache.get(u)
+        if c is not None and not c.get("retry"):
+            if c.get("xd"):
+                it["xd"], it["xdBy"] = c["xd"], "AI summary"
+                st["cached"] += 1
+            continue
+        if not key or not u.startswith("http") or "#" in u or made >= max_new:
+            continue
+        made += 1
+        try:
+            body = article_text(fetch(u))
+        except Exception as e:
+            log(f"aisum: {u} not read ({scrub_key(str(e), key)[:80]})")
+            st["failed"] += 1
+            continue                                 # page down today: try again tomorrow
+        if len(body) < AISUM_MIN_SOURCE:
+            cache[u] = {"xd": "", "m": "", "d": TODAY, "why": "too little article text"}
+            st["skipped"] += 1
+            continue
+        try:
+            text, model = ask(it.get("t") or "", it.get("s") or "", it.get("x") or "", body)
+        except Exception as e:
+            log(f"aisum: {u} failed ({scrub_key(str(e), key)[:80]})")
+            st["failed"] += 1
+            continue
+        if not model:
+            st["failed"] += 1
+            continue
+        xd = clean_ai_summary(text, body + "\n" + (it.get("x") or ""))
+        tries = int((c or {}).get("tries", 0)) + 1
+        cache[u] = {"xd": xd, "m": model, "d": TODAY, "tries": tries}
+        if not xd and tries < 2:
+            cache[u]["retry"] = True                 # the answer was not usable; one more try on the next run
+        if xd:
+            it["xd"], it["xdBy"] = xd, "AI summary"
+            st["new"] += 1
+        else:
+            st["skipped"] += 1
+    return items, st
+
+
+
 # ======================================================================= pick rule
 # Text jobs use LMArena, LiveBench and Epoch AI, plus Artificial Analysis when it is switched on.
 # Per source we take the matching board and its top 3.
@@ -1661,6 +2019,23 @@ SRC = {
                   "what": "What each agent app costs (Agents tab), read every day from its own pricing page or App Store listing. "
                           "For agents that come with a ChatGPT, Claude or Gemini plan, a line on the company's own page shows "
                           "which plans include it.", "license": "", "licenseUrl": ""},
+    "eqbench": {"name": "EQ-Bench", "credit": "EQ-Bench Creative Writing v3 by Sam Paech (eqbench.com)", "url": "",
+                "what": "Writing test: 32 story prompts, each answer graded by AI judges (pairwise Elo). Graded by AI, "
+                        "so a judge may favour its own style. Used for Writing.",
+                "license": "No data license stated", "licenseUrl": ""},
+    "lechmazur": {"name": "Lech Mazur's story test", "credit": "Lech Mazur's Creative Story-Writing Benchmark (github.com/lechmazur/writing)",
+                  "url": "",
+                  "what": "Writing test: stories written to the same short brief, compared in pairs by several AI judges. "
+                          "Graded by AI. Used for Writing.",
+                  "license": "No data license stated", "licenseUrl": ""},
+    "vals": {"name": "Vals AI", "credit": "Vals AI Terminal-Bench 4 (vals.ai)", "url": "",
+             "what": "Coding test: real tasks in a computer terminal, every model run by Vals AI with the same setup. "
+                     "Used for Coding.",
+             "license": "No data license stated", "licenseUrl": ""},
+    "matharena": {"name": "MathArena", "credit": "MathArena by ETH Zurich (matharena.ai)", "url": "",
+                  "what": "Math test: new research-level problems from recent arXiv papers, so models can't have seen them; "
+                          "answers checked automatically. The newest monthly board is used. Used for Math.",
+                  "license": "Public leaderboard (MathArena code is MIT licensed)", "licenseUrl": ""},
     "taubench": {"name": "τ³-Voice (Sierra)", "credit": "τ-bench by Sierra (taubench.com)", "url": "https://taubench.com/leaderboard/?benchmark=voice",
                  "what": "Live voice modes must finish real customer-service tasks by talking, with noise and interruptions, "
                          "in six languages. Used for Voice & talking in Find your AI.",
@@ -1775,15 +2150,16 @@ def job_boards(raw, job):
         return [board_lm(raw, "text"), general_aa, board_lb(raw, "overall", "Overall"), board_epoch(raw)]
     if job == "coding":
         return [board_lm(raw, "webdev") or board_lm(raw, "text_coding"),
-                aa_code or general_aa, board_lb(raw, "coding", "Coding"), board_epoch(raw)]
+                aa_code or general_aa, board_lb(raw, "coding", "Coding"), board_epoch(raw), board_extra(raw, "vals")]
     if job == "writing":
         c = lb_cat(raw, "language", "writ")
         return [board_lm(raw, "text_creative_writing"), general_aa,
-                board_lb(raw, c, c.replace("_", " ").title()) if c else board_lb(raw, "overall", "Overall"), board_epoch(raw)]
+                board_lb(raw, c, c.replace("_", " ").title()) if c else board_lb(raw, "overall", "Overall"), board_epoch(raw),
+                board_extra(raw, "eqbench"), board_extra(raw, "lechmazur")]
     if job == "math":
         c = lb_cat(raw, "math", "reason")
         return [board_lm(raw, "text_math"), general_aa,
-                board_lb(raw, c, c.replace("_", " ").title()) if c else None, board_epoch(raw)]
+                board_lb(raw, c, c.replace("_", " ").title()) if c else None, board_epoch(raw), board_extra(raw, "matharena")]
     if job == "pictures":
         return [board_lm(raw, "text_to_image"), board_aa_image(raw)]
     return []
@@ -1936,15 +2312,17 @@ def job_how(jid, aa_on):
         return ("LMArena text overall (people's votes), " + ("Artificial Analysis Intelligence Index, " if aa_on else "") +
                 "LiveBench overall and Epoch Capabilities Index.")
     if jid == "writing":
-        return ("LMArena creative writing (people's votes) is the only direct writing test. " +
+        return ("LMArena creative writing (people's votes), EQ-Bench Creative Writing v3 and Lech Mazur's story-writing "
+                "test are the direct writing tests. EQ-Bench and Lech Mazur are graded by AI, not by people. " +
                 ("Artificial Analysis Intelligence Index, " if aa_on else "") +
                 "LiveBench (its language category if it has one, else overall) and Epoch Capabilities Index add general skill.")
     if jid == "coding":
-        return ("LMArena building websites and apps (or coding questions), " +
+        return ("LMArena building websites and apps (or coding questions), Vals AI Terminal-Bench 4 (real terminal tasks), " +
                 ("Artificial Analysis Coding Index (Intelligence Index when the free API leaves coding empty), " if aa_on else "") +
                 "LiveBench coding and Epoch Capabilities Index (general).")
     if jid == "math":
-        return ("LMArena math (people's votes), LiveBench reasoning or math category, " +
+        return ("LMArena math (people's votes), MathArena ArXivMath (new research-level problems, ETH Zurich), "
+                "LiveBench reasoning or math category, " +
                 ("Artificial Analysis Intelligence Index " if aa_on else "") + ("and " if aa_on else "") +
                 "Epoch Capabilities Index (general).")
     if jid == "pictures":
@@ -1957,17 +2335,26 @@ def job_how(jid, aa_on):
             f"(3 parts input to 1 part output). Price from OpenRouter" + (", Artificial Analysis if OpenRouter has none." if aa_on else "."))
 
 
-def rule_info(aa_on):
+RULE_NAMES = ["LMArena", "LiveBench", "Epoch AI", "EQ-Bench", "Lech Mazur's story test", "Vals AI", "MathArena"]
+
+
+def rule_info(aa_on, raw=None):
     t = 4 if aa_on else 3
     p = 2 if aa_on else 1
+    names = list(RULE_NAMES)
+    if raw is not None:                # v16i: only the extra tests that have data today
+        names = [n for n, sid in zip(RULE_NAMES, ("lmarena", "livebench", "epoch", "eqbench", "lechmazur", "vals", "matharena"))
+                 if raw.get(sid)]
     if aa_on:
-        text = ("A model is called best only when at least 3 of 4 independent sources put it in their top 3 "
+        names.insert(1, "Artificial Analysis")
+    if aa_on:
+        text = ("A model is called best when at least 3 of the tests for its task put it in their top 3 "
                 "(2 of 2 for pictures).")
     else:
-        text = ("A model is called best only when all 3 independent sources put it in their top 3. "
-                "Pictures have only 1 source, so no picture model is called best.")
+        text = ("A model is called best when at least 3 of the tests for its task put it in their top 3 "
+                "(all 3 when a task has only 3). Pictures have only 1 source, so no picture model is called best.")
     return {"text": text, "textSources": t, "need": 3, "picSources": p, "picNeed": 2 if aa_on else None,
-            "votes": NOT_SURE_VOTES}
+            "votes": NOT_SURE_VOTES, "names": ", ".join(names[:-1]) + " and " + names[-1] if len(names) > 1 else "".join(names)}
 
 
 def names_index(raw):
@@ -1995,6 +2382,9 @@ def names_index(raw):
     for b in ((raw.get("epoch") or {}).get("agent") or {}).values():
         for m in b.get("rows") or []:
             add(m["k"], m["n"], m.get("o"))
+    for sid in EXTRA:                       # v16i: last, so the big sources' spelling wins
+        for m in (raw.get(sid) or {}).get("rows") or []:
+            add(m["k"], m["n"], "")
     return idx
 
 
@@ -2115,7 +2505,7 @@ def build_picks(raw, aa_on=False):
             "new": [slim(c, mods) for c in res.get("new", []) if c["k"] not in {w["k"] for w in res["winners"]}],
             "why": plain_sentence(jid, res, boards), "how": job_how(jid, aa_on), "usesAA": bool(uses_aa),
             "boards": [{"src": b["src"], "name": SRC[b["src"]]["name"], "board": b["board"], "date": b.get("date") or "",
-                        "url": b.get("url") or "",
+                        "url": b.get("url") or "", **({"ai": True} if b.get("ai") else {}),
                         "top": [names.get(r["k"], {}).get("n", r["n"]) for r in b["rows"][:3]],
                         "topFast": [is_fast(names.get(r["k"], {}).get("n", r["n"]), mods.get(r["k"])) for r in b["rows"][:3]]} for b in boards],
         })
@@ -2673,9 +3063,11 @@ def build_agents(raw, news_items, official, summaries=None):
 # ======================================================================= main
 SECTIONS = [("lmarena", fetch_lmarena), ("aa", fetch_aa), ("livebench", fetch_livebench), ("epoch", fetch_epoch),
             ("openrouter", fetch_openrouter), ("official", fetch_official), ("prices", fetch_prices), ("news", fetch_news),
-            ("agentapps", fetch_agentapps), ("taubench", fetch_taubench)]
+            ("agentapps", fetch_agentapps), ("taubench", fetch_taubench),
+            ("eqbench", fetch_eqbench), ("lechmazur", fetch_lechmazur), ("vals", fetch_vals), ("matharena", fetch_matharena)]
 TEXT_SOURCES = ("lmarena", "aa", "livebench", "epoch")
-SOURCE_ORDER = ("lmarena", "aa", "livebench", "epoch", "openrouter", "official", "prices", "news", "agentapps", "taubench")
+SOURCE_ORDER = ("lmarena", "aa", "livebench", "epoch", "eqbench", "lechmazur", "vals", "matharena", "openrouter", "official", "prices",
+                "news", "agentapps", "taubench")
 
 
 def load_json(p):
@@ -2796,7 +3188,7 @@ def main():
         log(f"only {len(picks)} picks; not writing")
         return 4
     news_items = (raw.get("news") or {}).get("items") or []
-    ri = rule_info(aa_on)
+    ri = rule_info(aa_on, raw)
     summaries = dict(prev_raw.get("summaries") or {})             # v16h: {url: summary}, so each page is fetched once
     out = {
         "v": VERSION, "built": NOW_ISO, "aaEnabled": aa_on, "status": status,
@@ -2815,11 +3207,24 @@ def main():
     }
     shown = {it["u"] for it in out["bignews"]["items"] + out["agents"]["news"]["items"]}
     raw["summaries"] = {u: x for u, x in summaries.items() if u in shown}      # only what is still shown
+    # v16i: AI-written detailed summaries for Updates stories ("xd"); the short "x" stays as the fallback
+    aisum = dict(prev_raw.get("aisum") or {})
+    try:
+        _, ast = fill_ai_summaries(out["bignews"]["items"], aisum)
+        log(f"AI summaries: {ast}" if ast["key"] else "AI summaries: OPENROUTER_API_KEY not set, skipped (stories keep 'x')")
+    except Exception as e:                       # never let summaries stop the update
+        log(f"AI summaries failed: {scrub_key(str(e), os.environ.get('OPENROUTER_API_KEY') or '')[:150]}")
+    bn = {it["u"] for it in out["bignews"]["items"]}
+    raw["aisum"] = {u: x for u, x in aisum.items() if u in bn}
     blob = json.dumps(out, ensure_ascii=False, separators=(",", ":"))
     raw_blob = json.dumps(raw, ensure_ascii=False, separators=(",", ":"))
     key = os.environ.get("AA_API_KEY")
     if key and (key in blob or key in raw_blob):
         log("the AA key showed up in the output; not writing")
+        return 6
+    okey = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
+    if okey and (okey in blob or okey in raw_blob):
+        log("the OpenRouter key showed up in the output; not writing")
         return 6
     if not aa_on and aa_leak(out, raw):
         log("Artificial Analysis is off but AA data is in the output; not writing")

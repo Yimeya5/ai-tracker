@@ -1342,7 +1342,7 @@ class Pipeline(unittest.TestCase):
         # AA on: 3 of 4 rule, 2 of 2 for pictures, AA credited, all 7 sources listed
         self.assertTrue(d["aaEnabled"])
         self.assertEqual((d["ruleInfo"]["textSources"], d["ruleInfo"]["picSources"]), (4, 2))
-        self.assertIn("3 of 4", d["rule"])
+        self.assertIn("at least 3 of the tests", d["rule"])
         self.assertEqual(picks["chat"]["n"], 4)
         self.assertEqual(picks["pictures"]["status"], "best")
         self.assertTrue(picks["chat"]["usesAA"])
@@ -1934,6 +1934,331 @@ class Summaries(unittest.TestCase):
         self.assertGreaterEqual(sum(1 for i in items if i["x"]), 5)          # the RSS pages carry one; html-only pages are 403 here
         terra = [i for i in items if i["t"] == "Introducing GPT-6.1 Terra"][0]
         self.assertEqual(terra["x"], "Bringing fast and capable computer use to everyone")      # the feed's own summary
+
+
+# ------------------------------------------------------------------ v16i: more independent tests + AI story summaries
+EQB_JS = "// creative_writing_v3.js\nlet leaderboardDataCreativeWritingV3 = `\nmodel_name,elo_score,creative_writing_score\n" + "\n".join(
+    ["gpt-6-astra,2176.9,15.94", "*kimi-k3.1-pro,2172.6,16.63", "claude-fable-5-1,2155.3,16.27", "claude-opus-5,2135.0,16.26",
+     "gpt-6-sol,2126.0,16.05", "claude-opus-5-5,2050.9,15.98", "grok-4.7,2012.2,15.95", "*muse-wonder,2007.0,16.22",
+     "gemini-4-argon,1800.0,15.0", "gpt-6-astra,1500.0,14.0"]) + "\n`;\nlet other = `x`;"
+LECH_MD = """# Writing\n\n### Leaderboard\n\n| Rank | Model | Comparison score | Estimated win chance | 95% bootstrap interval |
+| ---: | --- | ---: | ---: | --- |
+| 1 | Claude Fable 5.1 (high) | 3.745 | 93% | 3.663 to 3.829 |
+| 2 | Claude Opus 5.5 (high) | 3.693 | 93% | 3.586 to 3.776 |
+| 3 | Claude Opus 5 (xhigh) | 3.685 | 93% | 3.635 to 3.735 |
+| 4 | GPT-6 Astra (high) | 3.416 | 91% | 3.355 to 3.494 |
+| 5 | Claude Opus 5 (high) | 3.322 | 90% | 3.233 to 3.431 |
+| 6 | GLM-5.3 (max) | 2.950 | 87% | 2.856 to 3.047 |
+| 7 | Claude Fable 5 (high)§ | 2.810 | 86% | 2.745 to 2.869 |
+| 8 | **Kimi K3.1 Pro (high)** | 2.723 | 85% | 2.634 to 2.799 |
+| 9 | GPT-5.6 Sol (xhigh) | 2.425 | 82% | 2.353 to 2.512 |
+| 10 | Gemini 4 Argon (high) | 0.719 | 61% | 0.603 to 0.825 |
+
+Notes after the table.
+"""
+VALS_HTML = ('<html><p>Updated 11/5/2026</p><table aria-labelledby="t"><thead><tr><th>Rank</th><th>Model</th><th>Harness</th>'
+             '<th>Score</th><th>Cost / Test</th></tr></thead><tbody>' + "".join(
+    f'<tr><td>{i}</td><th scope="row"> <a href="/models/{slug}">{name}</a> </th><td>Mini-SWE-agent</td><td>{sc}%</td><td>$1</td></tr>'
+    for i, (slug, name, sc) in enumerate([
+        ("anthropic_claude-opus-5-5", "Claude Opus 5.5", "65.15"), ("anthropic_claude-sonnet-5-5", "Claude Sonnet 5.5", "64.14"),
+        ("kimi_kimi-k3.1-pro", "Kimi K3.1 Pro", "63.64"), ("google_gemini-4-carbon", "Gemini 4 Carbon", "63.13"),
+        ("openai_gpt-6-astra", "GPT-6 Astra", "59.60"), ("anthropic_claude-fable-5-1", "Claude Fable 5.1", "58.08"),
+        ("meta_muse-wonder-full", "Wonder Full", "58.08"), ("google_gemini-4-argon", "Gemini 4 Argon", "57.58"),
+        ("openai_gpt-6.1-sol", "GPT-6.1 Sol", "55.05")], 1)) + "</tbody></table></html>")
+MA_HOME_HTML = ('<button class="button competition-button is-deprecated" data-competition-id="arxiv--december" data-default-open="false">12/2025</button>'
+                '<button class="button competition-button" data-competition-id="arxiv--august" data-default-open="false">08/2026</button>'
+                '<button class="button competition-button" data-competition-id="arxiv--september" data-default-open="true">09/2026</button>')
+MA_TABLE_HTML = ("<table><thead><tr><th>Rank</th><th>Model Name</th><th>Provider</th><th>Accuracy (± 95% CI)</th><th>Cost</th></tr></thead><tbody>" +
+                 "".join(f"<tr><td>{i}</td><td>{n} \u26a0\ufe0f</td><td>X</td><td>{a}% ± 5%</td><td>$1</td></tr>" for i, (n, a) in enumerate([
+                     ("GPT-6.1 Sol (max)", "91.51"), ("Gemini 4 Argon", "87.74"), ("Claude-Opus-5.5 (high)", "82.08"),
+                     ("Muse Wonder", "66.04"), ("Kimi K3.1 Pro", "64.15"), ("Gemini 3.8 Flash", "50.00"),
+                     ("DeepSeek-V4.1-Flash-1017 (Max)", "49.06"), ("DeepSeek-V4.1-Flash-1017 (Max, DSH)", "45.28")], 1)) + "</tbody></table>")
+EXTRA_PAGES = {
+    "https://eqbench.com/creative_writing.js": EQB_JS,
+    "https://raw.githubusercontent.com/lechmazur/writing/main/README.md": LECH_MD,
+    "https://api.github.com/repos/lechmazur/writing/commits?path=README.md&per_page=1": json.dumps([{"commit": {"committer": {"date": "2026-10-24T10:00:00Z"}}}]),
+    "https://www.vals.ai/benchmarks/terminal-bench-4": VALS_HTML,
+    "https://matharena.ai/": MA_HOME_HTML,
+    "https://matharena.ai/competition_tables/arxiv--september": json.dumps({"table": MA_TABLE_HTML, "problem_table": ""}),
+}
+ARTICLE = ("<html><body><nav>Menu Home About</nav><article><h1>Big launch</h1>" + "".join(
+    f"<p>Paragraph {i}: the company said the new model is faster and cheaper than the last one, and that it will reach "
+    f"every paid user over the next weeks, with more languages coming in later updates number {i}.</p>" for i in range(8)) +
+    "<script>var secret = 1;</script></article><footer>Copyright</footer></body></html>")
+GOOD_SUMMARY = ("A new AI model was announced this week by the company. It is described as quicker than the version before it. "
+                "It should also cost less to run for people who build with it. Paying customers will get access gradually. "
+                "The rollout is planned to take a few weeks. Support for further languages is expected afterwards.")
+
+
+class MoreTestsV16i(unittest.TestCase):
+    """v16i: EQ-Bench, Lech Mazur, Vals AI Terminal-Bench 4 and MathArena ArXivMath as extra Top Picks tests."""
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.m = load(self.root)
+        self.m.log = lambda *a: None
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_parse_eqbench(self):
+        rows = self.m.parse_eqbench(EQB_JS)
+        self.assertEqual([r["k"] for r in rows[:3]], ["gpt-6-astra", "kimi-k3-1-pro", "claude-fable-5-1"])
+        self.assertEqual(rows[0]["s"], 2176.9)                                    # each model once, its best score
+        self.assertEqual(sum(1 for r in rows if r["k"] == "gpt-6-astra"), 1)
+        self.assertIn("muse-wonder", [r["k"] for r in rows])                      # '*' (new model) mark removed
+
+    def test_parse_lechmazur(self):
+        rows = self.m.parse_lechmazur(LECH_MD)
+        self.assertEqual([r["k"] for r in rows[:4]], ["claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "gpt-6-astra"])
+        self.assertIn("kimi-k3-1-pro", [r["k"] for r in rows])                    # bold removed
+        self.assertIn("claude-fable-5", [r["k"] for r in rows])                   # footnote mark removed
+        self.assertEqual(len(rows), 9)                                            # Opus 5 (high) folded into Opus 5
+
+    def test_parse_vals(self):
+        rows = self.m.parse_vals(VALS_HTML)
+        self.assertEqual(rows[0]["k"], "claude-opus-5-5")
+        self.assertIn("muse-wonder-full", [r["k"] for r in rows])                 # id from the link, not "Wonder Full"
+        self.assertIn("gpt-6-1-sol", [r["k"] for r in rows])
+
+    def test_parse_matharena_newest_month(self):
+        self.assertEqual(self.m.matharena_latest(MA_HOME_HTML), ("arxiv--september", "2026-09"))
+        rows = self.m.parse_matharena(MA_TABLE_HTML)
+        self.assertEqual([r["k"] for r in rows[:3]], ["gpt-6-1-sol", "gemini-4-argon", "claude-opus-5-5"])
+        self.assertEqual(sum(1 for r in rows if r["k"] == "deepseek-v4-1-flash"), 1)
+
+    def test_fetchers(self):
+        def get(url, timeout=None, headers=None, **kw):
+            if url in EXTRA_PAGES:
+                return Resp(EXTRA_PAGES[url])
+            raise RuntimeError("404")
+        self.m.get = get
+        self.assertEqual(self.m.fetch_lechmazur()["date"], "2026-10-24")
+        self.assertEqual(self.m.fetch_vals()["date"], "2026-11-05")
+        ma = self.m.fetch_matharena()
+        self.assertEqual(ma["board"], "ArXivMath September 2026")
+        self.assertTrue(self.m.fetch_eqbench()["rows"])
+
+    def test_broken_page_raises_so_the_last_copy_is_kept(self):
+        for fn, arg in ((self.m.parse_eqbench, "nothing here"), (self.m.parse_lechmazur, "# no table"),
+                        (self.m.parse_vals, "<table><tr><th>A</th></tr></table>"), (self.m.parse_matharena, "<p>x</p>")):
+            with self.assertRaises(ValueError):
+                fn(arg)
+        with self.assertRaises(ValueError):                                       # a table cut short = page changed
+            self.m.parse_vals(VALS_HTML.split("</tr>")[0] + "</tr><tr><td>1</td><th><a href='/models/a_b'>B</a></th><td>h</td><td>5%</td></tr></table>")
+
+    def test_new_boards_in_jobs_and_how(self):
+        raw = {"eqbench": {"rows": self.m.parse_eqbench(EQB_JS), "date": "2026-10-28", "board": "Creative Writing v3 (Elo)"},
+               "lechmazur": {"rows": self.m.parse_lechmazur(LECH_MD), "date": "2026-10-24", "board": "Creative story-writing"},
+               "vals": {"rows": self.m.parse_vals(VALS_HTML), "date": "2026-11-05", "board": "Terminal-Bench 4"},
+               "matharena": {"rows": self.m.parse_matharena(MA_TABLE_HTML), "date": "2026-11-02", "board": "ArXivMath September 2026"}}
+        srcs = lambda job: [b["src"] for b in self.m.job_boards(raw, job) if b]
+        self.assertEqual(srcs("writing"), ["eqbench", "lechmazur"])
+        self.assertEqual(srcs("coding"), ["vals"])
+        self.assertEqual(srcs("math"), ["matharena"])
+        self.assertEqual(srcs("chat"), [])
+        w = [b for b in self.m.job_boards(raw, "writing") if b]
+        self.assertTrue(all(b["ai"] for b in w) and all(b["url"] == "" for b in w))
+        how = self.m.job_how("writing", False)
+        self.assertIn("EQ-Bench", how)
+        self.assertIn("Lech Mazur", how)
+        self.assertIn("graded by AI", how)
+        self.assertIn("Vals AI Terminal-Bench 4", self.m.job_how("coding", False))
+        self.assertIn("MathArena", self.m.job_how("math", False))
+        for sid in ("eqbench", "lechmazur", "vals", "matharena"):                 # plain-text credit, no link
+            self.assertEqual(self.m.SRC[sid]["url"], "")
+            self.assertNotIn("http", json.dumps(self.m.SRC[sid]))
+        self.assertIn("Graded by AI", self.m.SRC["eqbench"]["what"])
+        self.assertIn("Graded by AI", self.m.SRC["lechmazur"]["what"])
+        ri = self.m.rule_info(False, raw)
+        self.assertIn("EQ-Bench", ri["names"])
+        self.assertIn("MathArena", ri["names"])
+
+
+class FullRunV16i(unittest.TestCase):
+    """A whole run with the 4 new sources: they join the picks, a broken one keeps yesterday's copy, always a winner."""
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        os.environ.pop("AA_ENABLED", None)
+        os.environ.pop("OPENROUTER_API_KEY", None)
+
+    def tearDown(self):
+        os.environ.pop("OPENROUTER_API_KEY", None)
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def run_main(self, fail=(), prev_raw=None):
+        m = install_fakes(load(self.root), aa=False)
+        def get(url, timeout=None, headers=None, **kw):
+            if url in EXTRA_PAGES:
+                return Resp(EXTRA_PAGES[url])
+            if url == "https://e.com/article":
+                return Resp(ARTICLE)
+            return fake_get(url, timeout, headers, **kw)
+        m.get = get
+        names = list(ALL_SECTIONS) + ["eqbench", "lechmazur", "vals", "matharena"]
+        m.SECTIONS = [(n, boom if n in fail else getattr(m, "fetch_" + n)) for n in names]
+        if prev_raw is not None:
+            (self.root / "data").mkdir(parents=True, exist_ok=True)
+            (self.root / "data" / "raw.json").write_text(json.dumps(prev_raw))
+        return m, m.main()
+
+    def data(self):
+        return json.loads((self.root / "data" / "data.json").read_text())
+
+    def test_new_tests_join_the_picks(self):
+        m, rc = self.run_main()
+        self.assertEqual(rc, 0)
+        d = self.data()
+        picks = {p["id"]: p for p in d["picks"]}
+        self.assertIn("eqbench", [b["src"] for b in picks["writing"]["boards"]])
+        self.assertIn("lechmazur", [b["src"] for b in picks["writing"]["boards"]])
+        self.assertIn("vals", [b["src"] for b in picks["coding"]["boards"]])
+        self.assertIn("matharena", [b["src"] for b in picks["math"]["boards"]])
+        self.assertTrue(all(b.get("ai") for b in picks["writing"]["boards"] if b["src"] in ("eqbench", "lechmazur")))
+        for p in d["picks"]:                                                      # always a winner
+            self.assertTrue(p["winners"])
+            self.assertIn(p["status"], ("best", "lead", "single"))
+        for sid in ("eqbench", "lechmazur", "vals", "matharena"):
+            self.assertTrue(d["status"][sid]["ok"])
+            self.assertIn(sid, [s["id"] for s in d["sources"]])
+        self.assertIn("EQ-Bench", picks["writing"]["how"])
+        self.assertNotIn("xd", json.dumps(d["bignews"]))                         # no key: no AI summaries
+
+    def test_broken_source_keeps_yesterdays_copy(self):
+        self.run_main()
+        prev = json.loads((self.root / "data" / "raw.json").read_text())
+        m, rc = self.run_main(fail=("vals", "eqbench"))
+        self.assertIn(rc, (0, 1))
+        d = self.data()
+        self.assertFalse(d["status"]["vals"]["ok"])
+        self.assertIn("simulated outage", d["status"]["vals"]["err"])
+        self.assertTrue(d["status"]["vals"]["updated"])                          # yesterday's copy is used
+        raw = json.loads((self.root / "data" / "raw.json").read_text())
+        self.assertEqual(raw["vals"]["rows"], prev["vals"]["rows"])
+        picks = {p["id"]: p for p in d["picks"]}
+        self.assertIn("vals", [b["src"] for b in picks["coding"]["boards"]])
+
+    def test_broken_source_with_no_copy_is_left_out(self):
+        m, rc = self.run_main(fail=("matharena",))
+        d = self.data()
+        self.assertFalse(d["status"]["matharena"]["ok"])
+        self.assertIsNone(d["status"]["matharena"]["updated"])
+        picks = {p["id"]: p for p in d["picks"]}
+        self.assertNotIn("matharena", [b["src"] for b in picks["math"]["boards"]])
+        self.assertTrue(picks["math"]["winners"])
+        self.assertNotIn("MathArena", d["ruleInfo"]["names"])
+
+    def test_ai_summaries_with_key_never_leak_it(self):
+        os.environ["OPENROUTER_API_KEY"] = "sk-or-TEST-KEY-987654"
+        m = install_fakes(load(self.root), aa=False)
+        asked = []
+        def fake_or(key, title, source, feed, body, timeout=60):
+            asked.append(title)
+            self.assertEqual(key, "sk-or-TEST-KEY-987654")
+            return GOOD_SUMMARY, "anthropic/claude-haiku-5.5"
+        m.openrouter_summary = fake_or
+        def get(url, timeout=None, headers=None, **kw):
+            if url in EXTRA_PAGES:
+                return Resp(EXTRA_PAGES[url])
+            r = fake_get(url, timeout, headers, **kw)
+            return r if r.status_code == 200 else Resp(ARTICLE)                # every article page reads
+        m.get = get
+        m.SECTIONS = [(n, getattr(m, "fetch_" + n)) for n in ALL_SECTIONS]
+        rc = m.main()
+        self.assertIn(rc, (0, 1))
+        d = self.data()
+        items = d["bignews"]["items"]
+        self.assertTrue(asked)
+        self.assertGreaterEqual(sum(1 for i in items if i.get("xd") == GOOD_SUMMARY), 10)       # pages with real article text
+        self.assertTrue(all("xd" not in i for i in items if "#" in i["u"]))                   # a spot on a page: no summary
+        self.assertTrue(all(i.get("x") is not None for i in items))              # the short summary stays
+        for f in ("data.json", "data.js", "raw.json"):
+            self.assertNotIn("sk-or-TEST-KEY-987654", (self.root / "data" / f).read_text())
+        raw = json.loads((self.root / "data" / "raw.json").read_text())
+        self.assertTrue(raw["aisum"])
+        n = len(asked)
+        m.main()                                                                  # second run: all from the cache
+        self.assertEqual(len(asked), n)
+
+
+class AiSummariesV16i(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.m = load(self.root)
+        self.m.log = lambda *a: None
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_article_text(self):
+        t = self.m.article_text(ARTICLE)
+        self.assertIn("Paragraph 0", t)
+        self.assertNotIn("secret", t)
+        self.assertNotIn("Menu", t)
+
+    def test_no_key_no_summary(self):
+        items = [{"u": "https://e.com/a", "t": "T", "x": "short"}]
+        _, st = self.m.fill_ai_summaries(items, {}, key="", fetch=lambda u: ARTICLE, ask=lambda *a: (GOOD_SUMMARY, "m"))
+        self.assertNotIn("xd", items[0])
+        self.assertFalse(st["key"])
+
+    def test_summary_cached_by_url(self):
+        calls = []
+        ask = lambda *a: (calls.append(a[0]) or (GOOD_SUMMARY + "\n\nhttps://x.com/link", "anthropic/claude-haiku-5.5"))
+        cache = {}
+        items = [{"u": "https://e.com/a", "t": "Big launch", "x": "short", "s": "OpenAI"}]
+        self.m.fill_ai_summaries(items, cache, key="k", fetch=lambda u: ARTICLE, ask=ask)
+        self.assertEqual(items[0]["xd"], GOOD_SUMMARY)                            # link stripped
+        self.assertEqual(items[0]["xdBy"], "AI summary")
+        again = [{"u": "https://e.com/a", "t": "Big launch", "x": "short"}]
+        self.m.fill_ai_summaries(again, cache, key="k", fetch=lambda u: ARTICLE, ask=ask)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(again[0]["xd"], GOOD_SUMMARY)
+
+    def test_copied_text_is_rejected(self):
+        body = self.m.article_text(ARTICLE)
+        copied = " ".join(body.split("\n")[:5])
+        self.assertEqual(self.m.clean_ai_summary(copied, body), "")
+        self.assertEqual(self.m.clean_ai_summary("SKIP", body), "")
+        self.assertEqual(self.m.clean_ai_summary("Too short.", body), "")
+        self.assertEqual(self.m.clean_ai_summary(GOOD_SUMMARY, body), GOOD_SUMMARY)
+
+    def test_versions_and_abbreviations_are_not_sentence_ends(self):
+        s = ("SpaceXSI released Grok Voice 3.0 for the U.S. market this week. It answers in under one second. "
+             "It costs less than rival voice models from OpenAI and Google. Developers can use it through the API. "
+             "The model is also built into the Grok app. More voices and languages are planned for later.")
+        self.assertEqual(self.m.clean_ai_summary(s, "unrelated source text"), s)
+
+    def test_cut_off_answer_keeps_full_sentences(self):
+        cut = GOOD_SUMMARY + " Access is rol"
+        self.assertEqual(self.m.clean_ai_summary(cut, "unrelated"), GOOD_SUMMARY)
+
+    def test_too_little_text_or_errors_fall_back(self):
+        items = [{"u": "https://e.com/short", "t": "T", "x": "feed"}, {"u": "https://e.com/down", "t": "T", "x": "feed"},
+                 {"u": "https://e.com/spot#x", "t": "T", "x": "feed"}]
+        def fetch(u):
+            if "down" in u:
+                raise RuntimeError("503")
+            return "<p>Only a short line of text here, nothing more to read at all.</p>"
+        cache = {}
+        _, st = self.m.fill_ai_summaries(items, cache, key="k", fetch=fetch, ask=lambda *a: (GOOD_SUMMARY, "m"))
+        self.assertTrue(all("xd" not in i for i in items))
+        self.assertIn("https://e.com/short", cache)                               # too short: not retried
+        self.assertNotIn("https://e.com/down", cache)                             # page down: tried again next run
+        self.assertEqual((st["skipped"], st["failed"]), (1, 1))
+
+    def test_unusable_answer_is_retried_once(self):
+        cache, items = {}, [{"u": "https://e.com/a", "t": "T", "x": ""}]
+        calls = []
+        ask = lambda *a: (calls.append(1) or ("SKIP", "m"))
+        for _ in range(3):
+            self.m.fill_ai_summaries([dict(i) for i in items], cache, key="k", fetch=lambda u: ARTICLE, ask=ask)
+        self.assertEqual(len(calls), 2)
+
+    def test_limit_per_run(self):
+        items = [{"u": f"https://e.com/{i}", "t": "T", "x": ""} for i in range(5)]
+        calls = []
+        self.m.fill_ai_summaries(items, {}, key="k", max_new=2, fetch=lambda u: ARTICLE, ask=lambda *a: (calls.append(1) or (GOOD_SUMMARY, "m")))
+        self.assertEqual(len(calls), 2)
 
 
 if __name__ == "__main__":
