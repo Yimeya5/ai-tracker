@@ -92,12 +92,14 @@ test("data file has the new shape", () => {
   assert.equal(d.ruleInfo.picSources, d.aaEnabled ? 2 : 1);
   assert.ok(d.picks.length >= 3);
   for (const p of d.picks) {
-    assert.ok(["best", "tie", "none", "single"].includes(p.status), p.id);
+    assert.ok(["best", "tie", "none", "single", "lead"].includes(p.status), p.id);
     if (p.status === "single") assert.ok(p.id === "pictures" && p.n === 1 && !d.aaEnabled, "single-source pick only for pictures with AA off");
     else assert.ok(p.n >= 2, "pick from a single source: " + p.id);
     assert.ok(p.why && p.how && p.boards.length >= (p.status === "single" ? 1 : 2), p.id);
-    for (const b of p.boards) assert.ok(b.name && b.board && /^https:\/\//.test(b.url), p.id + " board without link");
-    for (const w of p.winners) for (const r of w.ranks) assert.ok(r.name && /^https:\/\//.test(r.url), "rank without source link");
+    // v16i: the 4 extra tests are credited as plain text (no link) by design
+    const PLAIN = ["eqbench", "lechmazur", "vals", "matharena"];
+    for (const b of p.boards) assert.ok(b.name && b.board && (/^https:\/\//.test(b.url) || (PLAIN.includes(b.src) && b.url === "")), p.id + " board without link");
+    for (const w of p.winners) for (const r of w.ranks) assert.ok(r.name && (/^https:\/\//.test(r.url) || (PLAIN.includes(r.src) && r.url === "")), "rank without source link");
   }
   for (const a of d.cost.apps) assert.ok(a.app && /^https:\/\//.test(a.page) && a.checked && typeof a.free === "boolean", "price without source/date " + a.app);
   for (const r of d.releases.items) assert.ok(r.n && r.d && /^https:\/\//.test(r.u) && r.src);
@@ -512,7 +514,7 @@ test("v7b: both themes, every group open, nothing wider than 390 px", { skip: ((
 // ---- v16h (cloudflare-v9, the live app): picker fix, no outside links, finder wording
 test("v16h: cloudflare-v9 app - tapping the already-chosen model ticks the AI; no outside links; no '1 test' note on finder tasks", () => {
   const app = read("cloudflare-v9/app.js"), sw = read("cloudflare-v9/sw.js");
-  assert.match(sw, /const VERSION = "v16h\d-2026-11-\d\d"/);
+  assert.match(sw, /const VERSION = "v16[hi]\d-2026-11-\d\d"/);
   assert.match(app, /function chooseSame\(input\)/);                                   // the same-row handler
   assert.match(app, /addEventListener\("click", function \(e\) \{\s*if \(e\.target && e\.target\.name === "mopt" && pro\.sheet\) chooseSame\(e\.target\);/);
   assert.match(app, /e\.key === "Enter" \|\| e\.key === " "\) && e\.target && e\.target\.name === "mopt"\) \{ chooseSame\(e\.target\)/);
@@ -532,4 +534,36 @@ test("v16h: cloudflare-v9 app - tapping the already-chosen model ticks the AI; n
     const h = read(f).replace(/<meta[^>]*>/g, "");
     assert.doesNotMatch(h, /href="https?:\/\//, f + " links out");
   }
+});
+
+
+// ---- v16i (cloudflare-v9): AI-written detailed story summaries + the 4 extra tests in Top Picks
+test("v16i: story page shows the AI summary (xd) with its note, else x; boards graded by AI are marked", () => {
+  const sw = read("cloudflare-v9/sw.js");
+  assert.match(sw, /const VERSION = "v16i\d-2026-11-\d\d"/);
+  const ctx = { AI_DATA: data() };
+  ctx.window = ctx;
+  vm.createContext(ctx);
+  vm.runInContext(read("cloudflare-v9/app.js"), ctx);
+  const A = ctx.AITracker;
+  const d = JSON.parse(JSON.stringify(data()));
+  const items = d.bignews.items;
+  assert.ok(items.length >= 2);
+  items[0].xd = "First paragraph of an AI summary.\n\nSecond paragraph of it.";
+  items[0].xdBy = "AI summary";
+  items[1].x = "The feed's own short text."; delete items[1].xd;
+  const wb = d.picks.find((p) => p.id === "writing");
+  wb.boards.push({ src: "eqbench", name: "EQ-Bench", board: "Creative Writing v3 (Elo)", date: "2026-10-28", url: "", ai: true, top: ["A", "B", "C"], topFast: [false, false, false] });
+  d.ruleInfo = Object.assign({}, d.ruleInfo, { names: "LMArena, LiveBench, Epoch AI, EQ-Bench, Lech Mazur's story test, Vals AI and MathArena" });
+  A.setData(d);
+  const s0 = A.storyHtml("news", 0);
+  assert.match(s0, /<p>First paragraph of an AI summary\.<\/p><p>Second paragraph of it\.<\/p>/);
+  assert.match(s0, /Summary written by AI from the article\. It may contain mistakes\./);
+  const s1 = A.storyHtml("news", 1);
+  assert.match(s1, /The feed&#39;s own short text\.|The feed's own short text\./);
+  assert.doesNotMatch(s1, /Summary written by AI/);
+  const more = A.view("best", true);
+  assert.match(more, /EQ-Bench · Creative Writing v3 \(Elo\) \(graded by AI\)/);
+  assert.match(more, /Lech Mazur's story test|Lech Mazur&#39;s story test/);
+  assert.doesNotMatch(more.replace(/<a [^>]*href="#[^"]*"/g, ""), /href="https?:/);
 });

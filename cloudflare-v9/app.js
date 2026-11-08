@@ -459,7 +459,7 @@
   function vBest() {
     var picks = list(D.picks).filter(function (p) { return !p.hide; });
     var h = "<h2>Top Picks</h2><p class=\"sub\">" + esc(SUBS.best) + "</p>" + askCta() + finderHtml() + tipHtml(new Date());   // the full rule is under See more
-    h += staleList(["lmarena", "aa", "livebench", "epoch"]);
+    h += staleList(["lmarena", "aa", "livebench", "epoch", "eqbench", "lechmazur", "vals", "matharena"]);
     if (list(D.picks).some(function (p) { return p.usesAA; })) h += aaNote();
     h += '<h3 class="stackh">Top Picks by task</h3><div class="stack">' + (picks.map(function (p) { return pickCard(p, "p-"); }).join("") || '<p class="note">No picks yet.</p>') + "</div>";
     h += '<p class="note pickslink"><a href="#best-more" data-more="best">See the test scores and how picks work</a></p>';
@@ -478,7 +478,7 @@
       if (pw) h += '<p class="why">' + esc(oneTest(pw)) + "</p>";
       h += '<p class="note"><b>Sources used:</b> ' + esc(oneTest(plainRule(p.how, p.id === "cheap" ? CHEAP_HOW : "The independent tests listed below."))) + "</p>";
       h += '<ul class="boards">' + list(p.boards).map(function (b) {
-        return "<li>" + (b.src === "aa" ? "Source: " + ext(b.url, AA_CREDIT) : ext(b.url, esc(b.name))) + " · " + esc(b.board) + (b.date ? " · " + esc(day(b.date)) : "") + "</li>";
+        return "<li>" + (b.src === "aa" ? "Source: " + ext(b.url, AA_CREDIT) : ext(b.url, esc(b.name))) + " · " + esc(b.board) + (b.ai ? " (graded by AI)" : "") + (b.date ? " · " + esc(day(b.date)) : "") + "</li>";
       }).join("") + "</ul>";
       list(p.winners).forEach(function (c) { h += candDetail(c, true); });
       var others = list(p.candidates).concat(list(p["new"]));
@@ -487,7 +487,7 @@
       }
       h += "</section>";
     });
-    h += backButton() + credits(["lmarena", "aa", "livebench", "epoch", "openrouter"]);
+    h += backButton() + credits(["lmarena", "aa", "livebench", "epoch", "eqbench", "lechmazur", "vals", "matharena", "openrouter"]);
     return h;
   }
 
@@ -681,8 +681,11 @@
   function storyHtml(src, i) {
     var n = newsList(src)[i], back = '<button type="button" class="backbtn storyback" data-storyback="1">‹ Back</button>';
     if (!n) return back + '<h2>Story not found</h2><p class="sub">This story is no longer in the list.</p>';
-    // v16h6: the summary (n.x, the article's own short text) first; older paragraphs (n.w) only when there is no x
-    var paras = String(n.x || "").trim() ? String(n.x).split(/\n\s*\n/).map(function (x) { return x.replace(/\s+/g, " ").trim(); }).filter(Boolean) : [];
+    // v16i1: an AI-written detailed summary (n.xd) first, marked as such; else (v16h6) the summary (n.x, the article's own
+    // short text), then older paragraphs (n.w)
+    var byAi = !!String(n.xd || "").trim();
+    var paras = byAi ? String(n.xd).split(/\n\s*\n/).map(function (x) { return x.replace(/\s+/g, " ").trim(); }).filter(Boolean)
+      : String(n.x || "").trim() ? String(n.x).split(/\n\s*\n/).map(function (x) { return x.replace(/\s+/g, " ").trim(); }).filter(Boolean) : [];
     if (!paras.length) paras = list(n.w).filter(function (x) { return typeof x === "string" && x.trim(); }).map(function (x) { return x.trim(); });
     var meta = [n.s ? String(n.s) : "", n.d ? day(n.d) : ""].filter(Boolean).join(" · ");
     return '<article class="story">' + back +
@@ -690,6 +693,7 @@
       '<h2 class="sth" id="storyh" tabindex="-1" dir="auto">' + esc(n.t) + "</h2>" +
       (paras.length ? '<div class="sbody" dir="auto">' + paras.map(function (x) { return "<p>" + esc(x) + "</p>"; }).join("") + "</div>"
         : '<p class="snone muted">No summary from the source yet.</p>') +
+      (byAi ? '<p class="smeta">Summary written by AI from the article. It may contain mistakes.</p>' : "") +
       (meta ? '<p class="smeta">' + esc(meta) + "</p>" : "") +
       back.replace("storyback", "storyback bottom") + "</article>";
   }
@@ -1799,8 +1803,11 @@
   }
   function howPicks() {
     var ri = D.ruleInfo || {}, aa = !!D.aaEnabled, v = n0(ri.votes || 5000);
-    var names = aa ? "LMArena, Artificial Analysis, LiveBench and Epoch AI" : "LMArena, LiveBench and Epoch AI";
-    var best = "a model counts as best only when the independent sources (" + names + ") agree it is one of the strongest.";
+    var names = ri.names ? String(ri.names) : aa ? "LMArena, Artificial Analysis, LiveBench and Epoch AI" : "LMArena, LiveBench and Epoch AI";
+    // v16i1: the pipeline's own rule (minus a pictures sentence; the pictures line below says it) and test names
+    var rule = (String(D.rule || "").match(/[^.]+(\.|$)/g) || []).map(function (x) { return x.trim(); }).filter(function (x) { return x && !/picture/i.test(x); }).join(" ");
+    var best = rule ? rule + (ri.names ? " The tests: " + names + "." : "")
+      : "a model counts as best only when the independent sources (" + names + ") agree it is one of the strongest.";
     var pics = aa ? "For pictures there are 2 sources (LMArena and Artificial Analysis), so both must agree."
       : "For pictures only LMArena has data, so no picture model is called best. The app shows LMArena's #1 marked \u201c1 test only\u201d, and the next ones under See more.";
     return '<div class="card prose"><h3>How the picks work</h3>' +
