@@ -22,7 +22,7 @@
     race: "Give one task to 2 to 4 AIs and see who finishes first."
   };
   var hasDom = typeof document !== "undefined";
-  var D = root.AI_DATA || null;
+  var D = oneWinner(root.AI_DATA || null);
 
   var TABS = ["best", "cost", "releases", "news", "agents", "ask", "race"];
   var VIEWS_ALL = TABS.concat(["sources"]);
@@ -33,7 +33,8 @@
   // v16f: "Google DeepMind" is shown as "Google" wherever a model's maker is shown (display only; source names stay)
   function makerName(o) { return /^\s*google deepmind\s*$/i.test(String(o == null ? "" : o)) ? "Google" : o; }
   function safeUrl(u) { return /^https:\/\//.test(u || "") ? esc(u) : ""; }
-  function ext(u, text) { var s = safeUrl(u); return s ? '<a href="' + s + '" target="_blank" rel="noopener">' + text + "</a>" : text; }
+  // v16h2: no links out of the app. A source is credited as plain text; the url stays in the data only.
+  function ext(u, text) { return text; }
   function list(x) { return Array.isArray(x) ? x : []; }
   var MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   function day(iso) {
@@ -61,19 +62,49 @@
   }
 
   // ---------------------------------------------------------------- picks
-  function pickTitle(p) {
-    var w = list(p.winners);
-    if (p.status === "single" && w.length) return w[0].n;
-    if (p.status === "tie" && w.length > 1) return "Tie: " + w.map(function (c) { return c.n; }).join(" & ");
-    if (p.status === "none" || !w.length) return "No clear winner yet";
-    return w[0].n;
+  // v16h4: there is always ONE winner. New data says "lead" (one winner, runners-up in candidates, a short why).
+  // Old data is turned into the same shape once, when it arrives: "tie" -> the first winner leads, the others become
+  // runners-up; "none" -> the first candidate leads; nothing at all -> the card is hidden (p.hide). A why is written
+  // from that model's tests: "Top 3 in N of M tests." Applies to picks, Find your AI tasks and the agents' best model.
+  function topLine(c, n) {
+    var t = c && typeof c.top3 === "number" ? c.top3 : list(c && c.ranks).filter(function (r) { return r && r.top3 && r.rank; }).length;
+    return t ? "Top 3 in " + t + " of " + Math.max(t, n) + " tests." : "";
   }
+  function onePick(p) {
+    if (!p || typeof p !== "object") return p;
+    var w = list(p.winners), c = list(p.candidates);
+    if (p.status === "none" || p.status === "tie" || (!w.length && c.length)) {
+      var all = w.concat(c);
+      if (!all.length) { p.hide = true; return p; }
+      p.winners = [all[0]]; p.candidates = all.slice(1);
+      p.status = "lead"; p.why = topLine(all[0], p.n || list(p.boards).length || 3);
+    } else if (w.length > 1) { p.winners = [w[0]]; p.candidates = w.slice(1).concat(c); }
+    else if (!w.length) p.hide = true;
+    return p;
+  }
+  // v16h5: Mistral renamed Le Chat to Vibe. Old data that still says "Le Chat" is read as "Vibe" (formerly Le Chat).
+  function renameApps(d) {
+    var RENAMED = { "Le Chat": "Vibe" };                             // inside: runs at load, before the file's vars are set
+    var c = d.cost, pv = d.finder && d.finder.privacy;
+    list(c && c.apps).forEach(function (a) { if (a && own(RENAMED, a.app)) { a.formerly = a.formerly || a.app; a.app = RENAMED[a.app]; } });
+    list(d.stalePrices).forEach(function (x) { if (x && own(RENAMED, x.app)) x.app = RENAMED[x.app]; });
+    if (pv && pv.apps) Object.keys(RENAMED).forEach(function (o) {
+      if (own(pv.apps, o) && !own(pv.apps, RENAMED[o])) { pv.apps[RENAMED[o]] = pv.apps[o]; delete pv.apps[o]; }
+      if (Array.isArray(pv.order)) pv.order = pv.order.map(function (x) { return x === o ? RENAMED[o] : x; });
+    });
+  }
+  function oneWinner(d) {
+    if (!d || typeof d !== "object") return d;
+    renameApps(d);
+    list(d.picks).forEach(onePick);
+    list(d.finder && d.finder.tasks).forEach(onePick);
+    if (d.agents && d.agents.best) onePick(d.agents.best);
+    return d;
+  }
+  function pickTitle(p) { var c = list(p && p.winners)[0] || list(p && p.candidates)[0]; return c && c.n ? c.n : ""; }
   function pickMaker(p) {
-    var w = list(p.winners);
-    if (!w.length || p.status === "none") return "";
-    var makers = [];
-    w.forEach(function (c) { var o = makerName(c.o); if (o && makers.indexOf(o) < 0) makers.push(o); });
-    return makers.length ? "by " + makers.join(" and ") : "";
+    var c = list(p && p.winners)[0] || list(p && p.candidates)[0], o = c ? makerName(c.o) : "";
+    return o ? "by " + o : "";
   }
   var AA_CREDIT = "Artificial Analysis (artificialanalysis.ai)";
   // v16d: the screen never says "top 3" / "top 10" / "N of N tests". The ranking rules are unchanged; only the words.
@@ -105,7 +136,7 @@
       (c.notSure && list(c.why).length ? (c.votes != null ? " " : "") + "Not sure yet: " + esc(plainRule(c.why.join("; "), "fewer tests so far")) + "." : "");
     if (note) h += '<p class="note">' + note + "</p>";
     if (c.price) h += '<p class="note">Developer price: <b>' + money(c.price.pin) + " in / " + money(c.price.pout) + " out</b> per million tokens · " +
-      ext(c.price.u, esc(c.price.srcName)) + (c.price.date ? ", " + esc(day(c.price.date)) : "") + "</p>";
+      "Source: " + ext(c.price.u, esc(c.price.srcName)) + (c.price.date ? ", " + esc(day(c.price.date)) : "") + "</p>";
     h += '<ul class="ranks">' + list(c.ranks).map(rankLine).join("") + "</ul></div>";
     return h;
   }
@@ -119,11 +150,7 @@
         : "None of the strongest models has a known price yet.";
     }
     if (p.status === "single") return "Rated #1 by people's votes. Only 1 test covers pictures right now, so no picture model is called best yet.";
-    if (p.status === "none") {
-      var close = list(p.candidates).slice(0, 3).map(function (c) { return c.n; });
-      return "The " + n + " tests don't agree." + (close.length ? " Closest: " + close.join(", ") + "." : "");
-    }
-    if (p.status === "tie") return "Tie: " + w.map(function (c) { return c.n; }).join(" and ") + " are both among the strongest, and too close to call.";
+    if (p.status === "lead") return String(p.why || "");             // as given ("Top 3 in 2 of 3 tests, best average rank.")
     var c = w[0] || {};
     var votes1 = list(c.ranks).some(function (r) { return r.src === VOTES_SRC && r.rank === 1; });
     return votes1 ? "Rated #1 by people's votes." : "";
@@ -137,7 +164,6 @@
     var w = list(p.winners);
     var badge = "";
     if (p.status === "single") badge = '<span class="badge one">Rated #1 by people\'s votes · 1 test only</span>';
-    else if (p.status === "tie") badge = '<span class="badge tie">Tie</span>';
     else if (w[0] && w[0].notSure) badge = '<span class="badge new">New, not sure yet</span>';
     var h = '<details class="pick" id="' + esc(id) + '"' + (state.open[id] ? " open" : "") + "><summary>" +
       '<span class="ico" aria-hidden="true">' + esc(p.icon || "•") + "</span>" +
@@ -230,7 +256,11 @@
   function allTasks(d) { return list(d && d.picks).concat(list(d && d.finder && d.finder.tasks)); }
   function finderTasks() { return allTasks(D).filter(function (p) { return p.id !== "cheap" && list(p.winners).concat(list(p.candidates)).length; }); }
   // the app's privacy row (score 0..1, rank, one line) from data.json finder.privacy, by app name ("ChatGPT")
-  function privacyFor(d, app) { var p = d && d.finder && d.finder.privacy; return p && app && own(p.apps, app.app) ? p.apps[app.app] : null; }
+  function privacyFor(d, app) {
+    var p = d && d.finder && d.finder.privacy;
+    if (!p || !app || !p.apps) return null;
+    return own(p.apps, app.app) ? p.apps[app.app] : app.formerly && own(p.apps, app.formerly) ? p.apps[app.formerly] : null;
+  }
   function getFinder() {
     if (!finder) { var raw = null; try { raw = JSON.parse(stored("ait.finder")); } catch (e) {} finder = raw && typeof raw === "object" ? raw : {}; }
     var tasks = finderTasks().map(function (p) { return p.id; });
@@ -306,15 +336,32 @@
     else if (r.free) w.push(r.freeLevel === "limited" ? "May be limited on free" : "Free in " + r.app);
     else w.push("Paid plan needed" + (r.plan ? ": " + planName(r.app, r.plan.name) + " " + money(r.plan.usd_month) + "/month" : ""));
     if (prio === "web" && r.explore) w.push("Can search the web in " + CONFIG.ASK_NAME);
-    if (prio === "privacy") w.push(r.privacy ? "Privacy #" + privRank(r.app) + ": " + r.privacy.line : "No privacy check for this maker yet");
+    if (prio === "privacy") {
+      if (!r.privacy) w.push("No privacy check for this maker yet");
+      else if (privBoth(r.privacy)) {                              // new data: both outside rankings, not one
+        w.push("Privacy #" + privRank(r.app) + " of " + privCount() + " · " + privRanks(r.privacy));
+        var ln = privLine(r.privacy);
+        if (ln) w.push(ln);
+      } else w.push("Privacy #" + privRank(r.app) + ": " + r.privacy.line);
+    }
     return w;
+  }
+  // v16h5: the score is the average of 2 outside rankings (Incogni 2026, ObscureIQ). Old data (Incogni + checks) still works.
+  function privBoth(x) { var r = x && x.ranks; return !!(r && r.incogni != null && r.obscureiq != null); }
+  function privCount() { var p = D && D.finder && D.finder.privacy; return p && p.apps ? Object.keys(p.apps).length : 0; }
+  function shortRank(v) { var n = Number(v); return isFinite(n) && n > 0 ? (n % 1 ? "joint #" + Math.floor(n) : "#" + n) : "–"; }   // 2.5 (shared) -> "joint #2"
+  function privRanks(x) { return "Incogni 2026: " + shortRank(x.ranks.incogni) + " · ObscureIQ: " + shortRank(x.ranks.obscureiq); }
+  // the app's one-line summary, minus a part that names only one ranking ("Ranked most private by Incogni")
+  function privLine(x) {
+    if (!privBoth(x)) return String(x && x.line || "");
+    return String(x.line || "").split(/;\s*/).filter(function (t) { return t && !/incogni|obscureiq/i.test(t); }).join("; ");
   }
   function privRank(app) {
     var p = D && D.finder && D.finder.privacy, a = p && own(p.apps, app) ? p.apps[app] : null;
     return a && a.rank ? a.rank : list(p && p.order).indexOf(app) + 1 || "–";
   }
   // "How we score privacy": a tap-to-open row (same style as the source rows): each app's rank, score, its 5 checks with
-  // the page each was read on, and the Incogni ranking
+  // the page each was read on, and the outside ranking(s) the score comes from (plain text, no links)
   function privacyHowHtml() {
     var p = D && D.finder && D.finder.privacy;
     if (!p || !p.apps) return "";
@@ -324,19 +371,23 @@
     var apps = names.map(function (a) {
       var x = p.apps[a] || {};
       var checks = list(x.checks).map(function (c) {
-        var src = c.src && c.src.url ? " " + ext(c.src.url, "Source") : "";
+        var src = c.src && c.src.label ? ' <span class="pnote">· Source: ' + esc(c.src.label) + "</span>" : "";
         return '<li><span class="' + (c.ok ? "pvok" : "pvno") + '" aria-label="' + (c.ok ? "Yes" : "No") + '">' + (c.ok ? "✓" : "✗") + "</span><span>" + esc(c.label) +
           (c.unverified ? ' <span class="pnote">(not confirmed)</span>' : "") + src + "</span></li>";
       }).join("");
       return '<div class="pvapp"><span class="pl"><span class="pln"><b>#' + esc(String(privRank(a))) + " " + esc(a) + "</b></span>" +
         '<span class="plp">' + esc(String(Math.round((x.score || 0) * 100))) + "/100</span></span>" +
-        (x.line ? '<span class="pnote pvline">' + esc(x.line) + "</span>" : "") + (checks ? '<ul class="pvchk">' + checks + "</ul>" : "") + "</div>";
+        (privBoth(x) ? '<span class="pnote pvline">' + esc(privRanks(x)) + "</span>" : "") +
+        (privLine(x) ? '<span class="pnote pvline">' + esc(privLine(x)) + "</span>" : "") + (checks ? '<ul class="pvchk">' + checks + "</ul>" : "") + "</div>";
     }).join("");
-    var inc = p.incogni && p.incogni.url ? '<p class="pvsrc">Independent half: ' + ext(p.incogni.url, esc(p.incogni.name || "Incogni privacy ranking")) +
+    var named = function (x, dflt) { return x ? esc(x.name || dflt) + (x.published ? " (" + esc(x.published) + ")" : "") : ""; };
+    var inc = p.obscureiq ? '<p class="pvsrc">Sources: ' + [named(p.incogni, "Incogni privacy ranking"), named(p.obscureiq, "ObscureIQ privacy ranking")].filter(Boolean).join(" · ") + ".</p>"
+      : p.incogni && p.incogni.url ? '<p class="pvsrc">Independent half: ' + ext(p.incogni.url, esc(p.incogni.name || "Incogni privacy ranking")) +
       (p.incogni.published ? " (" + esc(p.incogni.published) + ")" : "") + ".</p>" : "";
     return '<ul class="rows fpriv"><li class="xrow' + (on ? " xopen" : "") + '" data-xkey="' + key + '" role="button" tabindex="0" aria-expanded="' + (on ? "true" : "false") + '">' +
       '<span class="rn"><b>How we score privacy</b><small>' + esc(p.checked ? "Checked " + p.checked : "") + "</small></span>" +
       '<span class="xchev" aria-hidden="true"></span><div class="xmore">' + (p.how ? '<p class="pvhow">' + esc(p.how) + "</p>" : "") +
+      (p.checksNote ? '<p class="pvhow">' + esc(p.checksNote) + "</p>" : "") +
       '<div class="plist">' + apps + "</div>" + inc + "</div></li></ul>";
   }
   function seg(name, opts, cur, label) {
@@ -354,15 +405,23 @@
       seg("fprio", prios(), f.prio, "Most important") +
       seg("fplan", PLANS, f.plan, "Plan") +
       '<div class="fresult" aria-live="polite">';
-    if (!best && f.plan === "free") {                               // never an empty Free: point to the closest free app
-      var near = rankModels(D, f.task, f.prio, "any").filter(function (r) { var a = appFor(D, r.o); return a && a.free; })[0];
-      h += '<p class="note">No tested model for this task is free.' + (near ? " Closest free option: " + esc(near.app) + " Free (" +
-        esc(FREE_DEFAULT[near.app] || "its free model") + ")." : "") + "</p>";
-    } else if (!best) h += '<p class="note">No tested model fits this choice yet. Try another plan.</p>';
-    else {
+    var fell = "";
+    if (!best) {                                                     // never empty: the task's overall #1 (or its first candidate)
+      var anyR = rankModels(D, f.task, f.prio, "any"), t0 = allTasks(D).filter(function (x) { return x.id === f.task; })[0] || {};
+      var c0 = list(t0.winners)[0] || list(t0.candidates)[0];
+      best = anyR[0] || (c0 ? { k: c0.k, n: c0.n, o: c0.o, fast: !!c0.fast, score: 0, quality: 0, app: "", free: false, plan: null, scores: {} } : null);
+      ranked = best ? [best] : [];
+      if (f.plan === "free") {                                       // still point to the closest free app
+        var near = anyR.filter(function (r) { var a = appFor(D, r.o); return a && a.free; })[0];
+        fell = "No tested model for this task is free, so this is the overall #1." + (near ? " Closest free option: " + near.app + " Free (" +
+          (FREE_DEFAULT[near.app] || "its free model") + ")." : "");
+      } else fell = "No tested model fits this plan, so this is the overall #1 for this task.";
+    }
+    if (best) {
       var try1 = CONFIG.ASK_API && best.explore ? '<button type="button" class="trybtn" data-try="' + esc(best.explore.id + "|" + best.explore.model) + '">Ask it in ' + esc(CONFIG.ASK_NAME) + "</button>" : "";
       h += '<div class="fbest"><p class="fkick">Your best match</p><p class="fname"><b>' + esc(best.n) + "</b>" + (best.o ? ' <span class="muted">by ' + esc(makerName(best.o)) + "</span>" : "") + "</p>" +
         '<ul class="fwhy">' + finderWhy(best, f.prio, f.plan).map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>" + try1 + "</div>";
+      if (fell) h += '<p class="note">' + esc(fell) + "</p>";
       h += '<details class="frank"' + (ranked.length > 1 ? " open" : " hidden") + '><summary>Full ranking (' + ranked.length + ")</summary><ol>" + ranked.map(function (r, i) {
         var pct = Math.round(Math.max(0.04, Math.min(1, r.score)) * 100);
         return '<li><span class="rpos">' + (i + 1) + '</span><span class="rbody"><b>' + esc(r.n) + "</b>" + (r.o ? ' <span class="muted">' + esc(makerName(r.o)) + "</span>" : "") +
@@ -387,8 +446,8 @@
     }
     var pvd = f.prio === "privacy" && hasPrivacy();
     h += '<p class="note fnote">Ranked from the tests, prices and plans in this app. ' +
-      (task1.finder ? "Only 1 test covers this task, so it is a guide, not a verdict. " : "") +
-      (pvd ? "Privacy: half Incogni's 2026 privacy ranking, half 5 checks on each company's own pages. " : "") +
+      (pvd ? (D.finder.privacy.obscureiq ? "Privacy: the average of 2 independent privacy rankings, Incogni 2026 and ObscureIQ. "
+        : "Privacy: half Incogni's 2026 privacy ranking, half 5 checks on each company's own pages. ") : "") +
       (f.prio === "speed" ? "Speed is a guess from the model's name and price, not a speed test. " : "") +
       (f.plan === "free" ? "Free plans have limits, and may not include every model. " : "") + "</p>" + (pvd ? privacyHowHtml() : "") + "</div></section>";
     return h;
@@ -398,7 +457,7 @@
     return '<p class="credits">Data: independent AI tests, the companies\' own pages and price lists. <a href="#sources" data-tab="sources">Sources and credits</a></p>';
   }
   function vBest() {
-    var picks = list(D.picks);
+    var picks = list(D.picks).filter(function (p) { return !p.hide; });
     var h = "<h2>Top Picks</h2><p class=\"sub\">" + esc(SUBS.best) + "</p>" + askCta() + finderHtml() + tipHtml(new Date());   // the full rule is under See more
     h += staleList(["lmarena", "aa", "livebench", "epoch"]);
     if (list(D.picks).some(function (p) { return p.usesAA; })) h += aaNote();
@@ -413,10 +472,10 @@
     var h = backButton() + "<h2>Top Picks: full details</h2>";
     h += howPicks();
     list(D.picks).forEach(function (p) {
+      if (p.hide) return;
       h += '<section class="job"><h3>' + esc(p.icon) + " " + esc(p.label) + ": " + esc(pickTitle(p)) + (p.status === "single" ? " (1 test only)" : "") + "</h3>";
-      var pw = plainRule(p.why, p.id === "cheap" ? "Cheapest to build apps with, among the strongest models." : p.status === "best" ? BEST_RULE : plainWhy(p));
+      var pw = p.status === "lead" ? String(p.why || "") : plainRule(p.why, p.id === "cheap" ? "Cheapest to build apps with, among the strongest models." : p.status === "best" ? BEST_RULE : plainWhy(p));
       if (pw) h += '<p class="why">' + esc(oneTest(pw)) + "</p>";
-      if (p.id !== "cheap" && list(p.candidates).length && p.status === "none") h += "<p><b>Closest:</b> " + esc(list(p.candidates).slice(0, 3).map(function (c) { return c.n; }).join(", ")) + "</p>";
       h += '<p class="note"><b>Sources used:</b> ' + esc(oneTest(plainRule(p.how, p.id === "cheap" ? CHEAP_HOW : "The independent tests listed below."))) + "</p>";
       h += '<ul class="boards">' + list(p.boards).map(function (b) {
         return "<li>" + (b.src === "aa" ? "Source: " + ext(b.url, AA_CREDIT) : ext(b.url, esc(b.name))) + " · " + esc(b.board) + (b.date ? " · " + esc(day(b.date)) : "") + "</li>";
@@ -458,14 +517,15 @@
     var src = a.src || { label: "Pricing page", url: a.page };
     var right = a.free ? '<span class="free">Free ✓</span>' : '<span class="muted">No free plan</span>';
     var paid = a.cheapest ? "Paid plans from " + monthly(a.cheapest.usd_month) + staleMark(a.cheapest.stale) : esc(a.note || "No paid plan");
-    var h = "<li><span class=\"rn\"><b>" + esc(a.app) + "</b><small>" + esc(a.maker) + " · " + paid + "</small>";
+    var h = "<li><span class=\"rn\"><b>" + esc(a.app) + "</b>" + (a.formerly ? ' <span class="muted">(formerly ' + esc(a.formerly) + ")</span>" : "") +
+      "<small>" + esc(a.maker) + " · " + paid + "</small>";
     if (full && list(a.plans).length) {
       h += '<span class="plans">' + list(a.plans).map(function (p) {
         return '<span class="plan">' + esc(p.name) + ": " + planPrice(p) + staleMark(p.stale) + "</span>";
       }).join("") + "</span>";
     }
     var read = a.readToday === undefined ? a.read_ok : a.readToday;
-    h += '<small class="checked">' + ext(src.url || a.page, esc(src.label || "Pricing page")) +
+    h += '<small class="checked">Source: ' + ext(src.url || a.page, esc(src.label || "Pricing page")) +
       (read ? " · checked " + esc(day(a.checked)) : ' · <span class="warn">price last checked ' + esc(day(a.checked)) + "</span>") +
       staleMark(a.stale) + "</small></span>" +
       '<span class="rv">' + right + "</span>" + (full ? "" : planList(a)) + "</li>";      // the plans: a full-width line under the row
@@ -487,7 +547,7 @@
       '<p class="note">⚡ ' + esc(fastNote()) + "</p>";
     h += staleNote("openrouter");
     h += '<ul class="rows card">' + (dev.map(function (d) {
-      return '<li><span class="rn"><b>' + esc(d.n) + "</b>" + fastTag(d.fast) + "<small>" + esc(makerName(d.o)) + '</small><small class="checked">' + ext(d.u, esc(d.srcName)) + (d.date ? ", " + esc(day(d.date)) : "") +
+      return '<li><span class="rn"><b>' + esc(d.n) + "</b>" + fastTag(d.fast) + "<small>" + esc(makerName(d.o)) + '</small><small class="checked">Source: ' + ext(d.u, esc(d.srcName)) + (d.date ? ", " + esc(day(d.date)) : "") +
         '</small></span><span class="rv">' + money(d.pin) + " / " + money(d.pout) + "</span></li>";
     }).join("") || '<li class="muted">No developer prices yet.</li>') + "</ul>";
     h += backButton() + credits(["prices", "openrouter", "aa"]);
@@ -572,9 +632,9 @@
       (good.length ? '<h4 class="relh4">Good at</h4><ul class="rellist">' + good.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>" : "") +
       (price.length ? '<h4 class="relh4">Price</h4><ul class="rellist">' + price.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>" : "") +
       (ex ? '<button type="button" class="sheetdone" data-relask="' + esc(ex.id + "|" + ex.model) + '">Ask it in ' + esc(CONFIG.ASK_NAME) + "</button>" : "") +
-      (safeUrl(r.u) ? '<p class="relsrc">' + ext(r.u, esc(src || "Source")) + "</p>" : "") + "</div>";
+      (src ? '<p class="relsrc">Source: ' + esc(src) + "</p>" : "") + "</div>";
   }
-  // simple view: "New model from Tencent · Nov 2", the name links to the announcement; the source name is under See more
+  // simple view: "New model from Tencent · Nov 2", tap opens the model sheet; the source name (plain text) is under See more
   function relRowPlain(r) { return relCard(r, false); }
   function vReleases() {
     var items = relSorted(D.releases && D.releases.items);
@@ -616,19 +676,22 @@
       : '<li class="newsitem"><span class="rn">' + body + "</span></li>";
   }
   function newsList(src) { return src === "agents" ? list(AG() && AG().news && AG().news.items) : list(D && D.bignews && D.bignews.items); }
-  // the story view: Back, tag, headline, date · source (plain text), the story in short paragraphs, Back again.
-  // Text = n.w (paragraphs, written by the daily update) or the full n.x; else a short muted line. Nothing invented.
+  // the story view: Back, tag, headline, the summary in short paragraphs, source · date (plain text), Back again.
+  // Text = n.x (the article's own summary) or else n.w; else one short muted line. Nothing invented.
   function storyHtml(src, i) {
     var n = newsList(src)[i], back = '<button type="button" class="backbtn storyback" data-storyback="1">‹ Back</button>';
     if (!n) return back + '<h2>Story not found</h2><p class="sub">This story is no longer in the list.</p>';
-    var paras = list(n.w).filter(function (x) { return typeof x === "string" && x.trim(); }).map(function (x) { return x.trim(); });
-    if (!paras.length && String(n.x || "").trim()) paras = String(n.x).split(/\n\s*\n/).map(function (x) { return x.replace(/\s+/g, " ").trim(); }).filter(Boolean);
+    // v16h6: the summary (n.x, the article's own short text) first; older paragraphs (n.w) only when there is no x
+    var paras = String(n.x || "").trim() ? String(n.x).split(/\n\s*\n/).map(function (x) { return x.replace(/\s+/g, " ").trim(); }).filter(Boolean) : [];
+    if (!paras.length) paras = list(n.w).filter(function (x) { return typeof x === "string" && x.trim(); }).map(function (x) { return x.trim(); });
+    var meta = [n.s ? String(n.s) : "", n.d ? day(n.d) : ""].filter(Boolean).join(" · ");
     return '<article class="story">' + back +
       (n.tag ? '<p class="stag"><span class="tag">' + esc(tagName(n.tag)) + "</span></p>" : "") +
       '<h2 class="sth" id="storyh" tabindex="-1" dir="auto">' + esc(n.t) + "</h2>" +
-      '<p class="smeta">' + esc(day(n.d)) + (n.s ? " · " + esc(n.s) : "") + "</p>" +
-      (paras.length ? '<div class="sbody" dir="auto">' + paras.map(function (x) { return "<p>" + esc(x) + "</p>"; }).join("") + "</div>" +
-        back.replace("storyback", "storyback bottom") : "") + "</article>";
+      (paras.length ? '<div class="sbody" dir="auto">' + paras.map(function (x) { return "<p>" + esc(x) + "</p>"; }).join("") + "</div>"
+        : '<p class="snone muted">No summary from the source yet.</p>') +
+      (meta ? '<p class="smeta">' + esc(meta) + "</p>" : "") +
+      back.replace("storyback", "storyback bottom") + "</article>";
   }
   // the credit line under the news stays plain text
   function creditsText(ids) { return credits(ids).replace(/<a [^>]*href="(?!#)[^"]*"[^>]*>([\s\S]*?)<\/a>/g, "$1"); }
@@ -664,19 +727,17 @@
   }
   function agentBestCard(full) {
     var b = AG().best || {}, w = list(b.winners);
+    if (!w.length || b.hide) return "";                              // never a "no winner" card
     var h = '<section class="card abest"><h3><span class="ico sm" aria-hidden="true">🤖</span>Best AI for agents</h3>' +
       '<p class="note">' + (full ? esc(plainRule(AG().rule, AGENT_RULE)) : "The AI model inside an agent. " + esc(AGENT_RULE)) + "</p>";
-    if (b.status === "best" && w.length) {
+    if (b.status === "lead" && b.why) h += '<p class="why">' + esc(b.why) + "</p>";
+    if (w.length) {
       h += '<ul class="rows">' + w.map(function (c) {
         return '<li><span class="rn"><b class="big">' + esc(c.n) + "</b>" + (full ? fastTag(c.fast) : "") + (agentWho(c, b.n) ? "<small>" + agentWho(c, b.n) + "</small>" : "") +
           '<small class="checked">' + list(c.ranks).filter(function (r) { return r.top3; }).map(function (r) {
             return ext(r.url, esc(r.name)) + " #" + r.rank + (r.date ? ", " + esc(day(r.date)) : "");
           }).join(" · ") + "</small></span></li>";
       }).join("") + "</ul>";
-    } else {
-      h += '<p class="why"><b>No clear winner yet.</b> ' + esc(plainRule(b.why, "The independent agent tests don't agree yet.")) + "</p>";
-      var close = list(b.candidates).slice(0, 3);
-      if (close.length) h += '<p class="note">Closest: ' + esc(close.map(function (c) { return c.n; }).join(", ")) + "</p>";
     }
     return h + "</section>";
   }
@@ -695,7 +756,7 @@
   // one price style on the Agents tab: "/mo", and "<source> · checked <date>" like the Cost tab
   function perMo(t) { return String(t || "").replace(/\/month\b/g, "/mo"); }
   function checkedLine(label, url, read, date, stale) {
-    return ext(url, esc(label)) + (read ? " · checked " + esc(day(date)) : ' · <span class="warn">last checked ' + esc(day(date)) + "</span>") + staleMark(stale);
+    return "Source: " + ext(url, esc(label)) + (read ? " · checked " + esc(day(date)) : ' · <span class="warn">last checked ' + esc(day(date)) + "</span>") + staleMark(stale);
   }
   function agentSimpleRow(a) {
     var s = a.src || {}, only = list(a.plans);
@@ -718,7 +779,7 @@
         return '<span class="plan">' + esc(p.name) + ": <b>" + esc(monthly(p.usd_month)) + "</b></span>";
       }).join("") + "</span>";
     }
-    h += '<small class="checked">' + ext(s.url, esc(s.label || "Official page")) + " · checked " + esc(day(a.checked)) + staleMark(a.stale || c.stale) + "</small>";
+    h += '<small class="checked">Source: ' + ext(s.url, esc(s.label || "Official page")) + " · checked " + esc(day(a.checked)) + staleMark(a.stale || c.stale) + "</small>";
     if (full) h += '<small class="checked">' + (c.readToday ? "Page still up: " + esc(day(c.checked)) : '<span class="warn">Page last read ' + esc(day(c.checked)) + "</span>") + "</small>";
     return h + '</span><span class="rv">' + agentFree(a) + "</span>" + (full ? "" : planList(a)) + "</li>";
   }
@@ -751,7 +812,7 @@
       h += "<small>" + esc(a.note) + "</small>";
     }
     var read = s.readToday;
-    h += '<small class="checked">' + (a.plansFrom ? "Prices: " : "") + ext(s.url, esc(s.label || "Pricing page")) +
+    h += '<small class="checked">' + (a.plansFrom ? "Prices: " : "Source: ") + ext(s.url, esc(s.label || "Pricing page")) +
       (read ? " · checked " + esc(day(s.checked || a.checked)) : ' · <span class="warn">price last checked ' + esc(day(s.checked || a.checked)) + "</span>") + staleMark(s.stale) + "</small>";
     if (pf) {
       h += '<small class="checked">' + (full && pf.text ? "Included: " + esc(pf.text) + " · " : "Included: ") + ext(pf.url, esc(pf.label)) +
@@ -799,8 +860,8 @@
     var ag = AG(), b = ag.best || {};
     var h = backButton() + "<h2>AI agents: full details</h2>";
     h += '<div class="card prose"><h3>How the pick works</h3><p><b>Best AI for agents</b>: ' + esc(plainRule(ag.rule, AGENT_RULE)) +
-      " The 3 tests are run by different groups in different ways: people's votes (LMArena), hidden tasks (LiveBench) and real work tasks (APEX-Agents). Every model that passes is shown.</p>" +
-      "<p>A test whose newest result is more than " + (ag.maxAge || 120) + " days old is left out. With fewer than 2 usable tests no model is named best.</p>" +
+      " The 3 tests are run by different groups in different ways: people's votes (LMArena), hidden tasks (LiveBench) and real work tasks (APEX-Agents). If more than one passes, the one with the best ranks is #1.</p>" +
+      "<p>A test whose newest result is more than " + (ag.maxAge || 120) + " days old is left out. With fewer than 2 usable tests, the model with the best ranks leads.</p>" +
       "<p>Vending-Bench 2, Remote Labor Index and LiveBench Browser are shown for information only; they don't change the pick. No AI is used to choose.</p></div>";
     h += agentBestCard(true);
     list(b.winners).forEach(function (c) {
@@ -846,7 +907,7 @@
     { id: "gemini", name: "Gemini", mode: "copy", url: "https://gemini.google.com/app" },
     { id: "meta", name: "Meta AI", mode: "copy", url: "https://www.meta.ai/" },
     { id: "deepseek", name: "DeepSeek", mode: "copy", url: "https://chat.deepseek.com/", note: "Needs a login." },
-    { id: "lechat", name: "Le Chat", mode: "copy", url: "https://chat.mistral.ai/chat", note: "Needs a login." }
+    { id: "lechat", name: "Vibe", mode: "copy", url: "https://chat.mistral.ai/chat", note: "Needs a login." }
   ];
   var askQ = "";                     // memory only: never written to storage, never sent anywhere by this app
   function askLinks(q) {
@@ -1204,6 +1265,15 @@
     var wrap = document.getElementById("modelsheet");
     if (wrap) wrap.querySelectorAll(".mopt").forEach(function (l) { l.classList.toggle("on", !!l.querySelector("input:checked")); });
   }
+  // tapping (or Space/Enter on) the row that is ALREADY chosen fires no "change": tick that AI the same way, only when it
+  // is not ticked yet (Race: only with room for it), so a real change never runs twice and a ticked AI is left as it is
+  function chooseSame(input) {
+    var id = pro.sheet, m = id && proModels().filter(function (x) { return x.id === id; })[0], cur = m && chosenOption(m, getChoice());
+    if (!cur || !input || input.value !== cur.model) return;          // another row: its "change" does the work
+    var ticked = state.tab === "race" ? getRacePick() : getPick();
+    if (ticked.indexOf(id) >= 0 || (state.tab === "race" && ticked.length >= RACE_MAX)) return;
+    chooseModel(id, input.value);
+  }
   // right after the Stripe return: at the TOP of the Ask view, so it's on the first screen of a phone
   function paidBoxes() {
     if (pro.paid) {
@@ -1253,13 +1323,13 @@
         box.textContent = "";
         box.hidden = !srcs.length;
         if (srcs.length) {
-          // a small list: the label, then one link per line (no separators), each ending in "…" when too long
+          // a small list: the label, then one site per line as plain text (no links out), each ending in "…" when too long
           var lab = document.createElement("span");
           lab.className = "asrcl"; lab.textContent = "Sources";
           box.appendChild(lab);
           srcs.forEach(function (s) {
-            var l = document.createElement("a");
-            l.href = s.url; l.target = "_blank"; l.rel = "noopener noreferrer"; l.textContent = s.title;
+            var l = document.createElement("span");
+            l.className = "asrc"; l.textContent = s.title;
             box.appendChild(l);
           });
         }
@@ -1362,7 +1432,7 @@
         : '<p class="ltext muted">Working…</p>') +
       (meta ? '<p class="lmeta">' + meta + "</p>" : "") + live +
       (srcs.length ? '<p class="asrcs"><span class="asrcl">Sources</span>' + srcs.map(function (x) {
-        return '<a href="' + esc(x.url) + '" target="_blank" rel="noopener noreferrer">' + esc(x.title) + "</a>"; }).join("") + "</p>" : "") + "</section>";
+        return '<span class="asrc">' + esc(x.title) + "</span>"; }).join("") + "</p>" : "") + "</section>";
   }
   function laneHtml(l) {
     if (l.server) return serverLaneHtml(l);
@@ -1378,7 +1448,7 @@
       (done ? '<p class="ltext' + (l.error ? " bad" : "") + '" dir="' + textDir(l.error || l.text) + '">' + esc(l.error || l.text) + "</p>"
         : '<p class="ltext muted">Working…</p>') +
       (srcs.length ? '<p class="asrcs"><span class="asrcl">Sources</span>' + srcs.map(function (x) {
-        return '<a href="' + esc(x.url) + '" target="_blank" rel="noopener noreferrer">' + esc(x.title) + "</a>"; }).join("") + "</p>" : "") + "</section>";
+        return '<span class="asrc">' + esc(x.title) + "</span>"; }).join("") + "</p>" : "") + "</section>";
   }
   function vRace() {
     var h = "<h2>Race</h2><p class=\"sub\">" + esc(SUBS.race) + "</p>";
@@ -1653,8 +1723,7 @@
         : st.updated ? '<span class="warn">⚠ Using last good copy from ' + esc(day(st.updated)) + "</span>" : '<span class="warn">⚠ No data yet</span>';
       return '<li><span class="rn"><b>' + (s.url ? ext(s.url, esc(s.credit || s.name)) : esc(s.credit || s.name)) + "</b>" +
         "<small>" + esc(s.what) + "</small>" +
-        (s.license || s.data ? "<small>" + (s.license ? "License: " + (s.licenseUrl ? ext(s.licenseUrl, esc(s.license)) : esc(s.license)) : "") +
-          (s.data ? (s.license ? " · " : "") + ext(s.data, "the data") : "") + "</small>" : "") +
+        (s.license ? "<small>License: " + (s.licenseUrl ? ext(s.licenseUrl, esc(s.license)) : esc(s.license)) + "</small>" : "") +
         "<small>" + line + (st.note ? " · " + esc(st.note) : "") + (!st.ok && st.err ? ' · <span class="muted">' + esc(st.err) + "</span>" : "") + "</small></span></li>";
     }).join("") + "</ul>";
     var offs = list(D.officialSources);
@@ -1736,9 +1805,8 @@
       : "For pictures only LMArena has data, so no picture model is called best. The app shows LMArena's #1 marked \u201c1 test only\u201d, and the next ones under See more.";
     return '<div class="card prose"><h3>How the picks work</h3>' +
       "<p><b>Best</b>: " + esc(best) + " " + esc(pics) + "</p>" +
-      "<p><b>Tie</b>: when two models both pass, and their error bars overlap (the range each source gives for its score), it's a tie and both are shown.</p>" +
       "<p><b>New, not sure yet</b>: fewer than 3 sources have tested the model, or it has fewer than " + v + " votes on LMArena's main text board (the text-to-image board for pictures).</p>" +
-      "<p><b>No clear winner yet</b>: nobody passes the rule, so the closest candidates are shown instead.</p>" +
+      "<p><b>Lead</b>: when no model passes the rule, the one that does best across the tests is shown as #1, with the reason.</p>" +
       "<p>No AI is used to choose; it's the same rule every day.</p>" +
       "<p><b>⚡ Fast</b>: " + esc(fastNote()) + " It is only a label and never changes a pick.</p>" + (aa ? aaNote() : "") + "</div>";
   }
@@ -1781,7 +1849,7 @@
     return { tab: "best", more: false };
   }
 
-  root.AITracker = { routeFor: routeFor, pickTitle: pickTitle, tabs: TABS, setData: function (d) { D = d; }, askLinks: askLinks, askAIs: ASK_AIS,
+  root.AITracker = { routeFor: routeFor, pickTitle: pickTitle, tabs: TABS, setData: function (d) { D = oneWinner(d); }, askLinks: askLinks, askAIs: ASK_AIS,
     config: CONFIG, plainAnswer: plainAnswer, four: pro, pro: pro, textDir: textDir, selectionCost: selectionCost, cleanPick: cleanPick,
     chosenOption: chosenOption, cleanChoice: cleanChoice, getChoice: getChoice, setChoice: setChoice, pickNames: pickNames,
     modelSheetHtml: modelSheetHtml,
@@ -2123,6 +2191,7 @@
   document.addEventListener("keydown", function (e) {
     if (!pro.sheet) return;
     if (e.key === "Escape") { e.preventDefault(); closeSheet(); return; }
+    if ((e.key === "Enter" || e.key === " ") && e.target && e.target.name === "mopt") { chooseSame(e.target); return; }   // Chrome sends no click for Space on a checked radio
     if (e.key !== "Tab") return;
     var f = [].slice.call(document.querySelectorAll('#modelsheet .sheet button, #modelsheet input[name="mopt"]:checked'));
     if (!f.length) return;
@@ -2130,6 +2199,9 @@
     if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
     else if (!e.shiftKey && i === f.length - 1) { e.preventDefault(); f[0].focus(); }
     else if (i < 0) { e.preventDefault(); f[0].focus(); }
+  });
+  document.addEventListener("click", function (e) {
+    if (e.target && e.target.name === "mopt" && pro.sheet) chooseSame(e.target);
   });
   document.addEventListener("change", function (e) {
     if (e.target && e.target.name === "mopt" && pro.sheet) { chooseModel(pro.sheet, e.target.value); return; }
@@ -2261,7 +2333,7 @@
     fetch("data/data.json?t=" + Date.now(), { cache: "no-store" })
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
       .then(function (nd) {
-        if (nd && nd.built && (!D || nd.built !== D.built)) { fresh = true; D = nd; if (state.tab === "ask") setStamp(); else render(); } else setStamp();   // don't redraw the Ask box while typing
+        if (nd && nd.built && (!D || nd.built !== D.built)) { fresh = true; D = oneWinner(nd); if (state.tab === "ask") setStamp(); else render(); } else setStamp();   // don't redraw the Ask box while typing
         return true;
       }, function () { return false; })
       .then(function (ok) {

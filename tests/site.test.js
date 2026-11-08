@@ -507,3 +507,29 @@ test("v7b: both themes, every group open, nothing wider than 390 px", { skip: ((
     }
   } finally { await b.close(); }
 });
+
+
+// ---- v16h (cloudflare-v9, the live app): picker fix, no outside links, finder wording
+test("v16h: cloudflare-v9 app - tapping the already-chosen model ticks the AI; no outside links; no '1 test' note on finder tasks", () => {
+  const app = read("cloudflare-v9/app.js"), sw = read("cloudflare-v9/sw.js");
+  assert.match(sw, /const VERSION = "v16h\d-2026-11-\d\d"/);
+  assert.match(app, /function chooseSame\(input\)/);                                   // the same-row handler
+  assert.match(app, /addEventListener\("click", function \(e\) \{\s*if \(e\.target && e\.target\.name === "mopt" && pro\.sheet\) chooseSame\(e\.target\);/);
+  assert.match(app, /e\.key === "Enter" \|\| e\.key === " "\) && e\.target && e\.target\.name === "mopt"\) \{ chooseSame\(e\.target\)/);
+  assert.doesNotMatch(app, /guide, not a verdict/);
+  assert.match(app, /id: "lechat", name: "Vibe"/);                                     // Mistral renamed Le Chat to Vibe
+  assert.match(app, /No summary from the source yet\./);                              // story page never blank
+  assert.doesNotMatch(app, /return "No clear winner yet"/);
+  // every target="_blank" left in the app belongs to an Ask launcher or the Stripe pay button
+  let i = -1, n = 0;
+  while ((i = app.indexOf("target=", i + 1)) >= 0) {
+    n++;
+    const ctx = app.slice(Math.max(0, i - 400), i);
+    assert.ok(/askbtn|paybtn|PAY_LINK/.test(ctx), "outside link left near: " + app.slice(i - 120, i + 40));
+  }
+  assert.ok(n <= 2, "more target= links than the Ask launchers: " + n);
+  for (const f of ["cloudflare-v9/index.html", "cloudflare-v9/privacy.html", "cloudflare-v9/terms.html", "cloudflare-v9/refund.html"]) {
+    const h = read(f).replace(/<meta[^>]*>/g, "");
+    assert.doesNotMatch(h, /href="https?:\/\//, f + " links out");
+  }
+});
