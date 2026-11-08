@@ -440,8 +440,11 @@ class PickRule(unittest.TestCase):
     def test_tie_when_error_bars_overlap(self):
         boards = self.four([r("a", 1510, 1500, 1520, 9000), r("b", 1505, 1495, 1515, 9000), r("g", 1480, 1475, 1485, 9000)])
         res = self.m.decide(boards, {}, 3)
-        self.assertEqual(res["status"], "tie")
-        self.assertEqual({w["k"] for w in res["winners"]}, {"a", "b"})
+        # v16h "always a winner": a tie is broken (best average rank: a 1.25 vs b 1.75) -> one winner, status "lead"
+        self.assertEqual(res["status"], "lead")
+        self.assertEqual([w["k"] for w in res["winners"]], ["a"])
+        self.assertIn("b", [c["k"] for c in res["candidates"]])
+        self.assertEqual(self.m.plain_sentence("chat", res), "Top 3 in all 4 tests, best average rank.")
 
     def test_not_sure_yet_by_votes(self):
         boards = self.four([r("a", 1510, 1505, 1515, 4000), r("c", 1490, 1485, 1495, 9000), r("g", 1480, 1475, 1485, 9000), r("b", 1400, 1395, 1405, 9000)])
@@ -466,9 +469,12 @@ class PickRule(unittest.TestCase):
                   bd("livebench", [r("g", 3), r("h", 2), r("a", 1)]),
                   bd("epoch", [r("i", 3), r("j", 2), r("k", 1)])]
         res = self.m.decide(boards, {}, 3)
-        self.assertEqual(res["status"], "none")
+        # v16h "always a winner": nobody is top 3 in 3 sources -> the one top 3 in the most sources leads
+        self.assertEqual(res["status"], "lead")
+        self.assertEqual([w["k"] for w in res["winners"]], ["a"])          # top 3 on LMArena and LiveBench
         self.assertTrue(res["candidates"])
-        self.assertIn("No clear winner yet", self.m.plain_sentence("chat", res))
+        self.assertEqual(self.m.plain_sentence("chat", res), "Top 3 in 2 of 4 tests, more than any other model.")
+        self.assertNotIn("No clear winner", self.m.plain_sentence("chat", res))
 
     def test_never_from_one_source(self):
         res = self.m.decide([bd("lmarena", [r("a", 3, 2, 4, 9000)], True, True), None, None, None], {}, 3)
@@ -557,7 +563,7 @@ class Prices(unittest.TestCase):
         apps = self.apps()
         self.assertEqual(len(apps), 9)
         gpt = apps["ChatGPT"]
-        self.assertEqual(self.plans(gpt), {"Go": 8, "Plus": 19.99, "Pro 100": 100, "Pro 200": 200, "Pro 500": 500})   # first match, not the yearly $200 "Plus"
+        self.assertEqual(self.plans(gpt), {"Go": 8, "Plus": 20, "Pro 100": 100, "Pro 200": 200, "Pro 500": 500})   # first match, not the yearly $200 "Plus"; $19.99 -> OpenAI's $20
         self.assertEqual(gpt["src"]["label"], "App Store price (US)")
         self.assertIn("apps.apple.com/us/app/chatgpt", gpt["src"]["url"])
         self.assertTrue(gpt["readToday"] and gpt["read_ok"])
@@ -618,7 +624,7 @@ class Prices(unittest.TestCase):
         self.m.get = lambda url, **k: (_ for _ in ()).throw(RuntimeError("down"))
         sec = self.m.fetch_prices(first)
         gpt = [a for a in sec["apps"] if a["app"] == "ChatGPT"][0]
-        self.assertEqual(self.plans(gpt)["Plus"], 19.99)                 # last good value kept
+        self.assertEqual(self.plans(gpt)["Plus"], 20)                    # last good value kept
         self.assertEqual(gpt["checked"], "2026-09-22")
         self.assertFalse(gpt["readToday"])
         self.assertTrue(gpt["stale"] and all(p["stale"] for p in gpt["plans"]))
@@ -634,7 +640,7 @@ class Prices(unittest.TestCase):
         self.m.appstore_price = lambda iap, label: 1.99 if label == "ChatGPT Plus" else real(iap, label)
         gpt = [a for a in self.m.fetch_prices(first)["apps"] if a["app"] == "ChatGPT"][0]
         plus = [p for p in gpt["plans"] if p["name"] == "Plus"][0]
-        self.assertEqual((plus["usd_month"], plus["checked"]), (19.99, "2026-10-01"))   # $1.99 is not believable
+        self.assertEqual((plus["usd_month"], plus["checked"]), (20, "2026-10-01"))      # $1.99 is not believable
 
     def test_wrong_listing_is_rejected(self):
         def get(url, **k):
@@ -664,9 +670,9 @@ class OfficialReleases(unittest.TestCase):
         rel = {r["n"]: r for r in self.m.official_releases(self.raw)}
         want = {"Gemini 4 Carbon": ("2026-10-28", "Google DeepMind blog"), "Mistral Large 4": ("2026-10-06", "Mistral news"),
                 "GPT-6.1 Terra": ("2026-10-26", "OpenAI News"), "Claude Opus 5.5": ("2026-09-22", "Anthropic news"),
-                "Claude Haiku 5.5": ("2026-10-07", "Anthropic news"), "Grok 4.7": ("2026-09-21", "xAI news"),
-                "Grok Voice 3.0": ("2026-10-14", "xAI news"), "Muse Spark 1.1": ("2026-07-09", "Meta AI blog"),
-                "DeepSeek-V4.1-Flash-1017": ("2026-10-17", "DeepSeek API change log"), "Voxtral 3": ("2026-10-20", "Mistral news"),
+                "Claude Haiku 5.5": ("2026-10-07", "Anthropic news"), "Grok 4.7": ("2026-09-21", "SpaceXSI news"),
+                "Grok Voice 3.0": ("2026-10-14", "SpaceXSI news"), "Muse Spark 1.1": ("2026-07-09", "Meta AI blog"),
+                "DeepSeek V4.1 Flash 1017": ("2026-10-17", "DeepSeek API change log"), "Voxtral 3": ("2026-10-20", "Mistral news"),
                 "Genie 4": ("2026-10-27", "Google DeepMind blog"), "Gemini 4 Argon": ("2026-09-30", "Google DeepMind blog"),
                 "GPT-6 Astra": ("2026-09-03", "OpenAI News")}       # OpenAI posts a lot: older posts must still be kept
         for n, (d, src) in want.items():
@@ -835,8 +841,10 @@ class AgentTests(unittest.TestCase):
         raw["livebench"]["rows"] = []
         raw["epoch"]["agent"] = {}
         res = self.m.agent_pick(raw)
-        self.assertEqual((res["status"], res["n"], res["winners"]), ("none", 1, []))
-        self.assertIn("no model is named best", res["why"])
+        # v16h "always a winner": with one test, that test's #1 leads (never called "best")
+        self.assertEqual((res["status"], res["n"], len(res["winners"])), ("lead", 1, 1))
+        self.assertIn("the only agent test with fresh data", res["why"])
+        self.assertNotIn("No clear winner", res["why"])
 
     def test_old_test_is_skipped(self):
         raw = agent_raw(self.m, apex_newest="2026-06-01")                         # more than 120 days before Nov 1
@@ -925,7 +933,7 @@ class AgentApps(unittest.TestCase):
     def test_plans_from_the_cost_tab(self):
         raw = {"prices": self.m.fetch_prices(None), "agentapps": self.m.fetch_agentapps(None)}
         out = {a["id"]: a for a in self.m.build_agent_apps(raw)}
-        self.assertEqual(self.plans(out["chatgpt-work"]), {"Go": 8, "Plus": 19.99, "Pro 100": 100, "Pro 200": 200, "Pro 500": 500})
+        self.assertEqual(self.plans(out["chatgpt-work"]), {"Go": 8, "Plus": 20, "Pro 100": 100, "Pro 200": 200, "Pro 500": 500})
         self.assertEqual(out["chatgpt-work"]["src"]["label"], "App Store price (US)")
         self.assertEqual(out["chatgpt-work"]["proof"]["label"], "Codex pricing page")
         self.assertEqual(self.plans(out["gemini-agent"]), {"Google AI Ultra": 99.99})
@@ -1117,7 +1125,7 @@ class StaticAgents(unittest.TestCase):
             for k in ("app", "maker", "group", "free", "what", "access", "priceText"):
                 self.assertEqual(a[k], x[k], x["id"] + " " + k)
             self.assertEqual([(p["name"], p["usd_month"]) for p in a["plans"]], [(p["name"], p["usd_month"]) for p in x["plans"]])
-            self.assertEqual((a["src"]["label"], a["src"]["url"], a["checked"]), (x["source"]["label"], x["source"]["url"], "2026-11-02"))
+            self.assertEqual((a["src"]["label"], a["src"]["url"], a["checked"]), (x["source"]["label"], x["source"]["url"], x["source"]["checked"]))
             self.assertNotIn("evidence", a)
 
     def test_page_up_today(self):
@@ -1527,8 +1535,8 @@ class AAOff(unittest.TestCase):
         self.assertEqual(m.decide(boards, {}, 3)["status"], "best")
         boards[2]["rows"] = [r("z", 3, 2.9, 3.1), r("w", 2, 1.9, 2.1), r("v", 1, .9, 1.1), r("a", .5, .4, .6)]
         res = m.decide(boards, {}, 3)
-        self.assertEqual(res["status"], "none")                                     # only 2 of 3 -> no winner
-        self.assertIn("all 3", m.plain_sentence("chat", res))
+        self.assertEqual((res["status"], res["winners"][0]["k"]), ("lead", "a"))     # only 2 of 3 -> not "best"; a leads
+        self.assertIn("2 of 3", m.plain_sentence("chat", res))
 
     def test_switching_off_removes_old_aa_data(self):
         os.environ["AA_ENABLED"] = "1"
@@ -1616,7 +1624,7 @@ class FinderExtrasTest(unittest.TestCase):
         self.assertTrue(w["notSure"])                             # 1,742 votes < 5,000
         # voice: developer-only voice agents (no app in the Cost data) are left out
         makers = {c["o"] for c in tasks["voice"]["winners"] + tasks["voice"]["candidates"]}
-        self.assertTrue(makers <= {"OpenAI", "Google", "xAI", "Anthropic", "Microsoft", "Meta", "Mistral", "Perplexity", "DeepSeek"}, makers)
+        self.assertTrue(makers <= {"OpenAI", "Google", "SpaceXSI (formerly xAI)", "Anthropic", "Microsoft", "Meta", "Mistral", "Perplexity", "DeepSeek"}, makers)
         self.assertEqual(tasks["voice"]["winners"][0]["o"], "OpenAI")
         # translation carries the hand-checked Hebrew / Yiddish note
         langs = [x["lang"] for x in tasks["translate"]["note"]["langs"]]
@@ -1631,7 +1639,7 @@ class FinderExtrasTest(unittest.TestCase):
 
     def test_privacy_scores(self):
         p = self.m.build_privacy()
-        apps = {a["app"] for a in self.m.PRICE_APPS}
+        apps = {self.m.app_display(a["app"]) for a in self.m.PRICE_APPS}    # names as the app shows them (Le Chat -> Vibe)
         self.assertTrue(apps <= set(p["apps"]), apps - set(p["apps"]))   # every app in the Cost tab has a privacy row
         for name, a in p["apps"].items():
             self.assertTrue(0 <= a["score"] <= 1 and a["line"] and a["rank"] >= 1)
@@ -1647,6 +1655,285 @@ class FinderExtrasTest(unittest.TestCase):
         self.assertEqual(self.m.privacy_score(full, inc)[0], 1.0)
         self.assertEqual(self.m.privacy_score(half, inc)[0], 0.95)
         self.assertEqual(self.m.privacy_score({"incogni": 20, "facts": {}}, inc)[0], 0.0)
+
+
+class DataFixesV16h(unittest.TestCase):
+    """v16h: maker names, prices and spellings that showed wrong in the app (checked on the companies' own pages 2026-11-07)."""
+    def setUp(self):
+        self.m = load(tempfile.mkdtemp())
+        self.m.get = strict_get
+        self.m.log = lambda *a: None
+
+    def test_web_price(self):
+        wp = self.m.web_price
+        self.assertEqual(wp(19.99, 20), 20)          # Apple's $19.99 tier -> OpenAI's own $20
+        self.assertEqual(wp(22.99, 20), 22.99)       # a real price change is shown as read
+        self.assertEqual(wp(20.0, 20), 20)
+        self.assertIsNone(wp(None, 20))              # nothing read stays nothing (last good value is kept elsewhere)
+        self.assertEqual(wp(19.99, None), 19.99)     # no web price known: as read
+
+    def test_chatgpt_plus_is_20_everywhere(self):
+        raw = {"prices": self.m.fetch_prices(None), "agentapps": self.m.fetch_agentapps(None)}
+        gpt = [a for a in raw["prices"]["apps"] if a["app"] == "ChatGPT"][0]
+        self.assertEqual({p["name"]: p["usd_month"] for p in gpt["plans"]}["Plus"], 20)
+        for a in self.m.build_agent_apps(raw):
+            for p in a.get("plans") or []:
+                if p["name"] in ("Plus", "ChatGPT Plus") and a["maker"] == "OpenAI":
+                    self.assertEqual(p["usd_month"], 20, a["id"])
+
+    def test_one_ultra_price(self):
+        # Google's page: Google AI Ultra "Starting at $99.99" ($99.99 or $199.99). No row may show $199.99 as THE Ultra price.
+        raw = {"prices": self.m.fetch_prices(None), "agentapps": self.m.fetch_agentapps(None)}
+        gem = [a for a in raw["prices"]["apps"] if a["app"] == "Gemini"][0]
+        ultra = [p for p in gem["plans"] if p["name"] == "Google AI Ultra"][0]
+        self.assertEqual((ultra["usd_month"], ultra["note"][:4]), (99.99, "from"))
+        for a in self.m.build_agent_apps(raw):
+            for p in a.get("plans") or []:
+                if p["name"] == "Google AI Ultra":
+                    self.assertEqual(p["usd_month"], 99.99, a["id"])
+            self.assertNotIn("Ultra $199.99", a.get("priceText") or "", a["id"])
+
+    def test_makers(self):
+        raw = {"prices": self.m.fetch_prices(None), "agentapps": self.m.fetch_agentapps(None)}
+        apps = {a["id"]: a for a in self.m.build_agent_apps(raw)}
+        self.assertEqual(apps["grok-bot"]["maker"], "SpaceXSI (formerly xAI)") # was "SpaceXSI (SpaceX)"; x.ai = SpaceX Super Intelligence LLC
+        self.assertEqual(apps["manus"]["maker"], "Manus (Meta)")              # manus.im: "Manus Joins Meta" (Dec 31 2025)
+        grok = [a for a in raw["prices"]["apps"] if a["app"] == "Grok"][0]
+        self.assertEqual(grok["maker"], apps["grok-bot"]["maker"])            # Grok and Grok Bot: one maker name
+        for a in apps.values():
+            self.assertNotIn("(SpaceX)", a["maker"], a["id"])                # the doubled "SpaceXSI (SpaceX)" is gone
+        self.assertEqual(self.m.org_name("Meta AI"), "Meta")
+        self.assertEqual(self.m.org_name("meta-ai"), "Meta")
+
+    def test_deepseek_one_spelling(self):
+        dn = self.m.deepseek_name
+        self.assertEqual(dn("DeepSeek-V4.1-Flash-1017 Update"), "DeepSeek V4.1 Flash 1017 Update")
+        self.assertEqual(dn("DeepSeek-V4.1-Flash Release"), "DeepSeek V4.1 Flash Release")
+        self.assertEqual(dn("DeepSeek V4.1 Flash"), "DeepSeek V4.1 Flash")       # already spaced: unchanged
+        self.assertEqual(dn("Claude Opus 5.5"), "Claude Opus 5.5")
+        raw = {"official": self.m.fetch_official(None)}
+        names = [r["n"] for r in self.m.official_releases(raw) if r["o"] == "DeepSeek"]
+        self.assertTrue(names)
+        self.assertTrue(all("-" not in n for n in names), names)
+        posts = raw["official"]["sources"]["deepseek"]["posts"]
+        self.assertTrue(all(not p["t"].startswith("DeepSeek-") for p in posts))
+        self.assertTrue(any(p["u"].endswith("#deepseek-v4-1-flash-1017-update") for p in posts))   # links unchanged
+        # an old saved post (hyphenated) is shown with the same spelling too
+        old = {"official": {"sources": {"deepseek": {"company": "DeepSeek", "label": "DeepSeek API change log",
+               "posts": [{"t": "DeepSeek-V4.1-Flash-1017 Update", "u": "https://api-docs.deepseek.com/updates/#x", "d": "2026-10-17"}]}}}}
+        self.assertEqual([r["n"] for r in self.m.official_releases(old)], ["DeepSeek V4.1 Flash 1017"])
+
+    def test_xai_is_spacexsi_everywhere(self):
+        X = "SpaceXSI (formerly xAI)"
+        self.assertEqual(self.m.XAI_NAME, X)
+        for o in ("xai", "x-ai", "xAI", "SpaceXAI", "spacexsi"):
+            self.assertEqual(self.m.org_name(o), X, o)
+        raw = {"prices": self.m.fetch_prices(None)}
+        self.assertEqual([a for a in raw["prices"]["apps"] if a["app"] == "Grok"][0]["maker"], X)
+        pv = json.loads((REPO / "scripts" / "privacy_static.json").read_text(encoding="utf-8"))
+        apps = pv["apps"] if isinstance(pv["apps"], list) else [dict(a, app=k) for k, a in pv["apps"].items()]
+        self.assertEqual([a["maker"] for a in apps if a.get("app") == "Grok"], [X])
+
+
+class AlwaysAWinner(unittest.TestCase):
+    """v16h: every pick names exactly one #1 ("There should always be a winner")."""
+    def setUp(self):
+        self.m = load(tempfile.mkdtemp())
+
+    def test_most_top3_then_average_then_biggest_source(self):
+        # like today's Chat: F and O are each top 3 in 2 of 3 and have the SAME average rank (3.33);
+        # F is higher on LMArena (the biggest source) -> F leads. A is top 3 in 2 but far behind on average.
+        boards = [bd("lmarena", [r("x", 9, 8, 10, 30000), r("y", 8, 7, 9, 30000), r("F", 7, 6, 8, 19892), r("O", 6, 5, 7, 14849)] +
+                     [r("p%d" % i, 5 - i * .01, 4.9 - i * .01, 5.1 - i * .01, 9000) for i in range(70)] + [r("A", 1, .9, 1.1, 18076)], True, True),
+                  bd("livebench", [r("A", 9), r("F", 8), r("O", 7)]),
+                  bd("epoch", [r("A", 9, 8.9, 9.1), r("q", 8, 7.9, 8.1), r("O", 7, 6.9, 7.1), r("s", 6, 5.9, 6.1), r("F", 5, 4.9, 5.1)], ci=True)]
+        res = self.m.decide(boards, {}, 3)
+        self.assertEqual(res["status"], "lead")
+        self.assertEqual([w["k"] for w in res["winners"]], ["F"])
+        self.assertEqual(self.m.plain_sentence("chat", res), "Top 3 in 2 of 3 tests, best on LMArena.")
+        self.assertEqual(len(res["winners"]), 1)
+
+    def test_never_none_or_tie_with_candidates(self):
+        boards = [bd("lmarena", [r("a", 3, 2, 4, 9000), r("b", 2, 1, 3, 9000)], True, True),
+                  bd("livebench", [r("c", 3), r("d", 2)]), bd("epoch", [r("e", 3, 2.9, 3.1)], ci=True)]
+        res = self.m.decide(boards, {}, 3)
+        self.assertEqual((res["status"], len(res["winners"])), ("lead", 1))
+        self.assertEqual(res["winners"][0]["k"], "a")                         # all top 3 once; best average rank (1)
+
+    def test_today_chat_and_math(self):
+        # the real fixtures used by the pipeline tests: every pick has exactly one winner and no 'No clear winner'/'Tie'
+        root = tempfile.mkdtemp()
+        m = load(root)
+        m.get = strict_get
+        m.log = lambda *a: None
+        os.environ.pop("AA_ENABLED", None)
+        m.main()
+        d = json.loads((Path(root) / "data" / "data.json").read_text())
+        for p in d["picks"]:
+            self.assertIn(p["status"], ("best", "lead", "single"), p["id"])
+            self.assertEqual(len(p["winners"]), 1, p["id"])
+            self.assertNotIn("No clear winner", p["why"])
+            self.assertFalse(p["why"].startswith("Tie"), p["id"])
+        self.assertIn(d["agents"]["best"]["status"], ("best", "lead"))
+        self.assertNotIn("No clear winner", d["agents"]["best"]["why"])
+
+
+class VibeRename(unittest.TestCase):
+    """v16h: Mistral renamed Le Chat to Vibe (help.mistral.ai). Display name only; keys in the saved data stay."""
+    def setUp(self):
+        self.m = load(tempfile.mkdtemp())
+        self.m.get = strict_get
+        self.m.log = lambda *a: None
+
+    def test_cost_and_privacy_show_vibe(self):
+        raw = {"prices": self.m.fetch_prices(None)}
+        self.assertIn("Le Chat", [a["app"] for a in raw["prices"]["apps"]])          # saved key unchanged
+        cost = self.m.build_cost(raw, [])
+        names = [a["app"] for a in cost["apps"]]
+        self.assertIn("Vibe", names)
+        self.assertNotIn("Le Chat", names)
+        vibe = [a for a in cost["apps"] if a["app"] == "Vibe"][0]
+        self.assertEqual((vibe["maker"], vibe["formerly"]), ("Mistral", "Le Chat"))
+        self.assertEqual([p["name"] for p in vibe["plans"]], ["Pro", "Team"])          # Mistral's own plan names
+        pv = self.m.build_privacy()
+        self.assertIn("Vibe", pv["apps"])
+        self.assertNotIn("Le Chat", pv["apps"])
+        self.assertIn("Vibe", pv["order"])
+        self.assertEqual(pv["apps"]["Vibe"]["maker"], "Mistral")
+        self.assertEqual(self.m.app_display("ChatGPT"), "ChatGPT")
+
+    def test_privacy_names_match_cost_names(self):
+        # Find your AI joins privacy rows to Cost apps by name: every privacy row must still find its app
+        raw = {"prices": self.m.fetch_prices(None)}
+        cost = {a["app"] for a in self.m.build_cost(raw, [])["apps"]}
+        self.assertTrue(set(self.m.build_privacy()["apps"]) <= cost, set(self.m.build_privacy()["apps"]) - cost)
+
+
+class PrivacyTwoRankings(unittest.TestCase):
+    """v16h Fix 7: Privacy score = average of the ranks in Incogni 2026 and ObscureIQ 2025 (ties: Incogni score).
+    Our own 5 checks are information only."""
+    def setUp(self):
+        self.m = load(tempfile.mkdtemp())
+
+    def test_order_from_the_two_rankings(self):
+        p = self.m.build_privacy()
+        self.assertEqual(p["order"], ["Vibe", "ChatGPT", "Perplexity", "Claude", "Gemini", "DeepSeek", "Copilot", "Grok", "Meta AI"])
+        self.assertEqual(p["apps"]["Vibe"]["rank"], 1)
+        self.assertEqual(p["apps"]["Vibe"]["ranks"], {"incogni": 1, "obscureiq": 1})
+        self.assertEqual(p["apps"]["Claude"]["ranks"], {"incogni": 5.5, "obscureiq": 2.5})   # ties share the average rank
+        self.assertEqual(p["apps"]["DeepSeek"]["avgRank"], p["apps"]["Copilot"]["avgRank"])   # 7.25 each: Incogni 14.3 < 17.8
+        self.assertLess(p["apps"]["DeepSeek"]["rank"], p["apps"]["Copilot"]["rank"])
+        self.assertEqual(p["how"], "Average of 2 independent privacy rankings: Incogni 2026 and ObscureIQ.")
+        self.assertTrue(p["obscureiq"]["url"].startswith("https://www.obscureiq.com/"))
+        self.assertEqual(p["obscureiq"]["published"], "2025-10-22")
+        scores = [p["apps"][n]["score"] for n in p["order"]]
+        self.assertEqual(scores, sorted(scores, reverse=True))
+        self.assertEqual(scores[0], 1.0)
+
+    def test_checks_do_not_count(self):
+        pv = json.loads((REPO / "scripts" / "privacy_static.json").read_text(encoding="utf-8"))
+        base = self.m.privacy_ranking(pv["apps"])
+        for a in pv["apps"].values():                              # flip every check: the order must not move
+            for f in a["facts"].values():
+                f["v"] = 1 - f["v"]
+        self.assertEqual(self.m.privacy_ranking(pv["apps"]), base)
+        p = self.m.build_privacy()
+        self.assertTrue(all(len(a["checks"]) == 5 for a in p["apps"].values()))   # still shown as information lines
+
+    def test_shared_ranks(self):
+        self.assertEqual(self.m.shared_ranks({"a": 1, "b": 2, "c": 2, "d": 3}, False), {"a": 1, "b": 2.5, "c": 2.5, "d": 4})
+        self.assertEqual(self.m.shared_ranks({"a": 4.4, "b": 3.5, "c": 3.5}, True), {"a": 1, "b": 2.5, "c": 2.5})
+
+    def test_still_flagged_when_old(self):
+        p = self.m.build_privacy()
+        self.assertEqual(p["staleDays"], 120)
+
+
+class Summaries(unittest.TestCase):
+    """v16h Fix 8: every Updates item carries the article's own short summary ('x'), no AI."""
+    def setUp(self):
+        self.m = load(tempfile.mkdtemp())
+        self.m.log = lambda *a: None
+
+    def test_summary_text(self):
+        st = self.m.summary_text
+        self.assertEqual(st("<p>Hello &amp; <b>welcome</b>.</p>"), "Hello & welcome.")
+        long = "First sentence here. " * 30
+        out = st(long)
+        self.assertLessEqual(len(out), 400)
+        self.assertTrue(out.endswith("."))
+        self.assertTrue(st("word " * 200).endswith("…"))
+        self.assertEqual(st(""), "")
+
+    def test_rss_posts_carry_their_summary(self):
+        posts = self.m.parse_rss_posts(fx("rel_openai_rss.xml"))
+        self.assertGreater(sum(1 for p in posts if p["x"]), len(posts) // 2)
+        self.assertTrue(all(len(p["x"]) <= 400 and "<" not in p["x"] for p in posts))
+
+    def test_deepseek_entry_text(self):
+        posts = self.m.parse_deepseek_log(fx("rel_deepseek_updates.html").decode("utf-8"), "https://api-docs.deepseek.com/updates/")
+        p = [x for x in posts if x["t"] == "DeepSeek V4.1 Flash 1017 Update"][0]
+        self.assertTrue(p["x"].startswith("DeepSeek V4.1 Flash has been upgraded to DeepSeek V4.1 Flash 1017"), p["x"][:80])
+        self.assertNotIn("3>", p["x"])
+
+    def test_page_summary_and_cache(self):
+        page = '<html><head><meta property="og:description" content="GPT-6 Cyber is our most capable model for defenders &amp; red teams."></head></html>'
+        self.assertEqual(self.m.page_summary(page), "GPT-6 Cyber is our most capable model for defenders & red teams.")
+        self.assertEqual(self.m.page_summary('<meta name="description" content="A plain meta description of the page.">'),
+                         "A plain meta description of the page.")
+        calls = []
+        def get(url, **k):
+            calls.append((url, k.get("timeout")))
+            if url.endswith(".com/"):                                               # the home page: its own description
+                return Resp(b'<meta property="og:description" content="OpenAI is an AI research and deployment company.">')
+            return Resp(page.encode())
+        self.m.get = get
+        cache = {}
+        items = [{"u": "https://openai.com/index/introducing-gpt-6-cyber", "x": ""},
+                 {"u": "https://api-docs.deepseek.com/updates/#x", "x": ""},          # a spot on a page: skipped
+                 {"u": "https://e.com/has", "x": "Already has one."}]
+        self.m.fill_summaries(items, cache)
+        self.assertEqual(items[0]["x"], "GPT-6 Cyber is our most capable model for defenders & red teams.")
+        self.assertEqual((items[1]["x"], items[2]["x"]), ("", "Already has one."))
+        self.assertEqual(calls, [("https://openai.com/index/introducing-gpt-6-cyber", 10), ("https://openai.com/", 10)])
+        again = [{"u": "https://openai.com/index/introducing-gpt-6-cyber", "x": ""}]
+        self.m.fill_summaries(again, cache)                                         # from the cache: no second fetch
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(again[0]["x"])
+
+    def test_generic_site_description_is_dropped(self):
+        generic = '<meta property="og:description" content="Anthropic is an AI safety and research company that builds reliable AI.">'
+        def get(url, **k):
+            return Resp(generic.encode())             # the article page and the home page say the same: not a summary
+        self.m.get = get
+        items = [{"u": "https://www.anthropic.com/news/s1-sec", "x": ""}]
+        cache = {}
+        self.m.fill_summaries(items, cache)
+        self.assertEqual(items[0]["x"], "")
+        self.assertIn("home:https://www.anthropic.com", cache)
+
+    def test_failed_page_leaves_x_empty(self):
+        def boom(url, **k):
+            raise RuntimeError("403")
+        self.m.get = boom
+        items = [{"u": "https://e.com/a", "x": ""}]
+        self.m.fill_summaries(items, {})
+        self.assertEqual(items[0]["x"], "")
+
+    def test_bignews_items_have_summaries_after_a_run(self):
+        root = tempfile.mkdtemp()
+        m = load(root)
+        m.get = strict_get
+        m.log = lambda *a: None
+        os.environ.pop("AA_ENABLED", None)
+        m.main()
+        d = json.loads((Path(root) / "data" / "data.json").read_text())
+        items = d["bignews"]["items"]
+        self.assertTrue(items)
+        self.assertTrue(all("x" in i for i in items) and all("x" in i for i in d["agents"]["news"]["items"]))
+        self.assertGreaterEqual(sum(1 for i in items if i["x"]), 5)          # the RSS pages carry one; html-only pages are 403 here
+        terra = [i for i in items if i["t"] == "Introducing GPT-6.1 Terra"][0]
+        self.assertEqual(terra["x"], "Bringing fast and capable computer use to everyone")      # the feed's own summary
 
 
 if __name__ == "__main__":

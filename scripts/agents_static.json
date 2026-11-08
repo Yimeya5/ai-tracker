@@ -282,7 +282,7 @@
   "free": false,
   "what": "Gemini browses in Chrome for you to complete tasks.",
   "access": "Google AI Pro or Ultra",
-  "priceText": "Google AI Pro $19.99/month · Ultra $199.99",
+  "priceText": "Google AI Pro $19.99/month · Ultra from $99.99",
   "plans": [
    {
     "name": "Google AI Pro",
@@ -290,19 +290,19 @@
    },
    {
     "name": "Google AI Ultra",
-    "usd_month": 199.99
+    "usd_month": 99.99
    }
   ],
   "source": {
    "label": "Google AI plans page",
    "url": "https://gemini.google/subscriptions/",
-   "checked": "2026-11-02"
+   "checked": "2026-11-07"
   },
   "check": {
    "url": "https://gemini.google/subscriptions/",
    "proof": "auto browse"
   },
-  "evidence": "Google AI Pro $19.99/month … 'Gemini in Chrome: Access Chrome auto browse to help complete tasks for you'; Google AI Ultra $199.99"
+  "evidence": "Google AI Pro $19.99/month … 'Gemini in Chrome: Access Chrome auto browse to help complete tasks for you'; Google AI Ultra from $99.99 ($99.99 or $199.99, checked 2026-11-07)"
  },
  {
   "id": "perplexity-computer",
@@ -453,7 +453,7 @@
  {
   "id": "grok-bot",
   "app": "Grok Bot",
-  "maker": "SpaceXSI (SpaceX)",
+  "maker": "SpaceXSI (formerly xAI)",
   "group": "tasks",
   "free": false,
   "what": "Always-on agents with their own computer. They sign in to your tools and finish work for you.",
@@ -476,13 +476,13 @@
   "source": {
    "label": "Grok Bot page",
    "url": "https://x.ai/bot",
-   "checked": "2026-11-02"
+   "checked": "2026-11-07"
   },
   "check": {
    "url": "https://apps.apple.com/us/app/grok-bot/id6794501026",
    "proof": "Grok Bot"
   },
-  "evidence": "Premium $30/month Billed monthly … Grok Bot's own computer … Super $100/month … Ultra $200/month. Launched Aug 11 2026 (x.ai/news/introducing-grok-bot)."
+  "evidence": "Premium $30/month Billed monthly … Grok Bot's own computer … Super $100/month … Ultra $200/month. Launched Aug 11 2026 (x.ai/news/introducing-grok-bot). Maker: x.ai signs as SpaceX Super Intelligence LLC (SpaceXSI), formerly xAI (renamed Oct 2026; checked 2026-11-07)."
  },
  {
   "id": "antigravity",
@@ -500,7 +500,7 @@
    },
    {
     "name": "Google AI Ultra",
-    "usd_month": 199.99
+    "usd_month": 99.99
    }
   ],
   "source": {
@@ -859,7 +859,7 @@
   "free": true,
   "what": "Makes a research plan, searches the web and your files, and writes a detailed report.",
   "access": "All Gemini plans",
-  "priceText": "Free · more with Google AI Plus $4.99, Pro $19.99, Ultra $199.99",
+  "priceText": "Free · more with Google AI Plus $4.99, Pro $19.99, Ultra from $99.99",
   "plans": [
    {
     "name": "Google AI Plus",
@@ -871,19 +871,19 @@
    },
    {
     "name": "Google AI Ultra",
-    "usd_month": 199.99
+    "usd_month": 99.99
    }
   ],
   "source": {
    "label": "Google AI plans page",
    "url": "https://gemini.google/subscriptions/",
-   "checked": "2026-11-02"
+   "checked": "2026-11-07"
   },
   "check": {
    "url": "https://gemini.google/overview/deep-research/",
    "proof": "Deep Research"
   },
-  "evidence": "Free $0/month … Gemini app … Deep Research … Google AI Plus $4.99/month … Google AI Pro $19.99/month … Ultra $199.99"
+  "evidence": "Free $0/month … Gemini app … Deep Research … Google AI Plus $4.99/month … Google AI Pro $19.99/month … Ultra from $99.99 ($99.99 or $199.99, checked 2026-11-07)"
  },
  {
   "id": "m365-researcher",

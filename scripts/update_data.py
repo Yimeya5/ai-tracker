@@ -168,8 +168,12 @@ def display_name(name):
     return re.sub(r"\s+", " ", s)
 
 
-ORG = {"google": "Google", "anthropic": "Anthropic", "openai": "OpenAI", "xai": "xAI", "x-ai": "xAI", "spacexai": "xAI",
-       "meta": "Meta", "meta-llama": "Meta", "deepseek": "DeepSeek", "deepseek-ai": "DeepSeek", "alibaba": "Alibaba",
+# xAI was renamed SpaceX Super Intelligence (SpaceXSI) in Oct 2026 (x.ai: "© 2026 SpaceX Super Intelligence LLC", @SpaceXSI).
+# One name everywhere in the app (Cost, Agents, Find your AI, New releases, rankings):
+XAI_NAME = "SpaceXSI (formerly xAI)"
+ORG = {"google": "Google", "anthropic": "Anthropic", "openai": "OpenAI", "xai": XAI_NAME, "x-ai": XAI_NAME, "spacexai": XAI_NAME,
+       "spacexsi": XAI_NAME, "spacex super intelligence": XAI_NAME,
+       "meta": "Meta", "meta-llama": "Meta", "meta ai": "Meta", "meta-ai": "Meta", "deepseek": "DeepSeek", "deepseek-ai": "DeepSeek", "alibaba": "Alibaba",
        "qwen": "Alibaba", "moonshot": "Moonshot", "moonshotai": "Moonshot", "moonshot ai": "Moonshot", "kimi": "Moonshot",
        "mistral": "Mistral", "mistralai": "Mistral", "nvidia": "NVIDIA", "minimax": "MiniMax", "zhipu": "Z.ai", "z-ai": "Z.ai",
        "zai": "Z.ai", "z ai": "Z.ai", "z.ai": "Z.ai", "bfl": "Black Forest Labs", "black forest labs": "Black Forest Labs",
@@ -610,8 +614,11 @@ sleep = time.sleep              # kept as a name so tests can skip the waits
 
 PRICE_APPS = [
     {"app": "ChatGPT", "maker": "OpenAI", "free": True, "sources": [
+        # "web": OpenAI's own price (chatgpt.com/pricing, checked by hand 2026-11-07: Plus $20/month) is shown when the App
+        # Store reads one cent under it (Apple's $19.99 tier). Any other App Store price is a real change and is shown as read.
         {"kind": "appstore", "label": "App Store price (US)", "url": APPSTORE + "chatgpt/id6448311069", "seller": r"OpenAI",
-         "plans": [("Go", 8, "ChatGPT Go"), ("Plus", 19.99, "ChatGPT Plus"), ("Pro 100", 100, "ChatGPT Pro 100"),
+         "web": {"Plus": 20},
+         "plans": [("Go", 8, "ChatGPT Go"), ("Plus", 20, "ChatGPT Plus"), ("Pro 100", 100, "ChatGPT Pro 100"),
                    ("Pro 200", 200, "ChatGPT Pro 200"), ("Pro 500", 500, "ChatGPT Pro 500")]}]},
     {"app": "Claude", "maker": "Anthropic", "free": True, "sources": [
         {"kind": "web", "label": "Pricing page", "url": "https://claude.com/pricing",
@@ -623,7 +630,7 @@ PRICE_APPS = [
                    ("Google AI Pro", 19.99, r"Google AI Pro.{0,300}?" + P + r"\s*/\s*month"),
                    ("Google AI Ultra", 99.99, r"Starting at:?\s*" + P)],
          "notes": {"Google AI Ultra": "from; $99.99 or $199.99"}}]},
-    {"app": "Grok", "maker": "xAI", "free": True, "sources": [
+    {"app": "Grok", "maker": XAI_NAME, "free": True, "sources": [
         # "Premium Most popular $30 /month": allow a short badge between the plan name and its price
         {"kind": "web", "label": "Pricing page", "url": "https://x.ai/pricing",
          "plans": [("Plus", 8, r"\bPlus\b[^$]{0,25}" + P + r"\s*/\s*month"), ("Premium", 30, r"\bPremium\b[^$]{0,25}" + P + r"\s*/\s*month"),
@@ -699,6 +706,13 @@ def appstore_price(iap, label):
 PAGE_CACHE = None   # main() sets a dict: a page read once in a run (e.g. claude.com/pricing) isn't fetched again
 
 
+def web_price(v, web):
+    """The company's own web price when the App Store reads one cent under it ($19.99 in the App Store, $20 on the web)."""
+    if v is not None and web and abs(v - (web - 0.01)) < 0.005:
+        return float(web)
+    return v
+
+
 def polite_get(url, label="prices"):
     """Up to 3 tries, waiting 4 s then 10 s. Raises the last error. `label` = the part of the run, for the log."""
     if PAGE_CACHE is not None and url in PAGE_CACHE:
@@ -768,7 +782,7 @@ def read_source(src, old_plans, label="prices", extra=None):
     for name, seed, pat in src["plans"]:
         op = old_plans.get(name) or {"usd_month": seed, "checked": SEED_CHECKED}
         if src["kind"] == "appstore":
-            v = sane(appstore_price(iap, pat), op.get("usd_month"))
+            v = web_price(sane(appstore_price(iap, pat), op.get("usd_month")), (src.get("web") or {}).get(name))
         else:
             m = re.search(pat, text, flags=re.I | re.S)
             v = sane(num(m.group(1).replace(",", "")) if m else None, op.get("usd_month"))
@@ -905,7 +919,7 @@ AGENT_APPS = [
                   "seller": r"Perplexity AI", "plans": [("Pro", 20, "Perplexity Pro"), ("Max", 200, "Perplexity Max")]}]},
     # Manus's own help article lists the current plans. manus.im/pricing has no prices in its HTML, and the App Store
     # still lists old plans (Basic / Plus) next to many "Manus Pro $x" items, so it is not used.
-    {"id": "manus", "app": "Manus", "maker": "Butterfly Effect", "group": "tasks", "free": True,
+    {"id": "manus", "app": "Manus", "maker": "Manus (Meta)", "group": "tasks", "free": True,
      "what": "A general agent: research, slides, websites and more.", "note": "Free plan with daily credits.",
      "sources": [{"kind": "web", "label": "Manus help page",
                   "url": "https://help.manus.im/en/articles/11711111-what-is-the-current-membership-pricing-for-manus",
@@ -1097,6 +1111,83 @@ def _date(text):
     return dt.astimezone(timezone.utc)
 
 
+def summary_text(s, n=400):
+    """v16h: an article's own short summary as plain text: tags stripped, entities decoded, at most ~n characters,
+    cut at the end of a sentence (else at a word, with '…'). No AI."""
+    s = html.unescape(TAG_RE.sub(" ", html.unescape(str(s or "")[:20000])))
+    s = re.sub(r"\s+([.,;:!?])", r"\1", " ".join(s.split()))
+    if len(s) <= n:
+        return s
+    cut = max(s.rfind(". ", 0, n), s.rfind("! ", 0, n), s.rfind("? ", 0, n))
+    if cut >= n // 3:
+        return s[:cut + 1]
+    return s[: s.rfind(" ", 0, n - 1)].rstrip(",;:") + "…"
+
+
+META_DESC_RE = [re.compile(p, re.I) for p in (
+    r'<meta[^>]+property=["\']og:description["\'][^>]*content=["\']([^"\']{20,2000})["\']',
+    r'<meta[^>]+content=["\']([^"\']{20,2000})["\'][^>]*property=["\']og:description["\']',
+    r'<meta[^>]+name=["\']description["\'][^>]*content=["\']([^"\']{20,2000})["\']',
+    r'<meta[^>]+content=["\']([^"\']{20,2000})["\'][^>]*name=["\']description["\']',
+    r'<meta[^>]+name=["\']twitter:description["\'][^>]*content=["\']([^"\']{20,2000})["\']')]
+SUMMARY_FETCH_MAX = 40           # page fetches per run for summaries (each page once; the answer is kept in raw.json)
+
+
+def page_summary(raw_html):
+    """og:description, else meta description, else twitter:description of a page, as plain text."""
+    h = raw_html[:300000] if isinstance(raw_html, str) else raw_html[:300000].decode("utf-8", "replace")
+    for rx in META_DESC_RE:
+        m = rx.search(h)
+        if m:
+            return summary_text(m.group(1))
+    return ""
+
+
+def fill_summaries(items, cache, fetch_max=SUMMARY_FETCH_MAX):
+    """Give every item without an 'x' the summary of its own page (10 s timeout, one try). `cache` = {url: text} kept
+    between runs, so a page is fetched once. A link to a spot on a page (#...) is skipped: the page's summary would
+    describe the whole page, not this item. Nothing found -> x stays '' (the app shows 'No summary from the source yet.')."""
+    fetched = 0
+    for it in items:
+        if it.get("x"):
+            continue
+        u = it.get("u") or ""
+        if u in cache:
+            it["x"] = cache[u]
+            continue
+        if "#" in u or not u.startswith("http") or fetched >= fetch_max:
+            continue
+        fetched += 1
+        try:
+            r = get(u, timeout=10, headers=POLITE_UA)
+            r.raise_for_status()
+            text = page_summary(r.text if hasattr(r, "text") else r.content)
+        except Exception as e:
+            log(f"summary: {u} not read ({str(e)[:80]})")
+            continue
+        if text and text == site_summary(u, cache):
+            text = ""                       # the site's generic description ("X is an AI company..."), not this article's
+        cache[u] = text
+        it["x"] = text
+    return items
+
+
+def site_summary(u, cache):
+    """The home page's own description for u's site (fetched once per run, kept in `cache` under 'home:<host>')."""
+    m = re.match(r"(https?://[^/]+)", u)
+    if not m:
+        return ""
+    key = "home:" + m.group(1)
+    if key not in cache:
+        try:
+            r = get(m.group(1) + "/", timeout=10, headers=POLITE_UA)
+            r.raise_for_status()
+            cache[key] = page_summary(r.text if hasattr(r, "text") else r.content)
+        except Exception:
+            cache[key] = ""
+    return cache[key]
+
+
 def _clean(s, n=220):
     s = TAG_RE.sub(" ", html.unescape((s or "")[:20000]))
     s = " ".join(s.split())
@@ -1119,7 +1210,7 @@ def parse_feed(content, name, kind, per_feed=15):
             elif t in ("pubDate", "published", "updated", "date") and not date:
                 date = _date(c.text)
             elif t in ("description", "summary") and not desc:
-                desc = _clean(c.text)
+                desc = summary_text(c.text)
         if not (title and link and link.startswith("http") and date):
             continue
         if PROMO.search(title) or date > NOW + timedelta(hours=6) or date < NOW - timedelta(days=30):
@@ -1161,7 +1252,7 @@ OFFICIAL = [  # (id, company, label shown in the app, url, kind, date_mode)
     ("google", "Google", "Google AI blog", "https://blog.google/technology/ai/rss/", "rss", None),
     ("mistral", "Mistral", "Mistral news", "https://mistral.ai/news/rss", "rss", None),
     ("anthropic", "Anthropic", "Anthropic news", "https://www.anthropic.com/news", "html", "before"),
-    ("xai", "xAI", "xAI news", "https://x.ai/news", "html", "inside"),
+    ("xai", XAI_NAME, "SpaceXSI news", "https://x.ai/news", "html", "inside"),
     ("meta", "Meta", "Meta AI blog", "https://ai.meta.com/blog/", "html", "after"),
     ("deepseek", "DeepSeek", "DeepSeek API change log", "https://api-docs.deepseek.com/updates/", "deepseek", None),
 ]
@@ -1199,8 +1290,11 @@ def parse_rss_posts(raw):
         if _local(el.tag) not in ("item", "entry"):
             continue
         t = u = d = None
+        x = ""
         for c in el:
             k = _local(c.tag)
+            if k in ("description", "summary") and c.text and not x:
+                x = summary_text(c.text)                                     # v16h: the post's own summary
             if k == "title" and c.text:
                 t = " ".join(html.unescape(c.text).split())
             elif k == "link":
@@ -1209,7 +1303,7 @@ def parse_rss_posts(raw):
                 dt = _date(c.text)
                 d = dt.date().isoformat() if dt else None
         if t and u and d:
-            out.append({"t": t, "u": u, "d": d})
+            out.append({"t": t, "u": u, "d": d, "x": x})
     return out
 
 
@@ -1265,10 +1359,15 @@ HASH_LINK = re.compile(r'<a\b[^<>]{0,500}class="hash-link"[^<>]{0,500}>[^<]{0,50
 H23_OPEN = re.compile(r"<h([23])\b[^<>]{0,800}>", re.I)
 
 
+def deepseek_name(t):
+    """'DeepSeek-V4.1-Flash-1017 Update' -> 'DeepSeek V4.1 Flash 1017 Update': one spelling for DeepSeek models everywhere."""
+    return re.sub(r"\bDeepSeek-([\w.]+(?:-[\w.]+)*)", lambda m: "DeepSeek " + m.group(1).replace("-", " "), str(t or ""))
+
+
 def parse_deepseek_log(raw, base):
     out, date = [], None
     h = strip_blocks(raw)
-    for m, _, inner in _element_blocks(h, H23_OPEN, "</h", 3000):
+    for m, end, inner in _element_blocks(h, H23_OPEN, "</h", 3000):
         t = _txt(HASH_LINK.sub("", inner)).strip("\u200b ").strip()
         dm = re.match(r"Date:\s*(20\d\d-\d\d-\d\d)", t)
         if dm:
@@ -1276,7 +1375,10 @@ def parse_deepseek_log(raw, base):
             continue
         if date and m.group(1) == "3" and len(t) < 120:
             anchor = re.sub(r"[^a-z0-9]+", "-", t.lower()).strip("-")
-            out.append({"t": t, "u": base + "#" + anchor, "d": date})
+            start = h.find(">", end) + 1                                          # past the rest of "</h3>"
+            nxt = re.search(r"<h[1-3]\b", h[start:start + 8000], re.I)            # v16h: the entry's own text = summary
+            body = h[start:start + (nxt.start() if nxt else 3000)]
+            out.append({"t": deepseek_name(t), "u": base + "#" + anchor, "d": date, "x": deepseek_name(summary_text(body))})
     return out
 
 
@@ -1367,7 +1469,7 @@ def official_posts(raw):
     out = []
     for sid, s in ((raw.get("official") or {}).get("sources") or {}).items():
         for p in s.get("posts") or []:
-            out.append(dict(p, o=s.get("company", ""), s=s.get("label", ""), sid=sid))
+            out.append(dict(p, t=deepseek_name(p.get("t")), o=s.get("company", ""), s=s.get("label", ""), sid=sid))
     return out
 
 
@@ -1547,7 +1649,7 @@ SRC = {
     "openrouter": {"name": "OpenRouter", "credit": "OpenRouter (openrouter.ai)", "url": "https://openrouter.ai/models",
                    "what": "Developer prices per million tokens and the date each model became available.", "license": "Public API", "licenseUrl": ""},
     "official": {"name": "Official company pages", "credit": "Each company's own news page or blog", "url": "",
-                 "what": "New model announcements from OpenAI, Google DeepMind, Google AI, Anthropic, Mistral, xAI, Meta and DeepSeek.",
+                 "what": "New model announcements from OpenAI, Google DeepMind, Google AI, Anthropic, Mistral, SpaceXSI (formerly xAI), Meta and DeepSeek.",
                  "license": "", "licenseUrl": ""},
     "prices": {"name": "Official pricing pages", "credit": "Each company's pricing page or its own App Store listing", "url": "",
                "what": "Monthly plan prices for the apps, read every day from each company's own pricing page, or from the "
@@ -1771,11 +1873,45 @@ def decide(boards, names, need, votes_map=None, votes_label="text overall"):
     sure = [c for c in qual if not c["notSure"]]
     new = [c for c in desc if c["notSure"] and c["top3"] >= 1 and any(r.get("rank") == 1 for r in c["ranks"])][:2]
     if not sure:
-        return {"status": "none", "winners": [], "candidates": desc[:5], "new": new, "n": n, "need": need,
-                "qualNotSure": qual}
+        # v16h "always a winner": nobody passes -> the model in the top 3 of the MOST sources leads (status "lead")
+        lead = lead_order(desc)
+        if not lead:
+            return {"status": "none", "winners": [], "candidates": [], "new": new, "n": n, "need": need}
+        return {"status": "lead", "winners": lead[:1], "candidates": lead[1:6], "new": new, "n": n, "need": need,
+                "leadWhy": lead_why(lead, n)}
     win = [sure[0]] + [c for c in sure[1:] if tied(sure[0]["k"], c["k"], boards)]
-    return {"status": "tie" if len(win) > 1 else "best", "winners": win,
+    if len(win) > 1:
+        # a tie is broken the same way: best average rank, then the biggest source -> one winner (status "lead")
+        win = lead_order(win)
+        return {"status": "lead", "winners": win[:1],
+                "candidates": [c for c in desc if c["k"] != win[0]["k"]][:5], "new": new, "n": n, "need": need,
+                "leadWhy": lead_why(win, n)}
+    return {"status": "best", "winners": win,
             "candidates": [c for c in desc if c["k"] not in {w["k"] for w in win}][:5], "new": new, "n": n, "need": need}
+
+
+def big_source_key(c):
+    """Third tie-break: the biggest source (LMArena, most votes): its rank first, then its score. Missing = last."""
+    lm = next((r for r in c.get("ranks") or [] if r.get("src") == "lmarena" and r.get("rank")), None)
+    return (lm["rank"] if lm else 9999, -(lm.get("score") or 0) if lm else 0, -(c.get("votes") or 0))
+
+
+def lead_order(cands):
+    """'Always a winner' order: top 3 in the most sources, then best average rank (over the sources that rank it),
+    then the biggest source (LMArena rank / score / votes), then the name (so the result never flips at random)."""
+    return sorted(cands, key=lambda c: (-c.get("top3", 0), c.get("avg", 99), big_source_key(c), str(c.get("n", ""))))
+
+
+def lead_why(order, n):
+    """Short plain line for a 'lead' pick, e.g. 'Top 3 in 2 of 3 tests, best average rank.'"""
+    w = order[0]
+    where = f"all {n}" if w.get("top3", 0) >= n else f"{w.get('top3', 0)} of {n}"
+    same = [c for c in order[1:] if c.get("top3", 0) == w.get("top3", 0)]
+    if not same:
+        return f"Top 3 in {where} tests, more than any other model."
+    if all(c.get("avg", 99) > w.get("avg", 99) for c in same):
+        return f"Top 3 in {where} tests, best average rank."
+    return f"Top 3 in {where} tests, best on {SRC['lmarena']['name']}."
 
 
 def single_source(board, names, votes_map):
@@ -1889,8 +2025,9 @@ def cheap_pick(raw, names, votes_map):
         for r in b["rows"][:10]:
             good[r["k"]] = good.get(r["k"], 0) + 1
     rows = []
+    least = 2 if any(cnt >= 2 for cnt in good.values()) else 1        # v16h "always a winner": relax to 1 source
     for k, cnt in good.items():
-        if cnt < 2:
+        if cnt < least:
             continue
         p = dev_price(raw, k)
         if not p or (p["pin"] == 0 and p["pout"] == 0):
@@ -1903,11 +2040,17 @@ def cheap_pick(raw, names, votes_map):
     rows.sort(key=lambda c: (c["blend"], -c["top10"]))
     if not rows:
         return {"status": "none", "winners": [], "candidates": [], "new": [], "n": len(boards), "need": 2}
+    if least < 2:
+        return {"status": "lead", "winners": rows[:1], "candidates": rows[1:5], "new": [], "n": len(boards), "need": 2,
+                "leadWhy": f"The cheapest model in the top 10 of 1 of {len(boards)} quality sources: "
+                           f"${rows[0]['price']['pin']:g} in / ${rows[0]['price']['pout']:g} out per million tokens."}
     return {"status": "best", "winners": rows[:1], "candidates": rows[1:5], "new": [], "n": len(boards), "need": 2}
 
 
 def plain_sentence(job, res, boards=None):
     w = res["winners"]
+    if res["status"] == "lead":
+        return res.get("leadWhy") or f"Top 3 in {w[0].get('top3', 0)} of {res['n']} tests."
     if res["status"] == "single":
         b = (boards or [{}])[0]
         return (f"Top on LMArena's {str(b.get('board', 'picture')).lower()} board (people's blind votes). "
@@ -2146,30 +2289,63 @@ def privacy_score(app, inc):
     return round(0.5 * i + 0.5 * f / 5, 3), round(i, 3), round(f, 1)
 
 
+def shared_ranks(values, higher_better):
+    """Rank 1 = most private. Tied values share the average of their ranks (e.g. two apps at 3.5 -> 2.5 each)."""
+    order = sorted(values, key=lambda k: -values[k] if higher_better else values[k])
+    out, i = {}, 0
+    while i < len(order):
+        j = i
+        while j + 1 < len(order) and values[order[j + 1]] == values[order[i]]:
+            j += 1
+        for k in order[i:j + 1]:
+            out[k] = (i + 1 + j + 1) / 2
+        i = j + 1
+    return out
+
+
+def privacy_ranking(apps_raw):
+    """v16h (owner, Nov 7 2026): the score is ONLY the 2 outside rankings - the average of each app's rank in Incogni 2026
+    (risk points, lower = better) and ObscureIQ 2025 (score out of 5, higher = better); ties broken by the Incogni score.
+    Returns {key: (avg_rank, incogni_rank, obscureiq_rank)} and the keys in order (most private first)."""
+    inc = shared_ranks({k: a["incogni"] for k, a in apps_raw.items()}, higher_better=False)
+    obs = shared_ranks({k: a["obscureiq"] for k, a in apps_raw.items()}, higher_better=True)
+    avg = {k: (inc[k] + obs[k]) / 2 for k in apps_raw}
+    order = sorted(apps_raw, key=lambda k: (avg[k], apps_raw[k]["incogni"], k))
+    return {k: (avg[k], inc[k], obs[k]) for k in apps_raw}, order
+
+
 def build_privacy(path=None):
     p = load_static(path or PRIVACY_FILE)
     if not p:
         return None
     inc, labels = p["incogni"], dict(p["facts"])
+    ranks, order_keys = privacy_ranking(p["apps"])
+    n_apps = len(order_keys)
     apps = {}
-    for name, a in p["apps"].items():
-        score, inc_part, facts = privacy_score(a, inc)
-        apps[name] = {"maker": a["maker"], "score": score, "incogni": a["incogni"], "incogniPart": inc_part, "facts": facts,
+    for key, a in p["apps"].items():
+        name = app_display(key)                               # "Le Chat" in the file -> "Vibe" in the app (v16h)
+        _, inc_part, facts = privacy_score(a, inc)            # the 5 checks: information only, not in the score (v16h)
+        avg_rank, inc_rank, obs_rank = ranks[key]
+        score = round(1 - (avg_rank - 1) / ((n_apps - 1) or 1), 3)     # 1 = rank 1 in both rankings, 0 = last in both
+        apps[name] = {"maker": a["maker"], "score": score, "avgRank": avg_rank, "ranks": {"incogni": inc_rank, "obscureiq": obs_rank},
+                      "incogni": a["incogni"], "obscureiq": a["obscureiq"], "incogniPart": inc_part, "facts": facts,
                       "line": a["line"],
                       "checks": [{"id": fid, "label": labels.get(fid, fid), "ok": bool(x.get("v")),
                                   "unverified": bool(x.get("unverified")), "note": x.get("note", ""),
                                   "src": dict(a["sources"].get(x.get("src"), {}))} for fid, x in a["facts"].items()],
                       "sources": [dict(s, id=sid) for sid, s in a["sources"].items()]}
-    order = sorted(apps, key=lambda n: -apps[n]["score"])
+    order = [app_display(k) for k in order_keys]
     for i, n in enumerate(order):
         apps[n]["rank"] = i + 1
+        if i and apps[n]["score"] >= apps[order[i - 1]]["score"]:          # a tie broken by Incogni: keep the score order
+            apps[n]["score"] = round(apps[order[i - 1]]["score"] - 0.001, 3)
     stale = days_old(p.get("checked") or "2000-01-01") > PRIVACY_STALE_DAYS
+    obs = p.get("obscureiq") or {}
     return {"checked": p.get("checked"), "stale": stale, "staleDays": PRIVACY_STALE_DAYS, "apps": apps, "order": order,
             "incogni": {k: inc[k] for k in ("name", "url", "published", "note")},
-            "how": "Score = half Incogni's 2026 privacy ranking (independent) + half 5 checks we read on each company's "
-                   "own pages: no training on your chats by default, a way to turn training off, a temporary chat, "
-                   "deleted chats gone within 30 days, data kept in the US or EU. A check only a news page supports "
-                   "counts half."}
+            "obscureiq": {k: obs.get(k) for k in ("name", "url", "published", "note")},
+            "how": "Average of 2 independent privacy rankings: Incogni 2026 and ObscureIQ.",
+            "checksNote": "The checks under each app are information from the companies' own pages; they don't count in the score."}
 
 
 def build_finder(raw, mods=None):
@@ -2177,12 +2353,25 @@ def build_finder(raw, mods=None):
 
 
 # ======================================================================= cost, releases
+# v16h: names the app SHOWS for an app whose maker renamed it. The saved data and scripts/privacy_static.json keep the old
+# key, so nothing breaks; only data.json shows the new name (cost apps + Find your AI privacy rows), with "formerly".
+# help.mistral.ai: "Le Chat is now Vibe" (renamed Aug 12, 2026); mistral.ai/pricing: plans are still "Pro" and "Team".
+APP_DISPLAY = {"Le Chat": "Vibe"}
+
+
+def app_display(name):
+    return APP_DISPLAY.get(name, name)
+
+
 def build_cost(raw, picks):
     apps = []
     for a in (raw.get("prices") or {}).get("apps") or []:
         paid = [p for p in a.get("plans") or [] if p.get("usd_month")]
         cheapest = min(paid, key=lambda p: p["usd_month"]) if paid else None
-        apps.append(dict(a, cheapest=cheapest))
+        shown = dict(a, cheapest=cheapest, app=app_display(a["app"]))
+        if shown["app"] != a["app"]:
+            shown["formerly"] = a["app"]
+        apps.append(shown)
     # developer prices: every model named in a pick, plus the top 10 of each general source
     keys = []
     for p in picks:
@@ -2344,20 +2533,21 @@ def agent_pick(raw, names=None):
                      "avg": round(sum(ranked) / len(ranked), 2) if ranked else 99})
     desc.sort(key=lambda c: (-c["top3"], c["avg"], c["n"]))
     need = AGENT_NEED
-    if n < need:
-        win, status = [], "none"
-        why = (f"Only {n} of the 3 agent tests has fresh data right now, so no model is named best."
-               if n == 1 else "No agent test has fresh data right now, so no model is named best.")
+    win = [c for c in desc if c["top3"] >= need] if n >= need else []
+    if win:
+        status = "best"
+        why = (f"Named best because it is in the top 3 of at least {need} of the {n} independent agent tests "
+               f"({', '.join(b['name'] for b in use)}).")
+    elif desc:
+        # v16h "always a winner": the model in the top 3 of the most agent tests (then best average rank) leads;
+        # with only 1 test, that test's #1
+        win, status = desc[:1], "lead"
+        c = desc[0]
+        where = f"the only agent test with fresh data ({use[0]['name']})" if n == 1 else f"{c['top3']} of {n} agent tests"
+        why = f"Top 3 in {where}" + (", best average rank." if n > 1 and any(x["top3"] == c["top3"] for x in desc[1:]) else ".")
     else:
-        win = [c for c in desc if c["top3"] >= need]
-        status = "best" if win else "none"
-        if win:
-            why = (f"Named best because it is in the top 3 of at least {need} of the {n} independent agent tests "
-                   f"({', '.join(b['name'] for b in use)}).")
-        else:
-            c = desc[0] if desc else None
-            why = (f"No clear winner yet: no model is in the top 3 of at least {need} of the {n} agent tests."
-                   + (f" Closest: {c['n']} (top 3 in {c['top3']})." if c else ""))
+        win, status = [], "none"
+        why = "No agent test has fresh data right now."
     for c in desc:
         c.pop("avg", None)
     return {"status": status, "need": need, "n": n, "winners": win, "candidates": [c for c in desc if c not in win][:5],
@@ -2431,7 +2621,8 @@ def agent_news(items, official=None, days=AGENT_NEWS_DAYS, limit=AGENT_NEWS_MAX)
         if not any(same_story(it["t"], k["t"]) for k in uniq):
             uniq.append(it)
     uniq.sort(key=lambda x: x["d"], reverse=True)
-    return [{"t": k["t"], "u": k["u"], "s": k["s"], "d": k["d"], "tag": k["tag"], "official": k.get("k") == "official"} for k in uniq[:limit]]
+    return [{"t": k["t"], "u": k["u"], "s": k["s"], "d": k["d"], "tag": k["tag"], "x": k.get("x", ""), "official": k.get("k") == "official"}
+            for k in uniq[:limit]]
 
 
 def agent_news_report(items, official=None, days=AGENT_NEWS_DAYS):
@@ -2457,7 +2648,7 @@ def fmt_score(v, unit):
     return f"{v:g}" if abs(v) >= 1 else f"{v:.3f}"
 
 
-def build_agents(raw, news_items, official):
+def build_agents(raw, news_items, official, summaries=None):
     names = names_index(raw)
     pick = agent_pick(raw, names)
     mods, _ = mods_index(raw)
@@ -2473,7 +2664,7 @@ def build_agents(raw, news_items, official):
     return {"best": pick, "tests": tests, "rule": f"A model is named best for agents only when it is in the top 3 of at least "
                                                     f"{AGENT_NEED} of the 3 independent agent tests.",
             "apps": build_agent_apps(raw), "groups": [{"id": g, "label": l} for g, l in AGENT_GROUPS],
-            "news": {"items": agent_news(news_items, official), "days": AGENT_NEWS_DAYS, "max": AGENT_NEWS_MAX,
+            "news": {"items": fill_summaries(agent_news(news_items, official), summaries if summaries is not None else {}, 0 if summaries is None else SUMMARY_FETCH_MAX), "days": AGENT_NEWS_DAYS, "max": AGENT_NEWS_MAX,
                      "rules": "Titles about AI agents from the last 14 days. Customer stories, opinion, lawsuits, policy, "
                               "rumors and how-tos are left out."},
             "maxAge": AGENT_MAX_AGE, "staleDays": STALE_DAYS}
@@ -2606,21 +2797,24 @@ def main():
         return 4
     news_items = (raw.get("news") or {}).get("items") or []
     ri = rule_info(aa_on)
+    summaries = dict(prev_raw.get("summaries") or {})             # v16h: {url: summary}, so each page is fetched once
     out = {
         "v": VERSION, "built": NOW_ISO, "aaEnabled": aa_on, "status": status,
         "sources": [dict(SRC[k], id=k) for k in SOURCE_ORDER if k != "aa" or aa_on],
         "picks": picks,
         "cost": build_cost(raw, picks),
         "releases": build_releases(raw),
-        "bignews": {"items": big_news(news_items, official_posts(raw)), "feeds": (raw.get("news") or {}).get("feeds") or [],
+        "bignews": {"items": fill_summaries(big_news(news_items, official_posts(raw)), summaries), "feeds": (raw.get("news") or {}).get("feeds") or [],
                     "rules": "Only new model launches, big price changes, major product launches or shutdowns by AI labs, "
                              "funding of about $1B or more, acquisitions of or by AI labs, and IPO filings."},
         "officialSources": official_status(raw),
-        "agents": build_agents(raw, news_items, official_posts(raw)),
+        "agents": build_agents(raw, news_items, official_posts(raw), summaries),
         "finder": build_finder(raw),
         "stalePrices": stale, "staleDays": STALE_DAYS,
         "rule": ri["text"], "ruleInfo": ri, "fastNote": FAST_NOTE, "fastWords": list(FAST_WORDS),
     }
+    shown = {it["u"] for it in out["bignews"]["items"] + out["agents"]["news"]["items"]}
+    raw["summaries"] = {u: x for u, x in summaries.items() if u in shown}      # only what is still shown
     blob = json.dumps(out, ensure_ascii=False, separators=(",", ":"))
     raw_blob = json.dumps(raw, ensure_ascii=False, separators=(",", ":"))
     key = os.environ.get("AA_API_KEY")

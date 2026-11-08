@@ -1,5 +1,5 @@
 {
- "_about": "Hand-checked privacy facts per app for the Find your AI 'Privacy' choice (v16g). Edit by hand when a policy changes and update 'checked'. Each fact: v = 1 (good for privacy) / 0 (bad), 'unverified': true when only a news/third-party page says so (counts half). Score = 50% Incogni 2026 privacy-risk ranking (independent, lower risk = better) + 50% these 5 facts. Computed by scripts/update_data.py build_privacy().",
+ "_about": "Hand-checked privacy data per app for the Find your AI 'Privacy' choice (v16g, scoring changed v16h). Score (v16h, owner's choice Nov 7 2026) = the average of each app's rank in 2 independent privacy rankings: Incogni 2026 ('incogni', risk points, lower = better) and ObscureIQ 2025 ('obscureiq', score out of 5, higher = better); tied values share the average rank; ties in the average are broken by the Incogni score. The 5 facts per app are INFORMATION ONLY (shown as check lines, not counted). Each fact: v = 1 (good for privacy) / 0 (bad), 'unverified': true when only a news/third-party page says so. Edit by hand when a source changes and update 'checked'. Computed by scripts/update_data.py build_privacy().",
  "checked": "2026-11-06",
  "incogni": {
   "name": "Incogni Gen AI and LLM Data Privacy Ranking 2026",
@@ -8,6 +8,13 @@
   "note": "Total privacy-risk score = 'AI and user data' + 'Transparency' + 'Data collection and sharing' from Incogni's published chart data (lower = less privacy-invasive). 13 platforms scored.",
   "best": 11.9,
   "worst": 17.8
+ },
+ "obscureiq": {
+  "name": "ObscureIQ: Which Generative AI Is Most Privacy-Respecting? (2025 edition)",
+  "url": "https://www.obscureiq.com/which-generative-ai-is-most-privacy-respecting/",
+  "published": "2025-10-22",
+  "note": "Privacy posture score out of 5 (higher = more private), weighted: prompt retention 25%, training opt-out 20%, jurisdiction 15%, transparency 15%, user control 15%, default behavior 10%. By Jeff Jockisch; page says 'Last verified October 2025'. Page opened and scores read on 2026-11-07.",
+  "how": "page opened 2026-11-07"
  },
  "facts": [
   [
@@ -35,6 +42,7 @@
   "ChatGPT": {
    "maker": "OpenAI",
    "incogni": 12.0,
+   "obscureiq": 3.5,
    "line": "Temporary Chat; you can turn off training (on by default)",
    "facts": {
     "noTrainDefault": {
@@ -81,6 +89,7 @@
   "Claude": {
    "maker": "Anthropic",
    "incogni": 14.3,
+   "obscureiq": 3.5,
    "line": "Incognito chats; training is your choice, kept 5 years if on",
    "facts": {
     "noTrainDefault": {
@@ -123,6 +132,7 @@
   "Gemini": {
    "maker": "Google",
    "incogni": 14.1,
+   "obscureiq": 2.0,
    "line": "Temporary chats, but by default chats help train and some are read by reviewers",
    "facts": {
     "noTrainDefault": {
@@ -158,8 +168,9 @@
    }
   },
   "Grok": {
-   "maker": "xAI",
+   "maker": "SpaceXSI (formerly xAI)",
    "incogni": 14.4,
+   "obscureiq": 1.3,
    "line": "Private Chat (deleted in 30 days); training on unless you turn it off",
    "facts": {
     "noTrainDefault": {
@@ -200,6 +211,7 @@
   "Le Chat": {
    "maker": "Mistral",
    "incogni": 11.9,
+   "obscureiq": 4.4,
    "line": "Ranked most private by Incogni; EU company; training on unless you turn it off",
    "facts": {
     "noTrainDefault": {
@@ -251,6 +263,7 @@
   "DeepSeek": {
    "maker": "DeepSeek",
    "incogni": 14.3,
+   "obscureiq": 1.2,
    "line": "Data stored in China; kept as long as needed; training on unless you turn it off",
    "facts": {
     "noTrainDefault": {
@@ -292,6 +305,7 @@
   "Meta AI": {
    "maker": "Meta",
    "incogni": 17.4,
+   "obscureiq": 1.9,
    "line": "No way to stop chats being used; chats also used for ads since Dec 2025",
    "facts": {
     "noTrainDefault": {
@@ -335,6 +349,7 @@
   "Perplexity": {
    "maker": "Perplexity",
    "incogni": 13.5,
+   "obscureiq": 3.1,
    "line": "Incognito mode; training on unless you turn off AI data retention",
    "facts": {
     "noTrainDefault": {
@@ -383,6 +398,7 @@
   "Copilot": {
    "maker": "Microsoft",
    "incogni": 17.8,
+   "obscureiq": 2.0,
    "line": "Training and ads on unless you turn them off; history kept 18 months",
    "facts": {
     "noTrainDefault": {
