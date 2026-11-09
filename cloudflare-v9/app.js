@@ -1,7 +1,7 @@
 (function (root) {
   "use strict";
   // AI Pro (v17): a home screen with 3 sections, each with its tabs (+ a Sources view):
-  //   Find your AI: Top Picks · Cost · Agents   Try it: Explore · Race   Updates: What's New · News
+  //   Find your AI: Top Picks · Cost · Agents   Try it: Explore · Race   Updates: New Releases · News
   // Each tab shows a short simple view first, and "See more" opens the full details.
   // All picks are made by fixed rules in scripts/update_data.py; this file only shows them.
   // ---- settings for Explore ("Ask the AIs", see worker/README.md). Leave ASK_API empty and the Ask tab is the free v8 tab.
@@ -28,11 +28,11 @@
   var VIEWS_ALL = TABS.concat(["sources", "home"]);
   // v17: a home screen with 3 sections replaces the tab bar. Each section = a title + segmented tabs (today's views).
   var SECTIONS = [
-    { id: "find", title: "Find your AI", line: "Top Picks, Cost, Agents", tabs: [["best", "Top Picks"], ["cost", "Cost"], ["agents", "Agents"]],
+    { id: "find", title: "Find your AI", line: "Top Picks, Cost, Agents", desc: "The best AI for each job, what it costs, and AI agents", tabs: [["best", "Top Picks"], ["cost", "Cost"], ["agents", "Agents"]],
       icon: '<path d="M8 4h8v6a4 4 0 0 1-8 0V4z"/><path d="M8 6H5.5A1.5 1.5 0 0 0 4 7.5 3.5 3.5 0 0 0 7.5 11H8"/><path d="M16 6h2.5A1.5 1.5 0 0 1 20 7.5a3.5 3.5 0 0 1-3.5 3.5H16"/><path d="M12 14v4"/><path d="M8 20h8"/>' },
-    { id: "try", title: "Try it", line: "Explore, Race", tabs: [["ask", "Explore"], ["race", "Race"]],
+    { id: "try", title: "Try it", line: "Explore, Race", desc: "Ask several AIs the same question and compare the answers", tabs: [["ask", "Explore"], ["race", "Race"]],
       icon: '<path d="M20 12a8 8 0 0 1-11.7 7.1L4 20l1-4.2A8 8 0 1 1 20 12z"/>' },
-    { id: "updates", title: "Updates", line: "What's New, News", tabs: [["releases", "What's New"], ["news", "News"]],
+    { id: "updates", title: "Updates", line: "New Releases, News", desc: "The newest AI models and the latest AI news", tabs: [["releases", "New Releases"], ["news", "News"]],
       icon: '<path d="M4 4h12a1 1 0 0 1 1 1v14a1 1 0 0 0 1 1H6a2 2 0 0 1-2-2V4z"/><path d="M17 8h2a1 1 0 0 1 1 1v9a2 2 0 0 1-2 2"/><path d="M8 8h5M8 12h5M8 16h3"/>' }
   ];
   var lastTab = {};                                                   // the last tab per section, for this visit only
@@ -624,7 +624,7 @@
     return h;
   }
 
-  // ---------------------------------------------------------------- views: New releases
+  // ---------------------------------------------------------------- views: New Releases
   // v16: each release is its own clean card: a coloured maker badge, the name (linked to the announcement), maker · date
   var HUES = [243, 268, 190, 152, 24, 330, 205, 45];
   function makerHue(o) { var h = 0, s2 = makerKey(o); for (var i = 0; i < s2.length; i++) h = (h * 31 + s2.charCodeAt(i)) >>> 0; return HUES[h % HUES.length]; }
@@ -708,7 +708,7 @@
   function relRowPlain(r) { return relCard(r, false); }
   function vReleases() {
     var items = relSorted(D.releases && D.releases.items);
-    var h = "<h2>New releases</h2><p class=\"sub\">" + esc(SUBS.releases) + "</p>" + staleNote("openrouter");
+    var h = "<h2>New Releases</h2><p class=\"sub\">" + esc(SUBS.releases) + "</p>" + staleNote("openrouter");
     h += '<ul class="rels">' + (items.slice(0, 6).map(relRowPlain).join("") || '<li class="relcard muted">Nothing new yet.</li>') + "</ul>";
     if (items.slice(0, 6).some(function (r) { return r.fast; })) h += '<p class="note">' + ic("bolt") + " " + esc(fastNote()) + "</p>";
     h += moreButton("releases", items.length > 6) + plainCredits();
@@ -716,7 +716,7 @@
   }
   function vReleasesMore() {
     var items = relSorted(D.releases && D.releases.items);
-    var h = backButton() + "<h2>New releases: last " + ((D.releases && D.releases.days) || 60) + " days</h2>" +
+    var h = backButton() + "<h2>New Releases: last " + ((D.releases && D.releases.days) || 60) + " days</h2>" +
       "<p class=\"sub\">Date and link = the company's own announcement when it has one (OpenAI, Google, Anthropic, Mistral, xAI, Meta, DeepSeek), otherwise the date it became available on OpenRouter" + (D.aaEnabled ? " or the release date listed by " + AA_CREDIT : "") + ". Each model is listed once. " + ic("bolt") + " " + esc(fastNote()) + "</p>" + staleNote("openrouter");
     var lastMo = "", body = "";
     items.forEach(function (r) {
@@ -935,8 +935,8 @@
     var ag = AG(), b = ag.best || {};
     var h = backButton() + "<h2>AI agents: full details</h2>";
     h += '<div class="card prose"><h3>How the pick works</h3><p><b>Best AI for agents</b>: ' + esc(plainRule(noOne(ag.rule), AGENT_RULE) || AGENT_RULE) +
-      " The 3 tests are run by different groups in different ways: people's votes (LMArena), hidden tasks (LiveBench) and real work tasks (APEX-Agents). If more than one passes, the one with the best ranks is #1.</p>" +
-      "<p>A test whose newest result is more than " + (ag.maxAge || 120) + " days old is left out. With fewer than 2 usable tests, the model with the best ranks leads.</p>" +
+      " These tests are run by independent groups in different ways: people's votes (LMArena), hidden tasks (LiveBench) and real work tasks (APEX-Agents). If more than one model passes, the one with the best ranks is #1.</p>" +
+      "<p>A test whose newest result is more than " + (ag.maxAge || 120) + " days old is left out. When too few tests have recent results, the model with the best ranks leads.</p>" +
       "<p>Vending-Bench 2, Remote Labor Index and LiveBench Browser are shown for information only; they don't change the pick. No AI is used to choose.</p></div>";
     h += agentBestCard(true);
     list(b.winners).forEach(function (c) {
@@ -1856,7 +1856,7 @@
       "<p><b>LiveBench:</b> new tasks every release, kept hidden, so models can't have learned the answers.</p>" +
       "<p><b>" + ic("bolt") + " Fast:</b> " + esc(fastNote()) + " A rough guide only; it never changes a pick.</p>" +
       "<p><b>Prices:</b> \u201cApp Store price (US)\u201d comes from the company's own App Store listing. A price not confirmed for more than " + ((D && D.staleDays) || 30) + " days is marked " + ic("warn") + " stale.</p>" +
-      "<p><b>New releases:</b> taken from each company's own page when it announced the model (that date and link), otherwise the date it appeared on OpenRouter.</p>" +
+      "<p><b>New Releases:</b> taken from each company's own page when it announced the model (that date and link), otherwise the date it appeared on OpenRouter.</p>" +
       "<p><b>Epoch Capabilities Index:</b> many benchmarks combined into one score, with a margin of error.</p>" +
       (ag ? "<p><b>Agent tests:</b> LMArena Agent Arena score (people's votes between two agents, higher is better), LiveBench Long Agentic (0 to 100), APEX-Agents (share of work tasks solved on the first try). " + esc(AGENT_RULE) + "</p>" : "") +
       "<p>Data built " + esc(new Date(D.built).toLocaleString()) + ". No AI is used to pick anything. No sign-in, no tracking.</p></div>";
@@ -1907,11 +1907,18 @@
     return '<svg viewBox="0 0 24 24" width="' + size + '" height="' + size + '" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + paths + "</svg>";
   }
   var CHEV_R = '<path d="M9 6l6 6-6 6"/>', CHEV_L = '<path d="M15 6l-6 6 6 6"/>';
+  // v17h: Home = only the 3 big cards, filling the screen. A card = one surface: its icon, its title (a button, the
+  // keyboard way in), one plain line on what's inside, and a chip per tab. A tap on the card opens the section's last (or first) tab; a chip opens that tab.
   function vHome() {
     var h = '<h2 class="sr">Home</h2><div class="home">' + SECTIONS.map(function (x) {
-      return '<button type="button" class="hcard" data-tab="' + (lastTab[x.id] || x.tabs[0][0]) + '" data-sec="' + x.id + '">' +
-        '<span class="hib">' + svg(x.icon, 28) + '</span><span class="htx"><b>' + esc(x.title) + "</b><small>" + esc(x.line) + "</small></span>" +
-        '<span class="hch">' + svg(CHEV_R, 20) + "</span></button>";
+      var first = lastTab[x.id] || x.tabs[0][0];
+      return '<section class="hcard" data-tab="' + first + '" data-sec="' + x.id + '">' +
+        '<span class="hib">' + svg(x.icon, 32) + '</span><span class="hch">' + svg(CHEV_R, 22) + "</span>" +
+        '<div class="hbody"><h3 class="htt"><button type="button" class="hmain" data-tab="' + first + '">' + esc(x.title) + "</button></h3>" +
+        '<p class="hdesc">' + esc(x.desc) + "</p>" +
+        '<div class="hchips" role="group" aria-label="' + esc(x.title) + '">' + x.tabs.map(function (t) {
+          return '<button type="button" class="hchip" data-tab="' + t[0] + '">' + esc(t[1]) + "</button>";
+        }).join("") + "</div></div></section>";
     }).join("") + "</div>";
     var upd = D && D.built ? day(D.built) : "";
     return h + '<p class="homefoot"><button type="button" class="linkbtn" data-tab="sources">Sources</button>' + (upd ? '<span class="muted"> · updated ' + esc(upd) + "</span>" : "") + "</p>";
@@ -2790,6 +2797,17 @@
   var sm = /[?&]session_id=(cs_[A-Za-z0-9_]{3,250})/.exec(location.search);
   if (sm && CONFIG.ASK_API) { sessionId = sm[1]; start = { tab: "ask", more: false }; redeem(); }
   else loadLeft();
+  // v17f: the installed app opens on Home when it is launched (not on a reload or Back/Forward), whatever start URL the
+  // home-screen icon kept from an older install (#best). The Stripe return above still opens Ask.
+  var navType = (function () {
+    try { var en = performance.getEntriesByType && performance.getEntriesByType("navigation")[0]; if (en && en.type) return en.type; } catch (e) {}
+    try { var t = performance.navigation && performance.navigation.type; return t === 1 ? "reload" : t === 2 ? "back_forward" : "navigate"; } catch (e) {}
+    return "navigate";
+  })();
+  if (!sm && navType === "navigate" && isStandalone()) {
+    start = { tab: "home", more: false };
+    try { history.replaceState(null, "", location.pathname + "#home"); } catch (e) {}
+  }
   // a deep link (#news, #best-more, #story/news/2): Home first, then its tab, then the page, so Back walks down to Home
   if (start.tab !== "home" && !histD()) {
     try {
