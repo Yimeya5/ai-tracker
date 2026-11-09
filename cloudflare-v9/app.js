@@ -102,10 +102,7 @@
   // Old data is turned into the same shape once, when it arrives: "tie" -> the first winner leads, the others become
   // runners-up; "none" -> the first candidate leads; nothing at all -> the card is hidden (p.hide). A why is written
   // from that model's tests: "Top 3 in N of M tests." Applies to picks, Find your AI tasks and the agents' best model.
-  function topLine(c, n) {
-    var t = c && typeof c.top3 === "number" ? c.top3 : list(c && c.ranks).filter(function (r) { return r && r.top3 && r.rank; }).length;
-    return t ? "Top 3 in " + t + " of " + Math.max(t, n) + " tests." : "";
-  }
+  function topLine(c, n) { return "Leading pick."; }                 // v17e: no counts of tests or sources on screen
   function onePick(p) {
     if (!p || typeof p !== "object") return p;
     var w = list(p.winners), c = list(p.candidates);
@@ -185,7 +182,7 @@
         : "None of the strongest models has a known price yet.";
     }
     if (p.status === "single") return "Rated #1 by people's votes.";
-    if (p.status === "lead") return noOne(p.why) || topLine(w[0], n);   // as given ("Top 3 in 2 of 3 tests, best average rank."); emptied -> from the tests
+    if (p.status === "lead") return leadWhy(p.why);                  // "Top 3 in 2 of 3 tests, best on LMArena." -> "Leading pick, best on LMArena."
     var c = w[0] || {};
     var votes1 = list(c.ranks).some(function (r) { return r.src === VOTES_SRC && r.rank === 1; });
     return votes1 ? "Rated #1 by people's votes." : "";
@@ -508,9 +505,19 @@
   // so "Opus 5.5" stays whole.
   // v17d: also any sentence that counts how few sources or tests rated a model ("1 of 3 sources", "sources have tested")
   var ONE_RE = /\b(only|just)\s+1\s+(source|test)s?\b|\b1\s+(source|test)s?\s+only\b|\bbased on 1\b|\b\d+\s+of\s+\d+\s+sources?\b|\bsources?\s+ha(ve|s)\s+tested\b|\btested by\s+\d+\b|\bonly\s+\d+\s+(sources?|tests?)\b/i;
+  // v17e: and any wording that counts how many tests or sources agree ("Top 3 in 2 of 3 tests", "at least 3 of", "all 4 sources")
+  var COUNT_RE = /\b\d+\s+of\s+(the\s+)?\d+(\s+\w+){0,3}?\s+(tests?|sources?)\b|\bin\s+\d+\s+of\s+\d+\b|\bat least\s+\d+\s+of\b|\bof all\s+\d+\b|\ball\s+\d+\s+(\w+\s+)?(tests|sources)\b/i;
   function noOne(t) {
     return String(t || "").replace(/([.!?])\s+/g, "$1\u0000").split("\u0000").map(function (x) { return x.trim(); })
-      .filter(function (x) { return x && !ONE_RE.test(x); }).join(" ");
+      .filter(function (x) { return x && !ONE_RE.test(x) && !COUNT_RE.test(x); }).join(" ");
+  }
+  // a lead winner's reason, short and neutral: the data's clauses minus any count ("Top 3 in 2 of 3 tests") or
+  // "more than any other model"; what is left follows "Leading pick, " ("best on LMArena"), else just "Leading pick."
+  function leadWhy(t) {
+    var keep = String(t || "").split(/,\s+|[.!?](?:\s+|$)/).map(function (x) { return x.trim(); }).filter(function (x) {
+      return x && !ONE_RE.test(x) && !COUNT_RE.test(x) && !/more than any other model/i.test(x);
+    }).map(function (x) { return /^[A-Z][a-z]/.test(x) ? x.charAt(0).toLowerCase() + x.slice(1) : x; });
+    return keep.length ? "Leading pick, " + keep.join(", ") + "." : "Leading pick.";
   }
   function vBestMore() {
     var h = backButton() + "<h2>Top Picks: full details</h2>";
@@ -518,7 +525,8 @@
     list(D.picks).forEach(function (p) {
       if (p.hide) return;
       h += '<section class="job"><h3>' + taskIcon(p.id, "acc") + " " + esc(p.label) + ": " + esc(pickTitle(p)) + "</h3>";
-      var pw = p.status === "lead" ? plainWhy(p) : plainRule(noOne(p.why) || (p.status === "single" ? plainWhy(p) : ""), p.id === "cheap" ? "Cheapest to build apps with, among the strongest models." : p.status === "best" ? BEST_RULE : plainWhy(p));
+      var pfb = p.id === "cheap" ? "Cheapest to build apps with, among the strongest models." : p.status === "best" ? BEST_RULE : plainWhy(p);
+      var pw = p.status === "lead" ? plainWhy(p) : plainRule(noOne(p.why) || (p.status === "single" ? plainWhy(p) : ""), pfb) || pfb;   // v17e: never empty
       if (pw) h += '<p class="why">' + esc(pw) + "</p>";
       h += '<p class="note"><b>Sources used:</b> ' + esc(plainRule(noOne(p.how), p.id === "cheap" ? CHEAP_HOW : "The independent tests listed below.") || "The independent tests listed below.") + "</p>";
       h += '<ul class="boards">' + list(p.boards).map(function (b) {
@@ -795,8 +803,8 @@
     var b = AG().best || {}, w = list(b.winners);
     if (!w.length || b.hide) return "";                              // never a "no winner" card
     var h = '<section class="card abest"><h3><span class="ico sm" aria-hidden="true">' + ic("agent") + '</span>Best AI for agents</h3>' +
-      '<p class="note">' + (full ? esc(plainRule(AG().rule, AGENT_RULE)) : "The AI model inside an agent. " + esc(AGENT_RULE)) + "</p>";
-    var bwhy = b.status === "lead" ? noOne(b.why) || topLine(w[0], b.n || list(b.boards).length || 3) : "";
+      '<p class="note">' + (full ? esc(plainRule(noOne(AG().rule), AGENT_RULE) || AGENT_RULE) : "The AI model inside an agent. " + esc(AGENT_RULE)) + "</p>";
+    var bwhy = b.status === "lead" ? leadWhy(b.why) : "";
     if (bwhy) h += '<p class="why">' + esc(bwhy) + "</p>";
     if (w.length) {
       h += '<ul class="rows">' + w.map(function (c) {
@@ -926,7 +934,7 @@
     if (!AG()) return backButton() + vAgents();
     var ag = AG(), b = ag.best || {};
     var h = backButton() + "<h2>AI agents: full details</h2>";
-    h += '<div class="card prose"><h3>How the pick works</h3><p><b>Best AI for agents</b>: ' + esc(plainRule(ag.rule, AGENT_RULE)) +
+    h += '<div class="card prose"><h3>How the pick works</h3><p><b>Best AI for agents</b>: ' + esc(plainRule(noOne(ag.rule), AGENT_RULE) || AGENT_RULE) +
       " The 3 tests are run by different groups in different ways: people's votes (LMArena), hidden tasks (LiveBench) and real work tasks (APEX-Agents). If more than one passes, the one with the best ranks is #1.</p>" +
       "<p>A test whose newest result is more than " + (ag.maxAge || 120) + " days old is left out. With fewer than 2 usable tests, the model with the best ranks leads.</p>" +
       "<p>Vending-Bench 2, Remote Labor Index and LiveBench Browser are shown for information only; they don't change the pick. No AI is used to choose.</p></div>";
@@ -1869,14 +1877,15 @@
     var names = ri.names ? String(ri.names) : aa ? "LMArena, Artificial Analysis, LiveBench and Epoch AI" : "LMArena, LiveBench and Epoch AI";
     // v16i1: the pipeline's own rule (minus a pictures sentence; the pictures line below says it) and test names
     var rule = (String(D.rule || "").match(/[^.]+(\.|$)/g) || []).map(function (x) { return x.trim(); }).filter(function (x) { return x && !/picture/i.test(x); }).join(" ");
+    if (COUNT_RE.test(rule) || ONE_RE.test(rule)) rule = "A model is named best when the independent tests agree it is one of the strongest.";   // v17e: no counts
     var best = rule ? rule + (ri.names ? " The tests: " + names + "." : "")
       : "a model counts as best only when the independent sources (" + names + ") agree it is one of the strongest.";
-    var pics = aa ? "For pictures there are 2 sources (LMArena and Artificial Analysis), so both must agree."
+    var pics = aa ? "For pictures, LMArena and Artificial Analysis must agree."
       : "For pictures, the pick is LMArena's #1 (people's blind votes); the next ones are under See more.";
     return '<div class="card prose"><h3>How the picks work</h3>' +
       "<p><b>Best</b>: " + esc(best) + " " + esc(pics) + "</p>" +
       "<p><b>New model</b>: recently released; its place may change as more results come in.</p>" +
-      "<p><b>Lead</b>: when no model passes the rule, the one that does best across the tests is shown as #1, with the reason.</p>" +
+      "<p><b>Lead</b>: when no model passes the rule, the one that does best across the tests is shown as the winner.</p>" +
       "<p>No AI is used to choose; it's the same rule every day.</p>" +
       "<p><b>" + ic("bolt") + " Fast</b>: " + esc(fastNote()) + " It is only a label and never changes a pick.</p>" + (aa ? aaNote() : "") + "</div>";
   }
