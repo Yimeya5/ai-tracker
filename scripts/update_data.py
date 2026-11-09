@@ -1998,35 +1998,118 @@ AISUM_MODELS = ("anthropic/claude-haiku-5.5", "openai/gpt-6-luna", "google/gemin
 # v16j: with reasoning at its default (medium) the models spent the whole output budget thinking, the answer was cut
 # off and rejected. Reasoning is now off where the model allows it ("none"), low where it is mandatory (Gemini Flash),
 # and never sent back (exclude). max_tokens leaves room for a 5-8 sentence answer (~250 tokens) plus any low reasoning.
-AISUM_MAX_TOKENS = 3000
+AISUM_MAX_TOKENS = 4000      # v17n: room for a full-coverage summary of a long article
 AISUM_REASONING = {"anthropic/claude-haiku-5.5": {"effort": "none", "exclude": True},
                    "openai/gpt-6-luna": {"effort": "none", "exclude": True},
                    "google/gemini-3.8-flash": {"effort": "low", "exclude": True}}
 AISUM_REASONING_DEFAULT = {"effort": "low", "exclude": True}
-AISUM_SETTINGS = 2            # bump when the request changes: answers rejected under older settings get a fresh try
+AISUM_SETTINGS = 4            # bump when the request changes: answers rejected under older settings get a fresh try
+                              # (v17n: 4 = better page reading + summaries cover every point; older summaries and 'too
+                              #  little article text' entries get one fresh try, the old summary stays until a new one is made)
 AISUM_MAX_NEW = 20            # new summaries per run at most
 AISUM_MIN_SOURCE = 600        # characters of real article text needed; less -> no AI summary (nothing to summarise)
 AISUM_PROMPT = (
-    "Summarise this news article for a general reader, in your own words.\n"
-    "Rules: 5 to 8 sentences of plain text (about 100 to 160 words), no title, no lists, no markdown, no links. "
-    "Do not copy sentences from the "
-    "article and do not quote more than 6 words in a row. Only use facts that are in the text below; do not add "
-    "anything. If the text is not a real article (a cookie notice, a paywall, an error page), answer only: SKIP\n\n"
+    "Rewrite this news article for a general reader, in your own clear and simple words.\n"
+    "Rules: include EVERY point in the article: each announcement, feature, number, score, price, name, date, place "
+    "and when/where it is available. Leave nothing out, and add nothing that is not in the text below. The length "
+    "follows the article: a short article gets a short summary, a long article a long one. Write short paragraphs of "
+    "1 to 3 sentences, one topic each, with a blank line between paragraphs. Plain text only: no title, no lists, "
+    "no markdown, no links. Do not say what the article leaves out. Do not copy sentences from the article and do not quote more than 6 words in a row. "
+    "If the text is not a real article (a cookie notice, a paywall, an error page), answer only: SKIP\n\n"
     "Headline: {title}\nSource: {source}\nFeed text: {feed}\n\nArticle text:\n{body}")
+AISUM_SOURCE_MAX = 24000      # v17n: characters of article text sent (was 9000), so long articles are covered whole
 
 
-def article_text(raw_html, limit=9000):
-    """The readable text of an article page: <p> paragraphs of the <article>/<main> part (else the whole page)."""
-    h = raw_html if isinstance(raw_html, str) else raw_html.decode("utf-8", "replace")
-    h = re.sub(r"(?is)<(script|style|noscript|svg|nav|header|footer|form|aside)[^>]*>.*?</\1>", " ", h[:1500000])
-    m = re.search(r"(?is)<article[^>]*>(.*)</article>", h) or re.search(r"(?is)<main[^>]*>(.*)</main>", h)
-    part = m.group(1) if m else h
-    paras = []
-    for p in re.findall(r"(?is)<p[^>]*>(.*?)</p>", part):
+def _paras(part, tags="p"):
+    out = []
+    for p in re.findall(r"(?is)<(?:%s)\b[^>]*>(.*?)</(?:%s)>" % (tags, tags), part):
         t = " ".join(html.unescape(TAG_RE.sub(" ", p)).split())
         if len(t) >= 40:
-            paras.append(t)
-    return "\n".join(paras)[:limit]
+            out.append(t)
+    return out
+
+
+def article_text(raw_html, limit=None):
+    """The readable text of an article page: <p> paragraphs of the <article>/<main> part (else the whole page).
+    v17n: the part with the MOST paragraph text wins. Some pages (Google DeepMind blog) have <article> cards for
+    related posts below the story, so '<article>' alone held only those cards and the story read as empty."""
+    h = raw_html if isinstance(raw_html, str) else raw_html.decode("utf-8", "replace")
+    h = re.sub(r"(?is)<(script|style|noscript|svg|nav|header|footer|form|aside)[^>]*>.*?</\1>", " ", h[:1500000])
+    parts = [m.group(1) for m in (re.search(r"(?is)<article[^>]*>(.*)</article>", h),
+                                  re.search(r"(?is)<main[^>]*>(.*)</main>", h)) if m]
+    best = []
+    for part in parts:
+        p = _paras(part)
+        if sum(map(len, p)) > sum(map(len, best)):
+            best = p
+    if sum(map(len, best)) < AISUM_MIN_SOURCE:       # neither part has a real story: use the whole page
+        whole = _paras(h)
+        if sum(map(len, whole)) > sum(map(len, best)):
+            best = whole
+    return "\n".join(best)[:limit or AISUM_SOURCE_MAX]
+
+
+def _anchor_key(s):
+    return re.sub(r"[^a-z0-9]+", "", str(s or "").lower())
+
+
+def section_text(raw_html, frag, limit=None):
+    """v17n: the text of ONE entry on a page with many (a change log link like .../updates/#deepseek-v4-1-flash-...):
+    from the heading whose id matches the #part (ignoring dashes/dots) up to the next heading of the same or higher
+    level. '' when the page has no such heading (then the item gets no AI summary: the page is about other things)."""
+    h = raw_html if isinstance(raw_html, str) else raw_html.decode("utf-8", "replace")
+    want = _anchor_key(frag)
+    if not want:
+        return ""
+    for m in re.finditer(r"(?is)<h([1-6])\b[^>]*\bid=[\"']([^\"']+)[\"'][^>]*>", h):
+        if _anchor_key(m.group(2)) != want:
+            continue
+        level, rest = int(m.group(1)), h[m.end():]
+        stop = re.search(r"(?is)<h([1-%d])\b" % level, rest)
+        part = rest[:stop.start()] if stop else rest[:60000]
+        part = re.sub(r"(?is)<(script|style|noscript|svg)[^>]*>.*?</\1>", " ", part)
+        return "\n".join(_paras(part, "p|li"))[:limit or AISUM_SOURCE_MAX]
+    return ""
+
+
+READER_URL = "https://r.jina.ai/"   # v17n: free public page reader (no key) for pages that block plain fetches
+
+
+def reader_text(markdown, limit=None):
+    """Readable text from the reader's markdown answer: links/images reduced to their words, menus and short lines
+    dropped, only lines that read like sentences kept."""
+    t = str(markdown or "")
+    t = t.split("Markdown Content:", 1)[-1]
+    t = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", t)                 # images
+    t = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", t)               # links -> their words
+    out = []
+    for line in t.splitlines():
+        line = " ".join(re.sub(r"[*_#`>|]+", " ", line).split())
+        if len(line) >= 80 and re.search(r"[.!?:][\"”’)]?$", line) and len(line.split()) >= 12:
+            out.append(line)
+    return "\n".join(out)[:limit or AISUM_SOURCE_MAX]
+
+
+def html_of(resp):
+    """A page's HTML as text. Pages sent without a charset are read as UTF-8 (requests would guess Latin-1, which
+    turned "we’re" into "weâ€™re")."""
+    enc = (getattr(resp, "encoding", None) or "").lower()
+    raw = getattr(resp, "content", None)
+    if isinstance(raw, bytes) and enc in ("", "iso-8859-1", "latin-1"):
+        return raw.decode("utf-8", "replace")
+    return resp.text
+
+
+def lead_text(xd, limit=220):
+    """The first sentence or two of a summary, for the one-line preview in the list (used only when the feed gave none)."""
+    t = " ".join(str(xd or "").split())
+    sents = re.split(r"(?<=[.!?])[\"”’)]?\s+(?=[A-Z0-9\"“‘(])", t)
+    out = ""
+    for x in sents:
+        if out and len(out) + 1 + len(x) > limit:
+            break
+        out = (out + " " + x).strip()
+    return out if len(out) <= limit else out[:limit - 3].rsplit(" ", 1)[0] + "…"
 
 
 def _shingles(text, n=8):
@@ -2035,7 +2118,7 @@ def _shingles(text, n=8):
 
 
 def clean_ai_summary(text, source):
-    """Plain text, 5-8ish sentences, no links, not copied (at most a few 8-word runs shared with the source)."""
+    """Plain text, short paragraphs (v17n: as long as the article needs), no links, not copied (at most a few 8-word runs shared with the source)."""
     t = str(text or "").strip()
     if not t or t.upper().startswith("SKIP"):
         return ""
@@ -2047,7 +2130,7 @@ def clean_ai_summary(text, source):
         t = t[:ends[-1]].rstrip() if ends else ""
     # sentences end at . ! ? followed by a space and a capital/digit/quote, so "U.S." and "Grok Voice 3.0" don't count
     sents = [x for x in re.split(r"(?<=[.!?])[\"”’)]?\s+(?=[A-Z0-9\"“‘(])", t.replace("\n\n", " ")) if len(x.strip()) > 2]
-    if len(t) < 250 or len(t) > 1600 or len(sents) < 4 or len(sents) > 12:
+    if len(t) < 250 or len(t) > 12000 or len(sents) < 3 or len(sents) > 120:      # v17n: length follows the article
         return ""
     sh = _shingles(t)
     if sh and len(sh & _shingles(source)) / len(sh) > 0.3:
@@ -2099,37 +2182,87 @@ def scrub_key(text, key):
     return str(text).replace(key, "***") if key else str(text)
 
 
-def fill_ai_summaries(items, cache, key=None, max_new=AISUM_MAX_NEW, fetch=None, ask=None):
+def related_coverage(it, pool, limit=4000):
+    """v17n: feed texts of the SAME story from other sites in today's news (same key words in the headline), used
+    as extra source text when the story's own page cannot be read. '' when there is none."""
+    def words(t):
+        return {w for w in re.findall(r"[a-z0-9][a-z0-9.\-]+", str(t or "").lower()) if len(w) > 2} - {"the", "and", "for", "with", "its", "new", "our"}
+    mine, out = words(it.get("t")), []
+    if len(mine) < 2:
+        return ""
+    for o in pool or []:
+        if o is it or o.get("u") == it.get("u") or not str(o.get("x") or "").strip():
+            continue
+        theirs = words(o.get("t"))
+        if theirs and len(mine & theirs) / len(mine | theirs) >= 0.5:
+            out.append(f"{o.get('s') or 'Other site'}: {o.get('t')}. {o.get('x')}")
+    return "\n".join(out)[:limit]
+
+
+def fill_ai_summaries(items, cache, key=None, max_new=AISUM_MAX_NEW, fetch=None, ask=None, reader=None, pool=None):
     """Add 'xd' (+ 'xdBy') to each item. cache = {url: {"xd": text, "m": model, "d": date}} kept between runs;
     an empty xd in the cache means 'tried, nothing usable': retried once (tries < 2), then given up. An answer rejected
     under older request settings ("v" below AISUM_SETTINGS, e.g. cut off before v16j) starts again with a fresh try.
-    Returns (items, stats)."""
+    v17n: a link to one entry on a page (#part) is summarised from that entry's own section; a page that blocks the
+    plain fetch (openai.com answers 403) or reads too short is read through the public reader (no key); with still no
+    article text, the same story's feed text from other sites is used when there is enough of it. An item with no
+    feed line ('x' empty) gets the first sentence(s) of its summary as the list line. Returns (items, stats)."""
     key = key if key is not None else (os.environ.get("OPENROUTER_API_KEY") or "").strip()
-    fetch = fetch or (lambda u: get(u, timeout=15, headers=POLITE_UA).text)
+    if reader is None and fetch is None:
+        reader = lambda u: get(READER_URL + u, timeout=40, headers={"Accept": "text/plain"}).text
+    fetch = fetch or (lambda u: html_of(get(u, timeout=15, headers=POLITE_UA)))
     ask = ask or (lambda title, src, feed, body: openrouter_summary(key, title, src, feed, body))
-    st = {"cached": 0, "new": 0, "skipped": 0, "failed": 0, "key": bool(key)}
+    st = {"cached": 0, "new": 0, "skipped": 0, "failed": 0, "key": bool(key), "reader": 0, "coverage": 0}
     made = 0
     for it in items:
         u = it.get("u") or ""
         c = cache.get(u)
-        if c is not None and not c.get("xd") and c.get("m") and int(c.get("v", 1)) < AISUM_SETTINGS:
-            c = None                                 # rejected under older request settings (cut off): a fresh try
+        old_xd, no_feed_line = "", not str(it.get("x") or "").strip()
+        if c is not None and int(c.get("v", 1)) < AISUM_SETTINGS and made < max_new and key:
+            old_xd = c.get("xd") or ""               # made under older settings: one fresh try; the old one stays
+            c = None                                 # shown (and cached) unless a new one is made
+            if old_xd:
+                it["xd"], it["xdBy"] = old_xd, "AI summary"
+                if not str(it.get("x") or "").strip():
+                    it["x"] = lead_text(old_xd)
         if c is not None and not c.get("retry"):
             if c.get("xd"):
                 it["xd"], it["xdBy"] = c["xd"], "AI summary"
+                if not str(it.get("x") or "").strip():
+                    it["x"] = lead_text(c["xd"])
                 st["cached"] += 1
             continue
-        if not key or not u.startswith("http") or "#" in u or made >= max_new:
+        if not key or not u.startswith("http") or made >= max_new:
             continue
         made += 1
+        page, frag = (u.split("#", 1) + [""])[:2]
+        body, err = "", None
         try:
-            body = article_text(fetch(u))
+            raw_page = fetch(page)
+            body = section_text(raw_page, frag) if frag else article_text(raw_page)
         except Exception as e:
-            log(f"aisum: {u} not read ({scrub_key(str(e), key)[:80]})")
+            err = e
+        if len(body) < AISUM_MIN_SOURCE and reader and not frag:
+            try:
+                rb = reader_text(reader(page))
+                if len(rb) > len(body):
+                    body, err = rb, None
+                    st["reader"] += 1
+            except Exception as e:
+                log(f"aisum: reader for {u} failed ({scrub_key(str(e), key)[:80]})")
+        if len(body) < AISUM_MIN_SOURCE:
+            cov = related_coverage(it, pool)
+            if len(cov) + len(body) >= AISUM_MIN_SOURCE:
+                body = (body + "\n" + cov).strip()
+                err = None
+                st["coverage"] += 1
+        if err is not None and len(body) < AISUM_MIN_SOURCE:
+            log(f"aisum: {u} not read ({scrub_key(str(err), key)[:80]})")
             st["failed"] += 1
             continue                                 # page down today: try again tomorrow
         if len(body) < AISUM_MIN_SOURCE:
-            cache[u] = {"xd": "", "m": "", "d": TODAY, "why": "too little article text"}
+            cache[u] = ({**cache.get(u, {}), "xd": old_xd, "v": AISUM_SETTINGS} if old_xd else
+                        {"xd": "", "m": "", "d": TODAY, "why": "too little article text", "v": AISUM_SETTINGS})
             st["skipped"] += 1
             continue
         try:
@@ -2143,11 +2276,17 @@ def fill_ai_summaries(items, cache, key=None, max_new=AISUM_MAX_NEW, fetch=None,
             continue
         xd = clean_ai_summary(text, body + "\n" + (it.get("x") or ""))
         tries = int((c or {}).get("tries", 0)) + 1
+        if not xd and old_xd:                        # the fresh try was not usable: keep the older summary
+            cache[u] = {**cache.get(u, {}), "xd": old_xd, "v": AISUM_SETTINGS}
+            st["skipped"] += 1
+            continue
         cache[u] = {"xd": xd, "m": model, "d": TODAY, "tries": tries, "v": AISUM_SETTINGS}
         if not xd and tries < 2:
             cache[u]["retry"] = True                 # the answer was not usable; one more try on the next run
         if xd:
             it["xd"], it["xdBy"] = xd, "AI summary"
+            if no_feed_line:
+                it["x"] = lead_text(xd)
             st["new"] += 1
         else:
             st["skipped"] += 1
@@ -3394,12 +3533,12 @@ def main():
     # v16i: AI-written detailed summaries for Updates stories ("xd"); the short "x" stays as the fallback
     aisum = dict(prev_raw.get("aisum") or {})
     try:
-        _, ast = fill_ai_summaries(out["bignews"]["items"], aisum)
+        # v17n: Agents news stories get the same summaries (the same URL in both lists is summarised once)
+        _, ast = fill_ai_summaries(out["bignews"]["items"] + out["agents"]["news"]["items"], aisum, pool=news_items)
         log(f"AI summaries: {ast}" if ast["key"] else "AI summaries: OPENROUTER_API_KEY not set, skipped (stories keep 'x')")
     except Exception as e:                       # never let summaries stop the update
         log(f"AI summaries failed: {scrub_key(str(e), os.environ.get('OPENROUTER_API_KEY') or '')[:150]}")
-    bn = {it["u"] for it in out["bignews"]["items"]}
-    raw["aisum"] = {u: x for u, x in aisum.items() if u in bn}
+    raw["aisum"] = {u: x for u, x in aisum.items() if u in shown}               # bignews + agents news
     blob = json.dumps(out, ensure_ascii=False, separators=(",", ":"))
     raw_blob = json.dumps(raw, ensure_ascii=False, separators=(",", ":"))
     key = os.environ.get("AA_API_KEY")

@@ -2169,7 +2169,8 @@ class FullRunV16i(unittest.TestCase):
         items = d["bignews"]["items"]
         self.assertTrue(asked)
         self.assertGreaterEqual(sum(1 for i in items if i.get("xd") == GOOD_SUMMARY), 10)       # pages with real article text
-        self.assertTrue(all("xd" not in i for i in items if "#" in i["u"]))                   # a spot on a page: no summary
+        # v17n: a link to one entry on a page is summarised from that entry's own section (the change log fixture has it)
+        self.assertTrue(all(i.get("xd") == GOOD_SUMMARY for i in items if "#deepseek-v4-1-flash-1017-update" in i["u"]))
         self.assertTrue(all(i.get("x") is not None for i in items))              # the short summary stays
         for f in ("data.json", "data.js", "raw.json"):
             self.assertNotIn("sk-or-TEST-KEY-987654", (self.root / "data" / f).read_text())
@@ -2244,7 +2245,7 @@ class AiSummariesV16i(unittest.TestCase):
         self.assertTrue(all("xd" not in i for i in items))
         self.assertIn("https://e.com/short", cache)                               # too short: not retried
         self.assertNotIn("https://e.com/down", cache)                             # page down: tried again next run
-        self.assertEqual((st["skipped"], st["failed"]), (1, 1))
+        self.assertEqual((st["skipped"], st["failed"]), (2, 1))                  # v17n: spot#x read, no such section
 
     def test_unusable_answer_is_retried_once(self):
         cache, items = {}, [{"u": "https://e.com/a", "t": "T", "x": ""}]
@@ -2336,8 +2337,8 @@ class AiSummariesV16j(unittest.TestCase):
         u = "https://mistral.ai/news/voxtral-3/"
         cache = {u: {"xd": "", "m": "anthropic/claude-haiku-5.5", "d": "2026-11-08", "tries": 1, "retry": True},
                  "https://e.com/given-up": {"xd": "", "m": "anthropic/claude-haiku-5.5", "d": "2026-11-07", "tries": 2},
-                 "https://e.com/short": {"xd": "", "m": "", "d": "2026-11-08", "why": "too little article text"},
-                 "https://e.com/done": {"xd": GOOD_SUMMARY, "m": "anthropic/claude-haiku-5.5", "d": "2026-11-08", "tries": 1}}
+                 "https://e.com/short": {"xd": "", "m": "", "d": "2026-11-08", "why": "too little article text", "v": self.m.AISUM_SETTINGS},
+                 "https://e.com/done": {"xd": GOOD_SUMMARY, "m": "anthropic/claude-haiku-5.5", "d": "2026-11-08", "tries": 1, "v": self.m.AISUM_SETTINGS}}
         items = [{"u": x, "t": "T", "x": "feed"} for x in cache]
         calls = []
         ask = lambda *a: (calls.append(1) or (GOOD_SUMMARY, "anthropic/claude-haiku-5.5"))
@@ -2371,6 +2372,108 @@ class AiSummariesV16j(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertEqual(self.m.AISUM_MAX_NEW, 20)
 
+
+
+LONG_ARTICLE = ("<html><body><article><p>Related post card one here.</p></article><main><h1>Genie</h1>" + "".join(
+    f"<p>Point {i}: the lab said its world model now makes longer and more real scenes, with sound and speech made "
+    f"together, and that testers can try it from date {i} onward.</p>" for i in range(10)) +
+    "</main><article><p>Another related post card at the bottom.</p></article></body></html>")
+CHANGELOG = ('<html><body><h2 id="date-2026-10-17">Date: 2026-10-17</h2><h3 id="other-news">Other</h3>'
+             "<p>Something else entirely that is not about this entry, a search tool for developers now open.</p>"
+             '<h3 id="deepseek-v41-flash-1017-update">DeepSeek-V4.1-Flash-1017 Update</h3>' + "".join(
+                 f"<p>Line {i}: the Flash model was upgraded, the web and app use it too, prices and the way to call it "
+                 f"stay the same, and coding and agent scores went up again.</p>" for i in range(6)) +
+             '<h2 id="date-2026-09-10">Date: 2026-09-10</h2><p>An older release that must not be included in it.</p></body></html>')
+READER_MD = ("Title: Introducing X\n\nMarkdown Content:\n[Skip to main content](https://e.com/#main)\n\n" + "\n\n".join(
+    f"We are introducing **X {i}**, a fast model with [better tools](https://e.com/t) that costs half as much as the "
+    f"last one and is ready today for every paid plan in more than {i} regions." for i in range(8)))
+
+
+class AiSummariesV17n(unittest.TestCase):
+    """v17n: every Updates and Agents news story gets a full summary (blocked pages, change log entries, pages
+    whose <article> tags are related-post cards), and an empty feed line is filled from the summary."""
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.m = load(self.root)
+        self.m.log = lambda *a: None
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_article_text_picks_the_part_with_the_story(self):
+        t = self.m.article_text(LONG_ARTICLE)
+        self.assertIn("Point 0", t)
+        self.assertIn("Point 9", t)
+        self.assertNotIn("Related post card", t)
+
+    def test_section_text_reads_only_its_entry(self):
+        t = self.m.section_text(CHANGELOG, "deepseek-v4-1-flash-1017-update")     # dashes/dots ignored in the id
+        self.assertIn("Line 0", t)
+        self.assertNotIn("search tool", t)
+        self.assertNotIn("older release", t)
+        self.assertEqual(self.m.section_text(CHANGELOG, "no-such-entry"), "")
+
+    def test_reader_text_drops_links_and_menus(self):
+        t = self.m.reader_text(READER_MD)
+        self.assertIn("We are introducing X 0", t)
+        self.assertNotIn("http", t)
+        self.assertNotIn("Skip to main", t)
+        self.assertNotIn("**", t)
+
+    def test_blocked_page_uses_the_reader(self):
+        def fetch(u):
+            raise RuntimeError("403 Forbidden")
+        seen = []
+        items = [{"u": "https://openai.com/index/x", "t": "Introducing X", "x": "", "s": "OpenAI News"}]
+        _, st = self.m.fill_ai_summaries(items, {}, key="k", fetch=fetch, reader=lambda u: (seen.append(u) or READER_MD),
+                                         ask=lambda *a: (GOOD_SUMMARY, "m"))
+        self.assertEqual(items[0]["xd"], GOOD_SUMMARY)
+        self.assertEqual(seen, ["https://openai.com/index/x"])
+        self.assertEqual(st["reader"], 1)
+        self.assertTrue(items[0]["x"] and len(items[0]["x"]) <= 220)              # empty list line filled from the summary
+        self.assertTrue(GOOD_SUMMARY.startswith(items[0]["x"].rstrip("…")))
+
+    def test_change_log_entry_gets_its_own_summary(self):
+        bodies = []
+        items = [{"u": "https://api-docs.deepseek.com/updates/#deepseek-v4-1-flash-1017-update", "t": "T", "x": "f"}]
+        self.m.fill_ai_summaries(items, {}, key="k", fetch=lambda u: CHANGELOG,
+                                 ask=lambda t, s, f, b: (bodies.append(b) or (GOOD_SUMMARY, "m")))
+        self.assertEqual(items[0]["xd"], GOOD_SUMMARY)
+        self.assertNotIn("older release", bodies[0])
+
+    def test_other_coverage_when_nothing_can_be_read(self):
+        it = {"u": "https://e.com/blocked", "t": "Acme launches Rocket 2 model today", "x": "", "s": "Acme"}
+        pool = [it, {"u": "https://news.com/a", "t": "Acme launches Rocket 2 model", "s": "News site", "x": "Long text about the launch. " * 40},
+                {"u": "https://news.com/b", "t": "Unrelated story about weather", "s": "Other", "x": "Other text. " * 40}]
+        bodies = []
+        def fetch(u):
+            raise RuntimeError("403")
+        _, st = self.m.fill_ai_summaries([it], {}, key="k", fetch=fetch, ask=lambda t, s, f, b: (bodies.append(b) or (GOOD_SUMMARY, "m")), pool=pool)
+        self.assertEqual(it["xd"], GOOD_SUMMARY)
+        self.assertEqual(st["coverage"], 1)
+        self.assertIn("News site", bodies[0])
+        self.assertNotIn("Other text", bodies[0])
+
+    def test_summaries_from_older_settings_are_redone_once_and_kept_if_redo_fails(self):
+        u = "https://e.com/old"
+        cache = {u: {"xd": GOOD_SUMMARY, "m": "m", "d": "2026-11-08", "tries": 1, "v": 2}}
+        calls = []
+        items = [{"u": u, "t": "T", "x": "feed"}]
+        self.m.fill_ai_summaries(items, cache, key="k", fetch=lambda u: ARTICLE, ask=lambda *a: (calls.append(1) or ("SKIP", "m")))
+        self.assertEqual(items[0]["xd"], GOOD_SUMMARY)                            # the older one stays
+        self.assertEqual(cache[u]["v"], self.m.AISUM_SETTINGS)
+        again = [{"u": u, "t": "T", "x": "feed"}]
+        self.m.fill_ai_summaries(again, cache, key="k", fetch=lambda u: ARTICLE, ask=lambda *a: (calls.append(1) or ("SKIP", "m")))
+        self.assertEqual(len(calls), 1)                                           # not asked again
+        self.assertEqual(again[0]["xd"], GOOD_SUMMARY)
+
+    def test_long_summary_is_kept_whole(self):
+        long = " ".join(f"The company said point number {i} about the launch is true and matters to buyers." for i in range(30))
+        self.assertEqual(self.m.clean_ai_summary(long, "unrelated source"), long)
+
+    def test_prompt_asks_for_every_point(self):
+        self.assertIn("EVERY point", self.m.AISUM_PROMPT)
+        self.assertNotIn("5 to 8 sentences", self.m.AISUM_PROMPT)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
