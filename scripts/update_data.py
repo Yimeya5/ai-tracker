@@ -579,6 +579,7 @@ def parse_openrouter(data):
         out.append({"id": mid, "k": normalize(mid), "n": display_name(name), "o": org_name(lab), "d": dt.date().isoformat(),
                     "pin": per_m(p.get("prompt")), "pout": per_m(p.get("completion")),
                     "mods": [str(x) for x in mods] if isinstance(mods, list) else None,
+                    "cs": str(m.get("canonical_slug") or ""),     # v17f: e.g. "cohere/command-a-plus-05-2026"
                     "u": "https://openrouter.ai/" + mid})
     out.sort(key=lambda r: r["d"], reverse=True)
     return out
@@ -1483,6 +1484,151 @@ def official_releases(raw):
             if cur is None or p["d"] < cur["d"]:          # first announcement wins
                 rel[k] = {"n": n, "o": p["o"], "d": p["d"], "u": p["u"], "src": p["s"], "post": p["t"]}
     return list(rel.values())
+
+
+# ======================================================================= v17f: real release dates
+# OpenRouter's "created" is the day a model was LISTED there, which can be weeks or months after the maker
+# released it (Cohere's Command A+: May 20 2026, listed Sep 22). For every OpenRouter-only model the app now
+# takes the EARLIEST date found among: OpenRouter's listing date, the maker's own pages below (and the
+# official pages already read for New releases), and the version date inside OpenRouter's model ID when it is
+# clearly older than the listing. No dates are typed in by hand: every date is read from a page each run.
+# A model whose earliest date is older than the New releases window is left out (it is not new).
+DATE_PAGES = [  # (id, label shown in the app, url, kind, official = the maker's own page)
+    ("hfblog", "Hugging Face blog", "https://huggingface.co/blog/feed.xml", "rss", False),
+    ("nvdev", "NVIDIA Technical Blog", "https://developer.nvidia.com/blog/feed/", "rss", True),
+    ("geminilog", "Gemini API changelog", "https://ai.google.dev/gemini-api/docs/changelog", "dated", True),
+    ("coherelog", "Cohere changelog", "https://docs.cohere.com/changelog", "dated", True),
+]
+DATE_PAGE_DAYS = 400            # entries older than this are not kept
+FAMILY_DAYS = 21               # a family post ("Introducing LFM3") counts only this close before the listing
+SLUG_GAP_DAYS = 14              # a version date this much older than the listing = an older model listed late
+HEAD_DATE_RE = re.compile(r"(?:##\s+|>\s*)((?:January|February|March|April|May|June|July|August|September|October|November|"
+                          r"December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?\s+\d{1,2},\s+20\d\d)(?=\s*(?:<|\{%|$))", re.M)
+NAME_TOKEN_RE = re.compile(r"[a-z]+|\d+(?:\.\d+)*")
+VARIANT_WORDS = {"pro", "max", "mini", "nano", "lite", "flash", "flashx", "plus", "ultra", "ultraspeed", "prime", "fast", "turbo",
+                 "preview", "legal", "vl", "omni", "thinking", "instruct", "air", "small", "medium", "large", "live", "image",
+                 "audio", "tts", "realtime", "exp", "experimental", "beta", "rl", "base", "chat", "coder", "codex"}
+
+
+def parse_dated_page(text, url, label):
+    """A changelog page with dated headings ('## October 6, 2026', or an element holding only 'May 20, 2026')
+    -> one entry per section. A date inside a sentence is not a heading and does not start a section."""
+    h = text or ""
+    marks = [(m.start(), m.group(1)) for m in HEAD_DATE_RE.finditer(h)]
+    out = []
+    for i, (pos, ds) in enumerate(marks):
+        m = DATE_RE.search(ds.replace("Sept", "Sep"))
+        if not m:
+            continue
+        end = marks[i + 1][0] if i + 1 < len(marks) else len(h)
+        body = " ".join(html.unescape(TAG_RE.sub(" ", h[pos:min(end, pos + 20000)])).split())
+        out.append({"d": _iso(m), "t": body[:3000], "u": url, "s": label})
+    return out
+
+
+def fetch_makerdates(prev=None):
+    old = (prev or {}).get("pages") or {}
+    cut = (NOW - timedelta(days=DATE_PAGE_DAYS)).date().isoformat()
+    pages, ok = {}, 0
+    for pid, label, url, kind, official in DATE_PAGES:
+        try:
+            raw = polite_get(url, "official").content
+            if kind == "rss":
+                posts = [dict(p, s=label, x="") for p in parse_rss_posts(raw)]
+            else:
+                posts = parse_dated_page(raw.decode("utf-8", "replace"), url, label)
+            posts = [p for p in posts if cut <= p["d"] <= TODAY]
+            if not posts:
+                raise ValueError("no dated entries found on the page")
+            pages[pid] = {"ok": True, "updated": NOW_ISO, "posts": [{k: p[k] for k in ("d", "t", "u", "s")} for p in posts[:1500]]}
+            ok += 1
+        except Exception as e:
+            log(f"makerdates: {label} failed: {e}")
+            keep = old.get(pid)
+            pages[pid] = dict(keep, ok=False, err=str(e)[:160]) if keep else {"ok": False, "updated": None, "posts": [], "err": str(e)[:160]}
+        pages[pid].update({"label": label, "url": url, "official": official})
+    if not ok and not any(p.get("posts") for p in pages.values()):
+        raise ValueError("no maker date page could be read")
+    return {"pages": pages}
+
+
+def name_tokens(name):
+    s = str(name or "").lower().replace("+", " plus ")
+    return NAME_TOKEN_RE.findall(s)
+
+
+def strip_size(tok):
+    """'lfm 2.5 24 b a 2 b' -> 'lfm 2.5': parameter sizes at the end are dropped (the family post rarely names them)."""
+    t = list(tok)
+    while len(t) >= 2 and t[-1] == "b" and re.fullmatch(r"\d+(?:\.\d+)?", t[-2]):
+        t = t[:-2]
+        if len(t) >= 1 and t[-1] == "a":
+            t = t[:-1]
+    return t
+
+
+def mentions(text_tok, name_tok):
+    """True when the model's name appears in the text as whole tokens, not followed by a variant word
+    ('Gemini Omni 1.1 Flash' must not match 'Gemini Omni 1.1 Flash Lite')."""
+    n = len(name_tok)
+    if not n:
+        return False
+    for i in range(len(text_tok) - n + 1):
+        if text_tok[i:i + n] == name_tok:
+            nxt = text_tok[i + n] if i + n < len(text_tok) else ""
+            if nxt not in VARIANT_WORDS and not re.fullmatch(r"\d+(?:\.\d+)*", nxt or "x"):
+                return True
+    return False
+
+
+def slug_date(cs):
+    """Version date inside OpenRouter's canonical ID: '...-20260911' or '...-05-2026' (month only)."""
+    m = re.search(r"-(20\d\d)(\d\d)(\d\d)$", cs or "")
+    if m:
+        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    m = re.search(r"-(\d\d)-(20\d\d)$", cs or "")
+    if m and 1 <= int(m.group(1)) <= 12:
+        return f"{m.group(2)}-{m.group(1)}-01"
+    return ""
+
+
+def maker_date_posts(raw):
+    out = []
+    for p in official_posts(raw):
+        out.append({"d": p["d"], "t": p.get("t") or "", "u": p.get("u"), "s": p.get("s"), "official": True})
+    for pid, pg in ((raw.get("makerdates") or {}).get("pages") or {}).items():
+        for p in pg.get("posts") or []:
+            out.append(dict(p, official=bool(pg.get("official"))))
+    for p in out:
+        p["tok"] = name_tokens(p["t"])
+    return out
+
+
+def earliest_date(m, posts):
+    """(date, src, url, how, official) - the earliest date found for an OpenRouter model, OpenRouter's own date if none."""
+    best = (m["d"], "OpenRouter", m["u"], "date it became available on OpenRouter", False)
+    lo = (datetime.fromisoformat(m["d"]) - timedelta(days=DATE_PAGE_DAYS)).date().isoformat()
+    names, family = [], []
+    for nm in (m.get("n"), (m.get("id") or "").split("/")[-1]):
+        tk = name_tokens(nm)
+        if tk and tk not in names:
+            names.append(tk)
+        st = strip_size(tk)
+        if st != tk and len(st) >= 2 and any(re.fullmatch(r"\d+(?:\.\d+)*", x) for x in st) and st not in family:
+            family.append(st)
+    fam_lo = (datetime.fromisoformat(m["d"]) - timedelta(days=FAMILY_DAYS)).date().isoformat()
+    for p in posts:
+        if not (lo <= p["d"] < best[0]):
+            continue
+        # the full name anywhere in the window; the family name without the size ("LFM3" for "LFM3 1.7B")
+        # only close to the listing, because a family keeps getting new members for months
+        if any(mentions(p["tok"], tk) for tk in names) or (p["d"] >= fam_lo and any(mentions(p["tok"], tk) for tk in family)):
+            best = (p["d"], p["s"], p["u"] or m["u"],
+                    "date of the maker's own page" if p["official"] else "earliest date found: " + p["s"], p["official"])
+    sd = slug_date(m.get("cs"))
+    if sd and lo <= sd < best[0] and (datetime.fromisoformat(m["d"]) - datetime.fromisoformat(sd)).days >= SLUG_GAP_DAYS:
+        best = (sd, "OpenRouter", m["u"], "version date in the model's OpenRouter ID", False)
+    return best
 
 
 # ======================================================================= big news (rule scoring, no AI)
@@ -2828,14 +2974,21 @@ def build_releases(raw, days=60):
         seen_k.add(normalize(r["n"]))
         out.append({"k": normalize(r["n"]), "n": r["n"], "o": r["o"], "d": r["d"], "u": r["u"], "src": r["src"], "official": True,
                     "how": "date of the company's own announcement", "fast": is_fast(r["n"], mods_rel.get(rk))})
+    posts = maker_date_posts(raw)                         # v17f: earliest real date, not just the listing date
     for m in (raw.get("openrouter") or {}).get("models") or []:
         rk = rel_key(m["n"])
         if m["d"] < cut or rk in seen_rel:
             continue
         seen_rel.add(rk)
         seen_k.add(m["k"])
-        out.append({"k": m["k"], "n": m["n"], "o": m["o"], "d": m["d"], "u": m["u"], "src": "OpenRouter", "official": False,
-                    "how": "date it became available on OpenRouter", "fast": is_fast(m["n"], m.get("mods"))})
+        d, src_, u, how, off = earliest_date(m, posts)
+        if d < cut:
+            continue                                      # released before the window: not new, only listed late
+        item = {"k": m["k"], "n": m["n"], "o": m["o"], "d": d, "u": u, "src": src_, "official": off,
+                "how": how, "fast": is_fast(m["n"], m.get("mods"))}
+        if d != m["d"]:
+            item["listed"] = m["d"]                       # the OpenRouter listing date, kept for reference
+        out.append(item)
     for m in (raw.get("aa") or {}).get("llm") or []:          # empty when AA is off
         if not m.get("rel") or m["rel"] < cut or m["rel"] > TODAY or m["k"] in seen_k or rel_key(m["n"]) in seen_rel:
             continue
@@ -3094,7 +3247,8 @@ def build_agents(raw, news_items, official, summaries=None):
 SECTIONS = [("lmarena", fetch_lmarena), ("aa", fetch_aa), ("livebench", fetch_livebench), ("epoch", fetch_epoch),
             ("openrouter", fetch_openrouter), ("official", fetch_official), ("prices", fetch_prices), ("news", fetch_news),
             ("agentapps", fetch_agentapps), ("taubench", fetch_taubench),
-            ("eqbench", fetch_eqbench), ("lechmazur", fetch_lechmazur), ("vals", fetch_vals), ("matharena", fetch_matharena)]
+            ("eqbench", fetch_eqbench), ("lechmazur", fetch_lechmazur), ("vals", fetch_vals), ("matharena", fetch_matharena),
+            ("makerdates", fetch_makerdates)]
 TEXT_SOURCES = ("lmarena", "aa", "livebench", "epoch")
 SOURCE_ORDER = ("lmarena", "aa", "livebench", "epoch", "eqbench", "lechmazur", "vals", "matharena", "openrouter", "official", "prices",
                 "news", "agentapps", "taubench")
