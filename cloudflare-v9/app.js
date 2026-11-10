@@ -4,6 +4,7 @@
   //   Find your AI: Top Picks · Cost · Agents   Try it: Explore · Race   Updates: New Releases · News
   // Each tab shows a short simple view first, and "See more" opens the full details.
   // All picks are made by fixed rules in scripts/update_data.py; this file only shows them.
+  var VERSION = "v17k-2026-11-09";   // the same as sw.js
   // ---- settings for Explore ("Ask the AIs", see worker/README.md). Leave ASK_API empty and the Ask tab is the free v8 tab.
   var CONFIG = {
     ASK_API: "https://ai-tracker-ask.ai-tracker-ask.workers.dev",            // the Worker URL, e.g. "https://ai-tracker-ask.<you>.workers.dev"
@@ -78,6 +79,8 @@
     video: '<rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3"/>',
     voice: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
     translate: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
     dot: '<circle cx="12" cy="12" r="4"/>'
   };
   function ic(name, cls) {
@@ -85,7 +88,7 @@
       (ICONS[name] || ICONS.dot) + "</svg>";
   }
   // a task's icon by its id (never the data's emoji); an unknown task gets a plain dot
-  function taskIcon(id, cls) { return ic(own(ICONS, id) && ["check", "cross", "warn", "bolt", "bulb", "globe", "agent", "dot"].indexOf(id) < 0 ? id : "dot", cls); }
+  function taskIcon(id, cls) { return ic(own(ICONS, id) && ["check", "cross", "warn", "bolt", "bulb", "globe", "agent", "plus", "trash", "dot"].indexOf(id) < 0 ? id : "dot", cls); }
   function n0(v) { return v == null ? "" : Number(v).toLocaleString("en-US"); }
   function src(id) { return list(D && D.sources).filter(function (s) { return s.id === id; })[0] || { name: id, url: "" }; }
   function stat(id) { return (D && D.status && D.status[id]) || {}; }
@@ -984,7 +987,7 @@
     { id: "deepseek", name: "DeepSeek", mode: "copy", url: "https://chat.deepseek.com/", note: "Needs a login." },
     { id: "lechat", name: "Vibe", mode: "copy", url: "https://chat.mistral.ai/chat", note: "Needs a login." }
   ];
-  var askQ = "";                     // memory only: never written to storage, never sent anywhere by this app
+  var askQ = "";                     // memory only while typing; an ASKED question is kept in Past questions on this device (v17j)
   function askLinks(q) {
     var t = String(q == null ? "" : q).trim();
     return ASK_AIS.map(function (a) {
@@ -1005,20 +1008,22 @@
   // ---------------------------------------------------------------- Ask the AIs (Explore tab; optional helper, see worker/)
   // The visitor ticks 1 to 8 AIs; each answer costs credits. One question to /ask returns all the ticked answers.
   // The helper decides what is free or paid; the numbers here are display only. Answers are written with
-  // textContent (never innerHTML). The question itself is never stored; the ticked AIs are (ait.pick).
+  // textContent (never innerHTML). The question is stored only in "Past questions" on this device (v17j, ait.askhist,
+  // no file contents); the ticked AIs are (ait.pick).
   // main: shown in the main chips; the rest sit behind "More AIs". web "native": searches the web by itself (no web extra).
   // options: the models the visitor may choose for that AI; the FIRST is the default (credits = the default's).
   // Built-in copy of the Worker's table; GET /status sends the server's list, costs, flags and options, which win.
-  function opts(list) { return list.map(function (o) { var x = { model: o[0], label: o[1], credits: o[2] }; if (o[3] === false) x.vision = false; return x; }); }
+  // [model, label, credits, vision, ctx, max_in]: ctx / max_in = the context window (tokens) of the host it runs on (v17i)
+  function opts(list) { return list.map(function (o) { var x = { model: o[0], label: o[1], credits: o[2] }; if (o[3] === false) x.vision = false; if (o[4]) x.ctx = o[4]; if (o[5]) x.max_in = o[5]; return x; }); }
   var PRO_AIS = [
-    { id: "chatgpt", name: "ChatGPT", main: true, options: opts([["openai/gpt-6.1-terra", "GPT-6.1 Terra", 2], ["openai/gpt-6.1-sol", "GPT-6.1 Sol", 3], ["openai/gpt-6-astra", "GPT-6 Astra", 7]]) },
-    { id: "claude", name: "Claude", main: true, options: opts([["anthropic/claude-sonnet-5.5", "Sonnet 5.5", 2], ["anthropic/claude-opus-5.5", "Opus 5.5", 4], ["anthropic/claude-fable-5.1", "Fable 5.1", 7]]) },
-    { id: "gemini", name: "Gemini", main: true, options: opts([["google/gemini-3.8-flash", "3.8 Flash", 1], ["google/gemini-4-argon", "Gemini 4 Argon", 3]]) },
-    { id: "grok", name: "Grok", main: true, options: opts([["x-ai/grok-4.7", "Grok 4.7", 1], ["x-ai/grok-4.3", "Grok 4.3", 1]]) },
-    { id: "deepseek", name: "DeepSeek", main: true, options: opts([["deepseek/deepseek-v4.1-flash", "V4.1 Flash", 1], ["deepseek/deepseek-v4-pro-0813", "V4 Pro", 2, false]]) },
-    { id: "llama", name: "Llama", main: false, options: opts([["meta-llama/llama-4-maverick", "Llama 4 Maverick", 1], ["meta-llama/llama-4-scout", "Llama 4 Scout", 1]]) },
-    { id: "mistral", name: "Mistral", main: false, options: opts([["mistralai/mistral-large-4-0", "Large 4", 1], ["mistralai/mistral-medium-3-5", "Medium 3.5", 2]]) },
-    { id: "perplexity", name: "Perplexity", main: false, web: "native", options: opts([["perplexity/sonar", "Sonar", 1], ["perplexity/sonar-pro", "Sonar Pro", 3], ["perplexity/sonar-reasoning-pro", "Sonar Reasoning Pro", 3]]) }
+    { id: "chatgpt", name: "ChatGPT", main: true, options: opts([["openai/gpt-6.1-terra", "GPT-6.1 Terra", 2, true, 1050000, 922000], ["openai/gpt-6.1-sol", "GPT-6.1 Sol", 3, true, 1050000, 922000], ["openai/gpt-6-astra", "GPT-6 Astra", 7, true, 1050000, 922000]]) },
+    { id: "claude", name: "Claude", main: true, options: opts([["anthropic/claude-sonnet-5.5", "Sonnet 5.5", 2, true, 1000000], ["anthropic/claude-opus-5.5", "Opus 5.5", 4, true, 1000000], ["anthropic/claude-fable-5.1", "Fable 5.1", 7, true, 1000000]]) },
+    { id: "gemini", name: "Gemini", main: true, options: opts([["google/gemini-3.8-flash", "3.8 Flash", 1, true, 1048576], ["google/gemini-4-argon", "Gemini 4 Argon", 3, true, 1048576]]) },
+    { id: "grok", name: "Grok", main: true, options: opts([["x-ai/grok-4.7", "Grok 4.7", 1, true, 500000], ["x-ai/grok-4.3", "Grok 4.3", 1, true, 1000000]]) },
+    { id: "deepseek", name: "DeepSeek", main: true, options: opts([["deepseek/deepseek-v4.1-flash", "V4.1 Flash", 1, true, 1048576], ["deepseek/deepseek-v4-pro-0813", "V4 Pro", 2, false, 1048576]]) },
+    { id: "llama", name: "Llama", main: false, options: opts([["meta-llama/llama-4-maverick", "Llama 4 Maverick", 1, true, 524288], ["meta-llama/llama-4-scout", "Llama 4 Scout", 1, true, 1310720]]) },
+    { id: "mistral", name: "Mistral", main: false, options: opts([["mistralai/mistral-large-4-0", "Large 4", 1, true, 524288], ["mistralai/mistral-medium-3-5", "Medium 3.5", 2, true, 262144]]) },
+    { id: "perplexity", name: "Perplexity", main: false, web: "native", options: opts([["perplexity/sonar", "Sonar", 1, true, 127072], ["perplexity/sonar-pro", "Sonar Pro", 3, true, 200000], ["perplexity/sonar-reasoning-pro", "Sonar Reasoning Pro", 3, true, 128000]]) }
   ];
   PRO_AIS.forEach(function (m) { m.credits = m.options[0].credits; });
   var DEFAULT_PICK = ["chatgpt", "claude", "gemini"];
@@ -1048,33 +1053,120 @@
   // Read IN THE BROWSER: PDF (pdf.js), Excel (SheetJS), Word and PowerPoint (JSZip + their XML), text files as they are;
   // pictures are shrunk (longest side 1600 px). The helper prices and checks them again (worker/src/index.js). Each tab
   // keeps its own list (pro.files, race.files). Libraries load only when a file of that type is attached.
-  var FILE_MAX = 3, FILE_MAX_BYTES = 10 * 1024 * 1024, FILE_TEXT_MAX = 100000;
+  // v17i: no fixed text cut. Each AI gets as much of the files as ITS context window holds (fileBudget, the helper's rule);
+  // the browser uploads no more than the largest ticked model reads. FILE_TEXT_MAX = the old cut, kept ONLY for an older
+  // helper that sends no context windows (its limit). MAX_FILE_CHARS = the most the helper accepts (and the reader keeps).
+  var FILE_MAX = 3, FILE_MAX_BYTES = 50 * 1024 * 1024, FILE_TEXT_MAX = 100000, MAX_FILE_CHARS = 4000000;
   var FILE_FREE_CHARS = 5000, FILE_CHARS_PER_CREDIT = 20000, IMAGE_CREDITS = 1;      // same rule as the helper's
+  // the same numbers as worker/src/index.js (a test compares them): tokens per character and the per-model budget
+  var TPC_LATIN = 0.3, TPC_NON_LATIN = 0.9, TPC_DIGIT = 0.3, TPC_FULL = 200000, TPC_SLICES = 200, TPC_SLICE = 1000;
+  var FILE_OUT_TOKENS = 2250, FILE_CTX_SHARE = 0.9, FILE_PROMPT_TOKENS = 4000, FILE_IMAGE_TOKENS = 2000;
   var FILE_ACCEPT = ".pdf,.docx,.doc,.xlsx,.xls,.csv,.txt,.md,.pptx,.ppt,.png,.jpg,.jpeg,.webp";
   var FILES_REFUSED = "These files can't be sent. Remove one and try again.";
   var FILE_KINDS = { pdf: "pdf", docx: "docx", xlsx: "sheet", xls: "sheet", csv: "text", txt: "text", md: "text", pptx: "pptx",
                      png: "image", jpg: "image", jpeg: "image", webp: "image", doc: "olddoc", ppt: "oldppt" };
   function fileKind(name) { var m = /\.([a-z0-9]+)$/i.exec(String(name || "")); return m && own(FILE_KINDS, m[1].toLowerCase()) ? FILE_KINDS[m[1].toLowerCase()] : ""; }
-  // pure: what a tab's files send: text cut to FILE_TEXT_MAX in all (cut = true when something was left out), the images,
-  // and whether a file is still being read
-  function filePayload(files) {
-    var left = FILE_TEXT_MAX, out = [], chars = 0, images = 0, cut = false, reading = false;
+  // pure: tokens per character of the texts (in order, read in place): 0.3, + 0.9 x the share of non-Latin letters
+  // (Hebrew, Yiddish, Cyrillic, CJK...), + 0.3 x the share of digits; 200 slices of 1,000 characters above 200,000
+  function fileTpc(texts) {
+    var n = 0, i, seen = 0, non = 0, dig = 0;
+    for (i = 0; i < texts.length; i++) n += texts[i].length;
+    if (!n) return TPC_LATIN;
+    function scan(g, len) {
+      var k = 0, off = g;
+      while (k < texts.length && off >= texts[k].length) { off -= texts[k].length; k++; }
+      while (len > 0 && k < texts.length) {
+        var s = texts[k], end = Math.min(s.length, off + len);
+        for (var j = off; j < end; j++) {
+          var c = s.charCodeAt(j);
+          if (c >= 48 && c <= 57) dig++;
+          else if (c >= 0x370 && (c < 0x2000 || c > 0x2bff) && c !== 0xfeff) non++;
+        }
+        seen += end - off; len -= end - off; k++; off = 0;
+      }
+    }
+    if (n <= TPC_FULL) scan(0, n);
+    else for (i = 0; i < TPC_SLICES; i++) scan(Math.floor(i * (n - TPC_SLICE) / (TPC_SLICES - 1)), TPC_SLICE);
+    return Math.round((TPC_LATIN + TPC_NON_LATIN * non / seen + TPC_DIGIT * dig / seen) * 1000) / 1000;
+  }
+  // pure: characters of file text one model option reads (its context window, minus the answer, the instructions,
+  // the question and its images); the helper's fileBudget
+  function fileBudget(o, tpc, images) {
+    var inTok = o.ctx - FILE_OUT_TOKENS;
+    if (o.max_in && o.max_in < inTok) inTok = o.max_in;
+    var avail = Math.floor(inTok * FILE_CTX_SHARE) - FILE_PROMPT_TOKENS - images * FILE_IMAGE_TOKENS;
+    return Math.max(0, Math.floor(avail / tpc));
+  }
+  var fpMemo = { key: null, val: null }, tpcMemo = { key: null, tpc: 0 };
+  // pure: what a tab's files send, for the ticked models' options (sel): the text from the start, files in order, cut
+  // to what the LARGEST of them reads (cut = true when something is left out for everyone), the images, whether a file
+  // is still being read, total = all the text read from the files, tpc = the rule's ratio on the text that is sent (the
+  // helper measures the same text). An older helper (no ctx) = the old 100,000-character cut (legacy).
+  function filePayload(files, sel) {
+    var ok = [], reading = false, images = 0, ids = [];
     list(files).forEach(function (f) {
       if (f.status === "reading") { reading = true; return; }
       if (f.status !== "ok") return;
+      ok.push(f); ids.push(f.id);
+      if (f.kind === "image") images++;
+    });
+    var full = ok.filter(function (f) { return f.kind !== "image"; }).map(function (f) { return String(f.text || ""); });
+    var total = full.reduce(function (t, x) { return t + x.length; }, 0);
+    var legacy = (sel || []).some(function (o) { return !o || !o.ctx; }), cap = MAX_FILE_CHARS, idk = ids.join(",");
+    if (legacy) cap = FILE_TEXT_MAX;
+    else if (sel && sel.length && total) {
+      if (tpcMemo.key !== idk || tpcMemo.files !== files) tpcMemo = { key: idk, files: files, tpc: fileTpc(full) };   // the whole text's ratio
+      var t1 = tpcMemo.tpc;
+      cap = Math.min(MAX_FILE_CHARS, Math.max.apply(null, sel.map(function (o) { return fileBudget(o, t1, o.vision === false ? 0 : images); })));
+    }
+    var key = idk + "|" + cap + "|" + (reading ? 1 : 0);
+    if (fpMemo.key === key && fpMemo.files === files) return fpMemo.val;
+    var left = cap, out = [], chars = 0, sent = [];
+    ok.forEach(function (f) {
       var name = String(f.name).slice(0, 120);
-      if (f.kind === "image") { out.push({ name: name, kind: "image", mime: f.mime, data: f.data }); images++; return; }
+      if (f.kind === "image") { out.push({ name: name, kind: "image", mime: f.mime, data: f.data }); return; }
       var t = String(f.text || "");
-      if (t.length > left) { t = t.slice(0, left); cut = true; }
-      left -= t.length; chars += t.length;
+      if (t.length > left) t = t.slice(0, left);
+      left -= t.length; chars += t.length; sent.push(t);
       out.push({ name: name, kind: "text", text: t });
     });
-    return { attachments: out, chars: chars, images: images, cut: cut, reading: reading };
+    var val = { attachments: out, chars: chars, total: total, texts: sent.length, images: images, cut: chars < total, reading: reading,
+                legacy: legacy, tpc: legacy || !chars ? 0 : fileTpc(sent) };
+    fpMemo = { key: key, files: files, val: val };
+    return val;
   }
-  // pure: extra credits for one AI's chosen model: ceil(max(0, chars - 5,000) / 20,000) + 1 per image it can read
+  // pure: the characters of file text one model option is sent (the helper's fileSent; an older helper: all that is sent)
+  function fileSentFor(o, fp) {
+    if (!fp || !fp.tpc || !o || !o.ctx) return fp ? fp.chars : 0;
+    return Math.min(fp.chars, fileBudget(o, fp.tpc, o.vision === false ? 0 : fp.images));
+  }
+  // pure: extra credits for one AI's chosen model: ceil(max(0, chars it receives - 5,000) / 20,000) + 1 per image it can read
   function fileCreditsFor(option, fp) {
     if (!fp || !fp.attachments || !fp.attachments.length) return 0;
-    return Math.ceil(Math.max(0, fp.chars - FILE_FREE_CHARS) / FILE_CHARS_PER_CREDIT) + (option && option.vision === false ? 0 : fp.images * IMAGE_CREDITS);
+    return Math.ceil(Math.max(0, fileSentFor(option, fp) - FILE_FREE_CHARS) / FILE_CHARS_PER_CREDIT) + (option && option.vision === false ? 0 : fp.images * IMAGE_CREDITS);
+  }
+  // the ticked AIs of a tab with the model each will use: [{m, o}]
+  function tabSel(which) {
+    var models = proModels(), choice = getChoice(), pick = which === "race" ? getRacePick() : getPick();
+    return models.filter(function (m) { return pick.indexOf(m.id) >= 0; }).map(function (m) { return { m: m, o: chosenOption(m, choice) }; });
+  }
+  function tabFiles(which) {
+    return filePayload(which === "race" ? race.files : pro.files, tabSel(which).map(function (x) { return x.o; }));
+  }
+  // "A", "A and B", "A, B and C"
+  function andList(a) { return a.length < 2 ? a.join("") : a.slice(0, -1).join(", ") + " and " + a[a.length - 1]; }
+  // under the files, before Start: which ticked AIs will read only the start (nothing when every one reads it all)
+  function fileReadNote(which, fp) {
+    if (!fp.total) return "";
+    if (fp.legacy) return fp.cut ? "Long file: only the first 100,000 characters are sent." : "";
+    var short = tabSel(which).filter(function (x) { return fileSentFor(x.o, fp) < fp.total; }).map(function (x) { return aiModelName(x.m, x.o); });
+    return short.length ? andList(short) + " will read only the first part of " + (fp.texts > 1 ? "these files." : "this file.") : "";
+  }
+  // in an answer card or a lane: how much of the file text that AI read (nothing when it read it all)
+  function fileGotNote(chars, total, texts) {
+    if (typeof chars !== "number" || !total || chars >= total) return "";
+    var pct = Math.floor(chars * 100 / total), what = texts > 1 ? "files." : "file.";
+    return pct < 1 ? "Read only the very start of the " + what : "Read the first " + pct + "% of the " + what;
   }
   function fileSize(n) { return n < 1024 ? n + " B" : n < 1048576 ? Math.max(1, Math.round(n / 1024)) + " KB" : (n / 1048576).toFixed(1).replace(/\.0$/, "") + " MB"; }
   var FILE_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">';
@@ -1088,17 +1180,17 @@
   function fileIcon(kind) { return FILE_ICONS[kind === "sheet" ? "sheet" : kind === "pptx" ? "slides" : kind === "image" ? "image" : "doc"]; }
   // the Attach button, the limit line, the chips (icon, name, size or "Reading…", ×), the long-file notice and the error line
   function attachHtml(which, files, msg, busy) {
-    var fp = filePayload(files), full = list(files).length >= FILE_MAX;
+    var fp = tabFiles(which), full = list(files).length >= FILE_MAX, note = fileReadNote(which, fp);
     return '<div class="attach"><div class="attachbar"><button type="button" class="attachbtn" data-attach="' + which + '"' + (busy || full ? " disabled" : "") +
       ' aria-describedby="' + which + 'filelim">' + CLIP_ICON + "<span>Attach</span></button>" +
-      '<span class="attachlim" id="' + which + 'filelim">Up to 3 files, 10 MB each</span>' +
+      '<span class="attachlim" id="' + which + 'filelim">Up to 3 files, 50 MB each</span>' +
       '<input type="file" class="sr" id="' + which + 'file" data-filein="' + which + '" multiple accept="' + FILE_ACCEPT + '" tabindex="-1" aria-hidden="true"></div>' +
       (list(files).length ? '<ul class="fchips">' + files.map(function (f) {
         return '<li class="fchip' + (f.status === "reading" ? " reading" : "") + '"><span class="ficon" aria-hidden="true">' + fileIcon(f.kind) + "</span>" +
           '<span class="fcname" title="' + esc(f.name) + '">' + esc(f.name) + '</span><span class="fcsize">' + (f.status === "reading" ? "Reading…" : esc(fileSize(f.size))) + "</span>" +
           '<button type="button" class="fcx" data-fremove="' + which + "|" + f.id + '" aria-label="Remove ' + esc(f.name) + '"' + (busy ? " disabled" : "") + '><span aria-hidden="true">×</span></button></li>';
       }).join("") + "</ul>" : "") +
-      (fp.cut ? '<p class="note fnotice">Long file: only the first 100,000 characters are sent.</p>' : "") +
+      (note ? '<p class="note fnotice">' + esc(note) + "</p>" : "") +
       '<p class="note bad fmsg" id="' + which + 'filemsg" aria-live="polite">' + esc(msg || "") + "</p></div>";
   }
   function nCredits(n) { return n + (n === 1 ? " credit" : " credits"); }
@@ -1138,11 +1230,17 @@
     pro.choice = cleanChoice(c, proModels()); store("ait.models", JSON.stringify(pro.choice));
   }
   // "ChatGPT, Claude Opus 5.5, Gemini": the ticked AIs, with the model's short label when it isn't the default
+  // an AI with the model it will use, never repeating the AI's name: "ChatGPT GPT-6 Astra", "Gemini 4 Argon", "Grok 4.7"
+  function aiModelName(m, o) {
+    var lab = o && o.label ? String(o.label) : "";
+    if (!lab) return m.name;
+    return lab.toLowerCase().indexOf(String(m.name).toLowerCase()) === 0 ? lab : m.name + " " + lab;
+  }
+  // every ticked AI with its model, default or not: "ChatGPT GPT-6 Astra · Claude Fable 5.1 · Gemini 4 Argon · Grok 4.7"
   function pickNames(ids, models, choice) {
     return (models || PRO_AIS).filter(function (m) { return (ids || []).indexOf(m.id) >= 0; }).map(function (m) {
-      var o = chosenOption(m, choice);
-      return isDefault(m, o) ? m.name : m.name + " " + o.label;
-    }).join(", ");
+      return aiModelName(m, chosenOption(m, choice));
+    }).join(" · ");
   }
   // Web search is automatic (v13): the helper decides per question with the same rule. This copy is ONLY for the cost
   // preview under the question; the helper's decision is the one that counts. Keep these 3 lists equal to
@@ -1200,9 +1298,9 @@
   }
   // the live line under the question: short and calm, one line on a phone. "Uses 4 credits · You have 10 credits"
   // (each half never breaks inside; at 360 px the halves may stack), plus
-  // "(+2 per AI if it needs the web)" only when the rule says it will search, and the non-default models' names.
+  // "(+2 per AI if it needs the web)" only when the rule says it will search, and every ticked AI with its model.
   function costLineHtml(cp, pick, models, choice, wc, bal, id) {
-    var chosen = (models || PRO_AIS).filter(function (m) { return pick.indexOf(m.id) >= 0 && !isDefault(m, chosenOption(m, choice)); });
+    var chosen = (models || PRO_AIS).filter(function (m) { return pick.indexOf(m.id) >= 0; });
     return '<p class="costline" id="' + (id || "askcost") + '" aria-live="polite"><span class="cl">Uses <b>' + esc(nCredits(cp.base)) + "</b></span>" +
       (cp.files ? ' · <span class="cl">' + esc(String(cp.files)) + " for files</span>" : "") +
       (cp.best3 ? ' · <span class="cl">Best of 3</span>' : "") +
@@ -1213,7 +1311,7 @@
   }
   function proHtml() {
     var models = proModels(), pick = getPick(), wc = webCredits(), bal = balance(), choice = getChoice();
-    var fp = filePayload(pro.files), cp = costPreview(askQ, pick, models, choice, wc, Date.now(), fp);
+    var fp = tabFiles("ask"), cp = costPreview(askQ, pick, models, choice, wc, Date.now(), fp);
     var short = pick.length > 0 && bal.total < cp.held;                // checked against what the helper will hold
     // a chip shows only the AI's name (and the chosen model's short label when it isn't the default); credits per
     // model appear only inside the model picker. The ▾ button sits outside the label, so it never ticks the box.
@@ -1249,6 +1347,8 @@
     }
     if (pro.notice) h += '<p class="note bad" role="status">' + esc(pro.notice) + "</p>";
     if ((short || pro.short || bal.total === 0) && !pro.busy) h += outboxHtml(bal, false);
+    if (pro.asked && pro.answers && !pro.busy) h += newBtnHtml("ask");
+    if (pro.histMsg && !pro.busy) h += '<p class="note bad histmsg" role="status">' + esc(pro.histMsg) + "</p>";
     if (pro.asked && (pro.answers || pro.busy)) {
       var by = {};
       models.forEach(function (m) { by[m.id] = m; });
@@ -1260,7 +1360,9 @@
           (isDefault(m, o) ? "" : '<span class="amodel"> · ' + esc(o.label) + "</span>") +
           (a && a.searched === true && !a.error ? ' <span class="searched">' + ic("globe") + " Searched the web</span>" : "") +
           (a && a.images_skipped === true && !a.error ? ' <span class="imgskip">Can\'t read images</span>' : "") +
-          '</h4><p class="atext" dir="auto"></p><p class="asrcs" hidden></p></section>';
+          '</h4><p class="atext" dir="auto"></p>' +
+          (a && !a.error && fileGotNote(a.file_chars, pro.fileTotal, pro.fileTexts) ? '<p class="lmeta fread">' + esc(fileGotNote(a.file_chars, pro.fileTotal, pro.fileTexts)) + "</p>" : "") +
+          '<p class="asrcs" hidden></p></section>';
       }).join("") + "</div>" + '<p class="note fastmodel">Answered by each company\'s fast model, unless you pick another (▾).</p>';
     }
     return h;
@@ -1416,19 +1518,21 @@
     var links = askLinks(askQ);
     var h = CONFIG.ASK_API ? "<h2>" + esc(CONFIG.ASK_NAME) + "</h2><p class=\"sub\">" + esc(SUBS.ask) + "</p>" + paidBoxes()
       : "<h2>Ask them all</h2><p class=\"sub\">Type once, then open your question in each AI. Free: each AI's own website, nothing goes through this app.</p>";
+    if (CONFIG.ASK_API && pro.view && !pro.busy) return h + savedAskHtml(pro.view) + histHtml("ask");
     h += '<div class="askbox card"><label for="askq" class="sr">Your question</label>' +
       '<textarea id="askq" dir="' + textDir(askQ) + '" rows="4" maxlength="1500" placeholder="Type your question…" autocomplete="off">' + esc(askQ) + "</textarea>" +
       (CONFIG.ASK_API ? attachHtml("ask", pro.files, pro.fileMsg, pro.busy) : "") +
       '<div class="askbar' + (askQ ? "" : " isempty") + '"><button type="button" class="linkbtn" id="askclear"' + (askQ ? "" : " hidden") + ">Clear question</button>" +
       '<button type="button" class="openall wide-only" id="askall">Open all</button></div>' +
       '<p class="note bad askqmsg" id="askqmsg" aria-live="polite"></p>' + (CONFIG.ASK_API ? proHtml() : "") + "</div>";
+    if (CONFIG.ASK_API) h += histHtml("ask");
     if (CONFIG.ASK_API) h += '<h2 class="orh">Or open it in each AI (free)</h2>';
     h += '<p class="note phone-only">Phones open one tab per tap. Tap each AI below.</p><p class="note bad" id="askblocked" aria-live="polite"></p>';
     h += "<h3>Opens with your question</h3>" + '<ul class="asklist" id="asklinks">' + links.filter(function (l) { return l.mode === "link"; }).map(askLinkHtml).join("") + "</ul>";
     h += "<h3>Copy, then paste</h3><p class=\"sub\">These AIs don't take a question by link.</p>" +
       '<ul class="asklist" id="askcopies">' + links.filter(function (l) { return l.mode === "copy"; }).map(askCopyHtml).join("") + "</ul>" +
       '<p class="note" id="askmsg" aria-live="polite"></p>';
-    if (CONFIG.ASK_API) h += '<p class="credits">Asking here sends your question and any attached files to the AIs you pick, through this app\'s helper, to get the answers. They are not saved.</p>' +
+    if (CONFIG.ASK_API) h += '<p class="credits">Asking here sends your question and any attached files to the AIs you pick, through this app\'s helper, to get the answers. They are not kept on our server; past questions are saved only on this device.</p>' +
       '<p class="credits">For the buttons above: some AIs ask you to log in first, and this app never sees that question or those answers.</p>';
     else h += '<p class="credits">Some AIs ask you to log in first. This app never sees your question or answers.</p>';
     return h;
@@ -1442,6 +1546,7 @@
   // An older helper without /race (404): the v15 way (one /ask per AI with a race_id, timed here) is used instead.
   // Credits are exactly as in Explore (per AI, + web credits when the web rule fires, + files), shown before Start.
   var RACE_MIN = 2, RACE_MAX = 4, RACE_DEFAULT = ["chatgpt", "claude"];
+  var RACE_FOOT = '<p class="credits">Timed on our server: AI speed only. Your task and files are not kept on our server; past races are saved only on this device.</p>';
   var PLACES = ["1st", "2nd", "3rd", "4th"];
   var race = { q: "", pick: null, busy: false, lanes: null, id: null, notice: "", short: false, timer: null, shownShort: false, charged: null, moreOpen: null,
                files: [], fileMsg: "", best3: false, rounds: 1, round: 0 };
@@ -1503,7 +1608,8 @@
       (done && l.error ? "" : '<span class="ltime' + (done ? "" : " live") + '">' + (done ? esc(secs1(l.total)) : "0.0 s") + "</span>") + "</span></div>" +
       '<div class="lbar" aria-hidden="true"><i></i></div>' +
       (l.error ? '<p class="ltext bad">' + esc(l.error) + "</p>"
-        : l.text ? '<p class="ltext" dir="' + textDir(l.text) + '">' + esc(l.text) + "</p>" + (l.note ? '<p class="lmeta">' + esc(l.note) + "</p>" : "")
+        : l.text ? '<p class="ltext" dir="' + textDir(l.text) + '">' + esc(l.text) + "</p>" + (l.note ? '<p class="lmeta">' + esc(l.note) + "</p>" : "") +
+          (l.fileNote ? '<p class="lmeta fread">' + esc(l.fileNote) + (l.norank ? '<span class="norank"> Not ranked for the win.</span>' : "") + "</p>" : "")
         : '<p class="ltext muted">Working…</p>') +
       (meta ? '<p class="lmeta">' + meta + "</p>" : "") + live +
       (srcs.length ? '<p class="asrcs"><span class="asrcl">Sources</span>' + srcs.map(function (x) {
@@ -1520,7 +1626,8 @@
       '<span class="lright">' + (l.place ? '<span class="lplace p' + l.place + '">' + PLACES[l.place - 1] + "</span>" : "") +
       (done && l.error ? "" : '<span class="ltime">' + (done ? laneSecs(l.ms) : "0.0 s") + "</span>") + "</span></div>" +
       '<div class="lbar" aria-hidden="true"><i></i></div>' +
-      (done ? '<p class="ltext' + (l.error ? " bad" : "") + '" dir="' + textDir(l.error || l.text) + '">' + esc(l.error || l.text) + "</p>"
+      (done ? '<p class="ltext' + (l.error ? " bad" : "") + '" dir="' + textDir(l.error || l.text) + '">' + esc(l.error || l.text) + "</p>" +
+          (!l.error && l.fileNote ? '<p class="lmeta fread">' + esc(l.fileNote) + (l.norank ? '<span class="norank"> Not ranked for the win.</span>' : "") + "</p>" : "")
         : '<p class="ltext muted">Working…</p>') +
       (srcs.length ? '<p class="asrcs"><span class="asrcl">Sources</span>' + srcs.map(function (x) {
         return '<span class="asrc">' + esc(x.title) + "</span>"; }).join("") + "</p>" : "") + "</section>";
@@ -1528,8 +1635,9 @@
   function vRace() {
     var h = "<h2>Race</h2><p class=\"sub\">" + esc(SUBS.race) + "</p>";
     if (!CONFIG.ASK_API) return h + '<p class="note">Race needs the app\'s answer helper, which isn\'t set up here. Use Explore to open your question in each AI.</p>';
+    if (race.view && !race.busy) return h + savedRaceHtml(race.view) + histHtml("race") + RACE_FOOT;
     var models = proModels(), pick = getRacePick(), wc = webCredits(), bal = balance(), choice = getChoice();
-    var cp = raceCost(costPreview(race.q, pick, models, choice, wc, Date.now(), filePayload(race.files))), short = pick.length >= RACE_MIN && bal.total < cp.held;
+    var cp = raceCost(costPreview(race.q, pick, models, choice, wc, Date.now(), tabFiles("race"))), short = pick.length >= RACE_MIN && bal.total < cp.held;
     race.shownShort = short;
     h += '<div class="askbox card racebox"><label for="raceq" class="sr">The task</label>' +
       '<textarea id="raceq" dir="' + textDir(race.q) + '" rows="3" maxlength="1500" placeholder="Type one task for all of them…" autocomplete="off"' +
@@ -1549,16 +1657,206 @@
     h += '<label class="b3"><input type="checkbox" role="switch" id="raceb3"' + (race.best3 ? " checked" : "") + (race.busy ? " disabled" : "") + ">" +
       '<span class="b3t"><b>Best of 3</b><small>Runs the race 3 times and shows each AI\'s average.</small></span></label>' +
       costLineHtml(cp, pick, models, choice, wc, bal, "racecost") +
-      '<button type="button" class="askfour" id="racego"' + (race.busy || pick.length < RACE_MIN || short || isOffline() || filePayload(race.files).reading ? " disabled" : "") + ">" +
+      '<button type="button" class="askfour" id="racego"' + (race.busy || pick.length < RACE_MIN || short || isOffline() || tabFiles("race").reading ? " disabled" : "") + ">" +
       (race.busy ? "Racing…" : esc(raceLabel(pick.length, cp.base, cp.held))) + "</button>" + (isOffline() && !race.busy ? OFF_NOTE : "");
     if (race.charged && !race.busy) h += '<p class="note askleft">Charged ' + esc(nCredits(race.charged)) + " for this race.</p>";
     if (race.notice) h += '<p class="note bad" role="status">' + esc(race.notice) + "</p>";
     if ((short || race.short || bal.total === 0) && !race.busy) h += outboxHtml(bal, true);
     h += "</div>";
+    if (race.lanes && !race.busy) h += newBtnHtml("race");
+    if (race.histMsg && !race.busy) h += '<p class="note bad histmsg" role="status">' + esc(race.histMsg) + "</p>";
+    if (race.lanes && race.partWin) h += partWinHtml(race.fileTexts);
     if (race.lanes) h += '<div class="lanes" id="lanes">' + race.lanes.map(laneHtml).join("") + "</div>";
-    h += '<p class="credits">Timed on our server: AI speed only. Your task and files are not saved.</p>';
+    return h + histHtml("race") + RACE_FOOT;
+  }
+
+  // ---------------------------------------------------------------- v17j: "New race" / "New question" and the past ones
+  // Saved on THIS device only (localStorage "ait.racehist" / "ait.askhist"), newest first, at most 50 each. An entry keeps
+  // what was shown (question, AIs, answers, times, places, notes, file NAMES) but never a file's contents or its text.
+  // A full or blocked storage never throws: the oldest entries go first, then one short line if it still can't be saved.
+  var HIST_MAX = 50, HIST_KEYS = { race: "ait.racehist", ask: "ait.askhist" }, histMem = { race: null, ask: null };
+  function histList(kind) {
+    if (histMem[kind]) return histMem[kind];
+    var raw = null;
+    try { raw = JSON.parse(stored(HIST_KEYS[kind]) || "[]"); } catch (e) {}
+    histMem[kind] = (Array.isArray(raw) ? raw : []).filter(function (x) {
+      return x && typeof x === "object" && typeof x.id === "string" && typeof x.q === "string" && typeof x.t === "number";
+    }).slice(0, HIST_MAX);
+    return histMem[kind];
+  }
+  // write the list; on a full storage drop the oldest and retry. true = saved
+  function histWrite(kind, list) {
+    var l = list.slice(0, HIST_MAX);
+    for (;;) {
+      try { localStorage.setItem(HIST_KEYS[kind], JSON.stringify(l)); histMem[kind] = l; return true; }
+      catch (e) {
+        if (l.length <= 1) { histMem[kind] = list.slice(0, HIST_MAX); return false; }    // kept for this visit only
+        l = l.slice(0, l.length - 1);
+      }
+    }
+  }
+  function histAdd(kind, entry) {
+    var ok = histWrite(kind, [entry].concat(histList(kind)));
+    fileState(kind).histMsg = ok ? "" : "Couldn't save this on this device.";
+  }
+  function histRemove(kind, id) {
+    var st = fileState(kind);
+    histWrite(kind, histList(kind).filter(function (x) { return x.id !== id; }));
+    if (st.view && st.view.id === id) st.view = null;
+  }
+  function histClear(kind) {
+    try { localStorage.removeItem(HIST_KEYS[kind]); } catch (e) {}
+    histMem[kind] = []; fileState(kind).view = null;
+  }
+  function histId() { return Date.now().toString(36) + Math.floor(Math.random() * 1e9).toString(36); }
+  function histWhen(t) {
+    var d = new Date(t);
+    try { return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); }
+    catch (e) { return d.toISOString().slice(0, 16).replace("T", " "); }
+  }
+  function fileNames(files) { return list(files).filter(function (f) { return f.status === "ok"; }).map(function (f) { return String(f.name).slice(0, 120); }); }
+  // an AI's full name with the model it used (from the model id; the plain name when the model is no longer listed)
+  function aiFullName(id, model) {
+    var m = proModels().filter(function (x) { return x.id === id; })[0];
+    if (!m) return friendlyName(id);
+    var o = (m.options || []).filter(function (x) { return x.model === model; })[0] || chosenOption(m, null);
+    return aiModelName(m, o);
+  }
+  function aiOrder(id) { var i = proModels().map(function (m) { return m.id; }).indexOf(id); return i < 0 ? 99 : i; }
+  var LANE_KEEP = ["id", "name", "label", "ms", "place", "text", "error", "searched", "sources", "imgSkip", "fileNote", "note", "server", "rounds",
+                   "times", "firsts", "wpss", "errs", "total", "first", "wps", "provider", "share", "norank"];
+  // a finished race -> its entry (once per race)
+  function saveRace() {
+    if (!race.lanes || !race.lanes.some(function (l) { return l.ms != null; }) || race.savedId === race.id) return;
+    race.savedId = race.id;
+    var lanes = race.lanes.map(function (l) { var x = {}; LANE_KEEP.forEach(function (k) { if (l[k] !== undefined) x[k] = l[k]; }); return x; });
+    var win = race.lanes.filter(function (l) { return l.place === 1; })[0];
+    histAdd("race", { id: histId(), t: Date.now(), q: race.askedQ || "", files: race.fileNames || [], rounds: race.rounds || 1,
+      charged: race.charged || 0, notice: race.notice || "", ais: race.lanes.slice().sort(function (a, b) { return aiOrder(a.id) - aiOrder(b.id); }).map(function (l) { return aiFullName(l.id, l.model); }),
+      winner: win ? aiFullName(win.id, win.model) : "", lanes: lanes, partWin: race.partWin ? (race.fileTexts > 1 ? 2 : 1) : 0 });
+  }
+  // a finished Explore answer -> its entry
+  function saveAsk() {
+    if (!pro.asked || !pro.answers) return;
+    var models = proModels(), by = {};
+    models.forEach(function (m) { by[m.id] = m; });
+    var cards = pro.asked.map(function (id) {
+      var m = by[id] || { id: id, name: friendlyName(id), credits: 0 }, o = chosenOption(m, pro.askedChoice);
+      var a = pro.answers.filter(function (x) { return x.id === id; })[0] || { error: "No answer this time" };
+      return { id: id, name: m.name, label: isDefault(m, o) ? "" : o.label, full: aiModelName(m, o),
+        text: a.error ? "" : plainAnswer(a.sources ? stripMarks(a.text) : a.text) + (a.cut ? " (cut short)" : ""),
+        error: a.error ? a.error + " — credits returned" : "", searched: a.searched === true && !a.error, imgSkip: a.images_skipped === true && !a.error,
+        fileNote: a.error ? "" : fileGotNote(a.file_chars, pro.fileTotal, pro.fileTexts), sources: a.error ? [] : webSources(a.sources) };
+    });
+    histAdd("ask", { id: histId(), t: Date.now(), q: pro.askedQ || "", files: pro.fileNames || [], charged: pro.charged || 0,
+      ais: cards.map(function (c) { return c.full; }), cards: cards });
+  }
+  // the "New race" / "New question" button (only when results are shown and nothing is running)
+  function newBtnHtml(kind) {
+    return '<div class="newbar"><button type="button" class="newbtn" id="' + (kind === "race" ? "racenew" : "asknew") + '">' + ic("plus") +
+      "<span>" + (kind === "race" ? "New race" : "New question") + "</span></button></div>";
+  }
+  function newStart(kind) {
+    var st = fileState(kind);
+    if (st.busy) return;
+    st.files = []; st.fileMsg = ""; st.notice = ""; st.short = false; st.charged = null; st.view = null; st.histMsg = ""; st.histConfirm = false;
+    if (kind === "race") {
+      race.q = ""; race.lanes = null; race.id = null; race.ended = false; race.round = 0; race.partWin = false;
+      if (race.timer) { clearInterval(race.timer); race.timer = null; }
+    } else {
+      askQ = ""; pro.asked = null; pro.answers = null; pro.askedChoice = null;
+    }
+    render();
+    var box = document.getElementById(kind === "race" ? "raceq" : "askq");
+    if (box) {
+      var card = box.closest(".askbox") || box;
+      try { card.scrollIntoView({ block: "start", behavior: "smooth" }); } catch (e) { card.scrollIntoView(); }
+      try { box.focus({ preventScroll: true }); } catch (e) { box.focus(); }
+    }
+  }
+  // the list of past races / questions (hidden when there is none)
+  function histHtml(kind) {
+    var items = histList(kind), st = fileState(kind), busy = st.busy, pre = kind === "race" ? "race" : "ask";
+    if (!items.length) return "";
+    var h = '<section class="hist" id="' + pre + 'hist" aria-labelledby="' + pre + 'histh"><div class="histhead"><h3 id="' + pre + 'histh">' +
+      (kind === "race" ? "Past races" : "Past questions") + "</h3>" +
+      (st.histConfirm ? '<span class="histconfirm"><span>Delete all?</span><button type="button" class="linkbtn histyes" id="' + pre + 'histyes">Delete</button>' +
+        '<button type="button" class="linkbtn" id="' + pre + 'histno">Cancel</button></span>'
+        : '<button type="button" class="linkbtn" id="' + pre + 'histclear"' + (busy ? " disabled" : "") + ">Clear all</button>") + "</div>" +
+      '<ul class="histlist card">' + items.map(function (x) {
+        var on = st.view && st.view.id === x.id;
+        return '<li class="histrow' + (on ? " on" : "") + '" data-hist="' + esc(x.id) + '"><button type="button" class="histopen" data-histopen="' + esc(x.id) + '"' +
+          (busy ? " disabled" : "") + (on ? ' aria-current="true"' : "") + '><span class="histq" dir="' + textDir(x.q) + '">' + esc(x.q || "—") + "</span>" +
+          '<span class="histmeta">' + esc(histWhen(x.t)) + " · " + esc(list(x.ais).join(", ")) + "</span>" +
+          (kind === "race" && x.winner ? '<span class="histwin">Winner: ' + esc(x.winner) + "</span>" : "") + "</button>" +
+          '<button type="button" class="histdel" data-histdel="' + esc(x.id) + '" aria-label="Delete this ' + (kind === "race" ? "race" : "question") + '"' +
+          (busy ? " disabled" : "") + ">" + ic("trash") + "</button></li>";
+      }).join("") + "</ul></section>";
     return h;
   }
+  // the top of a reopened entry: read only (the question, its files, when, what it cost)
+  function savedHead(kind, x) {
+    return newBtnHtml(kind) + '<div class="card saved" id="' + (kind === "race" ? "race" : "ask") + 'saved"><p class="savedkick">' +
+      (kind === "race" ? "Past race" : "Past question") + " · " + esc(histWhen(x.t)) + "</p>" +
+      '<p class="savedq" dir="' + textDir(x.q) + '">' + esc(x.q) + "</p>" +
+      (list(x.files).length ? '<ul class="fchips">' + x.files.map(function (n) {
+        return '<li class="fchip saved"><span class="ficon" aria-hidden="true">' + fileIcon(fileKind(n)) + '</span><span class="fcname" title="' + esc(n) + '">' + esc(n) + "</span></li>";
+      }).join("") + "</ul>" : "") +
+      (x.rounds > 1 ? '<p class="note savednote">Best of 3</p>' : "") +
+      (x.charged ? '<p class="note savednote">Charged ' + esc(nCredits(x.charged)) + (kind === "race" ? " for this race." : " for this question.") + "</p>" : "") +
+      (x.notice ? '<p class="note bad savednote">' + esc(x.notice) + "</p>" : "") + "</div>";
+  }
+  function savedRaceHtml(x) {
+    var keep = race.rounds;
+    race.rounds = x.rounds || 1;                                           // the lanes read the race's rounds (Best of 3)
+    var lanes = list(x.lanes).map(function (l) { var c = {}; for (var k in l) if (own(l, k)) c[k] = l[k]; c.times = list(c.times); c.firsts = list(c.firsts);
+      c.wpss = list(c.wpss); c.errs = list(c.errs); if (c.ms == null) c.ms = 0; return c; });
+    var h = savedHead("race", x) + (x.partWin ? partWinHtml(x.partWin) : "") + '<div class="lanes" id="savedlanes">' + laneOrder(lanes).map(laneHtml).join("") + "</div>";
+    race.rounds = keep;
+    return h;
+  }
+  function savedAskHtml(x) {
+    return savedHead("ask", x) + '<div class="acards savedcards">' + list(x.cards).map(function (c) {
+      var srcs = webSources(c.sources);
+      return '<section class="acard card" data-scard="' + esc(c.id) + '"><h4>' + esc(c.name) + (c.label ? '<span class="amodel"> · ' + esc(c.label) + "</span>" : "") +
+        (c.searched ? ' <span class="searched">' + ic("globe") + " Searched the web</span>" : "") +
+        (c.imgSkip ? ' <span class="imgskip">Can\'t read images</span>' : "") + "</h4>" +
+        '<p class="atext' + (c.error ? " muted" : "") + '" dir="' + textDir(c.error || c.text) + '">' + esc(c.error || c.text) + "</p>" +
+        (c.fileNote ? '<p class="lmeta fread">' + esc(c.fileNote) + "</p>" : "") +
+        (srcs.length ? '<p class="asrcs"><span class="asrcl">Sources</span>' + srcs.map(function (s2) { return '<span class="asrc">' + esc(s2.title) + "</span>"; }).join("") + "</p>" : "") +
+        "</section>";
+    }).join("") + "</div>";
+  }
+  function histOpen(kind, id) {
+    var st = fileState(kind);
+    if (st.busy) return;
+    var x = histList(kind).filter(function (e) { return e.id === id; })[0];
+    if (!x) return;
+    st.view = x; st.histConfirm = false;
+    render();
+    var top = document.getElementById(kind === "race" ? "racenew" : "asknew");
+    if (top) { try { top.scrollIntoView({ block: "start", behavior: "smooth" }); } catch (e) { top.scrollIntoView(); } try { top.focus({ preventScroll: true }); } catch (e) {} }
+  }
+  if (hasDom) document.addEventListener("click", function (e) {
+    if (!e.target.closest) return;
+    var b;
+    if ((b = e.target.closest("#racenew"))) { newStart("race"); return; }
+    if ((b = e.target.closest("#asknew"))) { newStart("ask"); return; }
+    var kind = state.tab === "race" ? "race" : "ask";
+    if ((b = e.target.closest("[data-histopen]"))) { histOpen(kind, b.getAttribute("data-histopen")); return; }
+    if ((b = e.target.closest("[data-histdel]"))) {
+      if (fileState(kind).busy) return;
+      var row = b.closest(".histrow"), next = row && (row.nextElementSibling || row.previousElementSibling);
+      var nid = next && next.getAttribute("data-hist");
+      histRemove(kind, b.getAttribute("data-histdel")); askRedraw();
+      var f = nid && document.querySelector('[data-histdel="' + nid + '"]');      // keep the keyboard in the list
+      if (f) f.focus();
+      return;
+    }
+    if (e.target.closest("#racehistclear, #askhistclear")) { fileState(kind).histConfirm = true; askRedraw("#" + (kind === "race" ? "race" : "ask") + "histno"); return; }
+    if (e.target.closest("#racehistno, #askhistno")) { fileState(kind).histConfirm = false; askRedraw("#" + (kind === "race" ? "race" : "ask") + "histclear"); return; }
+    if (e.target.closest("#racehistyes, #askhistyes")) { fileState(kind).histConfirm = false; histClear(kind); askRedraw(); return; }
+  });
   function raceSay(text) { var el = document.getElementById("raceqmsg"); if (el) el.textContent = text; }
   // pure: lanes in finish order: 1st, 2nd, 3rd …, then finished-with-an-error (in the order they ended), then running
   function laneOrder(lanes) {
@@ -1612,12 +1910,31 @@
     return "Something went wrong on our side.";
   }
   // places from the helper's answer times (the average in Best of 3), among the lanes that are done and answered
-  function racePlaces() {
-    var fin = race.lanes.filter(function (l) { return l.ms != null && !l.error && l.total != null; })
-      .sort(function (a, b) { return a.total - b.total; });
-    race.lanes.forEach(function (l) { l.place = null; });
-    fin.forEach(function (l, i) { l.place = i + 1; });
+  function racePlaces() { placeLanes(function (l) { return l.total; }); }
+  // v17k: with files, an AI that read only part of them (l.share = the share it read) can't win. AIs that read it all
+  // are placed first by time, the partial ones after them by time (placed only when every lane is done, so a partial
+  // one is never shown 1st for a moment). If NO answered AI read it all, the one that read the most wins (ties: the
+  // fastest), then the rest by share and time, and race.partWin says so. Without files: by time, as before.
+  // timeOf = the lane's time (the helper's average in /race, the browser's in the fallback)
+  function placeLanes(timeOf) {
+    var byTime = function (a, b) { return timeOf(a) - timeOf(b); };
+    var fin = race.lanes.filter(function (l) { return l.ms != null && !l.error && timeOf(l) != null; });
+    race.lanes.forEach(function (l) { l.place = null; l.norank = false; });
+    race.partWin = false;
+    if (!race.fileTotal) { fin.sort(byTime).forEach(function (l, i) { l.place = i + 1; }); return; }
+    var full = fin.filter(function (l) { return l.share == null; }).sort(byTime), part = fin.filter(function (l) { return l.share != null; });
+    part.forEach(function (l) { l.norank = full.length > 0; });
+    if (race.lanes.some(function (l) { return l.ms == null; })) part = [];
+    else if (!full.length && part.length) { race.partWin = true; part.sort(function (a, b) { return b.share - a.share || byTime(a, b); }); }
+    else part.sort(byTime);
+    full.concat(part).forEach(function (l, i) { l.place = i + 1; });
   }
+  // the share of the files' text an AI read when it read only part of them (null = all of it, or no files)
+  function partShare(chars) {
+    return typeof chars === "number" && race.fileTotal && chars < race.fileTotal ? Math.max(0, chars) / race.fileTotal : null;
+  }
+  var PART_WIN = "No AI read the whole file, so the one that read the most wins.", PART_WIN_N = "No AI read all the files, so the one that read the most wins.";
+  function partWinHtml(files) { return '<p class="note partwin" role="status">' + esc(files > 1 ? PART_WIN_N : PART_WIN) + "</p>"; }
   // one line from the helper's race stream
   function raceLine(o, rid) {
     if (race.id !== rid || !o || typeof o !== "object") return;
@@ -1636,6 +1953,7 @@
           var t = String(o.text || "");
           l.text = plainAnswer(o.sources ? stripMarks(t) : t) + (o.cut ? " (cut short)" : "");
           l.searched = o.searched === true; l.sources = o.sources || null; l.imgSkip = o.images_skipped === true;
+          l.fileNote = fileGotNote(o.file_chars, race.fileTotal, race.fileTexts); l.share = l.fileNote ? partShare(o.file_chars) : null;
         } else l.firstErr = o.error;
       }
       if (!o.error && typeof o.total_ms === "number") {
@@ -1651,7 +1969,7 @@
         race.lanes.forEach(function (x) { old[x.id] = x.place; });
         racePlaces();
         race.lanes.forEach(function (x) {                                       // a place that moved is redrawn
-          if (x !== l && x.place !== old[x.id]) { var el = document.querySelector('[data-lane="' + x.id + '"]'); if (el) el.outerHTML = laneHtml(x); }
+          if (x !== l && (x.place !== old[x.id] || x.norank) && x.ms != null) { var el = document.querySelector('[data-lane="' + x.id + '"]'); if (el) el.outerHTML = laneHtml(x); }
         });
       }
       laneUpdate(l);
@@ -1669,9 +1987,11 @@
     race.busy = false; clearInterval(race.timer); race.timer = null;
     if (!race.ended) {                                                        // the line to the helper dropped before the end
       race.lanes.forEach(function (l) { if (l.ms == null) { l.ms = 0; l.error = "Connection lost."; } });
+      racePlaces();
       race.notice = "The connection dropped before the race finished. Your credits were updated: AIs that didn't answer are not charged.";
       loadLeft();
     }
+    saveRace();
     askRedraw();
   }
   // read the helper's NDJSON stream: one JSON object per line, handled as soon as it arrives
@@ -1695,13 +2015,14 @@
     var q = race.q.trim(), pick = getRacePick();
     if (race.busy) return;
     if (!q) { raceSay("Type a task first."); var b = document.getElementById("raceq"); if (b) b.focus(); return; }
-    var rfp = filePayload(race.files);
+    var rfp = tabFiles("race");
     if (rfp.reading) { raceSay("Wait until the files are read."); return; }
     if (pick.length < RACE_MIN) return;
     if (!root.ReadableStream || !root.TextDecoder || !window.fetch) return startRaceOld();
     var models = proModels(), choice = getChoice(), by = {}, code = stored("ait.code"), id = newRaceId(), rounds = race.best3 ? 3 : 1;
     models.forEach(function (m) { by[m.id] = m; });
     race.busy = true; race.id = id; race.notice = ""; race.short = false; race.charged = 0; race.rounds = rounds; race.round = 0; race.ended = false;
+    race.partWin = false; race.fileTotal = rfp.total; race.fileTexts = rfp.texts; race.askedQ = q; race.fileNames = fileNames(race.files); race.histMsg = ""; race.view = null;
     race.lanes = pick.map(function (aid) {
       var m = by[aid], o = chosenOption(m, choice);
       return { id: aid, name: m.name, label: isDefault(m, o) ? "" : o.label, model: o.model, t0: Date.now(), ms: null, place: null, text: "", error: "",
@@ -1739,12 +2060,13 @@
     var q = race.q.trim(), pick = getRacePick();
     if (race.busy) return;
     if (!q) { raceSay("Type a task first."); var b = document.getElementById("raceq"); if (b) b.focus(); return; }
-    var rfp = filePayload(race.files);
+    var rfp = tabFiles("race");
     if (rfp.reading) { raceSay("Wait until the files are read."); return; }
     if (pick.length < RACE_MIN) return;
-    var models = proModels(), choice = getChoice(), by = {}, code = stored("ait.code"), id = newRaceId(), t0 = Date.now(), placed = 0, open = pick.length;
+    var models = proModels(), choice = getChoice(), by = {}, code = stored("ait.code"), id = newRaceId(), t0 = Date.now(), open = pick.length;
     models.forEach(function (m) { by[m.id] = m; });
     race.busy = true; race.id = id; race.notice = ""; race.short = false; race.charged = 0;
+    race.partWin = false; race.fileTotal = rfp.total; race.fileTexts = rfp.texts; race.askedQ = q; race.fileNames = fileNames(race.files); race.histMsg = ""; race.view = null;
     race.lanes = pick.map(function (aid) {
       var m = by[aid], o = chosenOption(m, choice);
       return { id: aid, name: m.name, label: isDefault(m, o) ? "" : o.label, model: o.model, t0: t0, ms: null, place: null, text: "", error: "", searched: false, sources: null };
@@ -1761,13 +2083,20 @@
         l.ms = Date.now() - l.t0;
         var a = r && r.status === 200 && r.json.answers && r.json.answers[0];
         if (a && !a.error) {
-          l.place = ++placed; l.text = plainAnswer(a.sources ? stripMarks(a.text) : a.text) + (a.cut ? " (cut short)" : "");
+          l.text = plainAnswer(a.sources ? stripMarks(a.text) : a.text) + (a.cut ? " (cut short)" : "");
           l.searched = a.searched === true; l.sources = a.sources || null; l.imgSkip = a.images_skipped === true;
+          l.fileNote = fileGotNote(a.file_chars, race.fileTotal, race.fileTexts); l.share = l.fileNote ? partShare(a.file_chars) : null;
         } else l.error = a ? a.error + " — credits returned" : laneError(r);
+        var old = {};                                                       // places by the browser's times (v17k: the file rule)
+        race.lanes.forEach(function (x) { old[x.id] = x.place; });
+        placeLanes(function (x) { return x.ms; });
+        race.lanes.forEach(function (x) {
+          if (x !== l && (x.place !== old[x.id] || x.norank) && x.ms != null) { var el = document.querySelector('[data-lane="' + x.id + '"]'); if (el) el.outerHTML = laneHtml(x); }
+        });
         if (r && r.json) { setLeft(r.json); if (r.status === 200 && r.json.charged != null) race.charged += r.json.charged; }
         if (r && r.status === 402 && r.json.reason === "not_enough") race.short = true;
         laneUpdate(l);
-        if (--open === 0) { race.busy = false; clearInterval(race.timer); race.timer = null; askRedraw(); }
+        if (--open === 0) { race.busy = false; clearInterval(race.timer); race.timer = null; saveRace(); askRedraw(); }
       });
     });
   }
@@ -1777,7 +2106,7 @@
     var line = document.getElementById("racecost"), btn = document.getElementById("racego");
     if (!line || !btn) return;
     var models = proModels(), pick = getRacePick(), wc = webCredits(), bal = balance(), choice = getChoice();
-    var cp = raceCost(costPreview(race.q, pick, models, choice, wc, Date.now(), filePayload(race.files))), short = pick.length >= RACE_MIN && bal.total < cp.held;
+    var cp = raceCost(costPreview(race.q, pick, models, choice, wc, Date.now(), tabFiles("race"))), short = pick.length >= RACE_MIN && bal.total < cp.held;
     if (short !== race.shownShort) {
       var box = document.getElementById("raceq"), a = box ? box.selectionStart : null, b = box ? box.selectionEnd : null;
       askRedraw("#raceq");
@@ -1969,7 +2298,8 @@
     setModels: setModels, setWebCredits: setWebCredits, moreOpen: moreOpen, needsWeb: needsWeb, costPreview: costPreview, subs: SUBS, rankModels: rankModels, finderHtml: finderHtml, getFinder: getFinder, setFinder: setFinder,
     exploreFor: exploreFor, laneOrder: laneOrder, newsRow: newsRow, newsSummary: newsSummary, relCard: relCard, race: race, newRaceId: newRaceId, getRacePick: getRacePick, setRacePick: setRacePick,
     laneHtml: laneHtml, ctaOn: ctaOn, tipFor: tipFor, isoWeek: isoWeek, weekNumber: weekNumber, tipHtml: tipHtml, setLeft: setLeft, plainAnswer: plainAnswer, updateDecision: updateDecision, day: day, setQuestion: function (q) { askQ = String(q == null ? "" : q); },
-    view: viewHtml, views: VIEWS, more: MORE, storyHtml: storyHtml, plainRule: plainRule };
+    view: viewHtml, views: VIEWS, more: MORE, storyHtml: storyHtml, plainRule: plainRule,
+    histList: histList, histKeys: HIST_KEYS, aiModelName: aiModelName, version: VERSION };
 
   if (!hasDom) return;
   store("ait.web", null);               // v13: the web switch is gone (the helper decides); forget the old setting
@@ -2127,7 +2457,7 @@
     var line = document.getElementById("askcost"), btn = document.getElementById("askfour");
     if (!line || !btn) return;
     var models = proModels(), pick = getPick(), wc = webCredits(), bal = balance(), choice = getChoice();
-    var cp = costPreview(askQ, pick, models, choice, wc, Date.now(), filePayload(pro.files)), short = pick.length > 0 && bal.total < cp.held;
+    var cp = costPreview(askQ, pick, models, choice, wc, Date.now(), tabFiles("ask")), short = pick.length > 0 && bal.total < cp.held;
     if (short !== !!pro.shownShort) {
       var box = document.getElementById("askq"), a = box ? box.selectionStart : null, b = box ? box.selectionEnd : null;
       askRedraw("#askq");
@@ -2201,11 +2531,15 @@
   function cleanOptions(list, credits) {
     if (!Array.isArray(list)) return null;
     var ok = list.filter(function (o) { return o && typeof o.model === "string" && o.model && typeof o.label === "string" && o.label && o.credits > 0; })
-      .map(function (o) { return { model: o.model, label: o.label, credits: o.credits, d: o.default === true, vision: o.vision !== false }; });
+      .map(function (o) { return { model: o.model, label: o.label, credits: o.credits, d: o.default === true, vision: o.vision !== false,
+        ctx: posInt(o.ctx), max_in: posInt(o.max_in) }; });
     if (!ok.length) return null;
     var d = ok.filter(function (o) { return o.d; })[0] || ok[0];
-    return [d].concat(ok.filter(function (o) { return o !== d; })).map(function (o) { var x = { model: o.model, label: o.label, credits: o.credits }; if (!o.vision) x.vision = false; return x; });
+    return [d].concat(ok.filter(function (o) { return o !== d; })).map(function (o) {
+      var x = { model: o.model, label: o.label, credits: o.credits }; if (!o.vision) x.vision = false; if (o.ctx) x.ctx = o.ctx; if (o.max_in) x.max_in = o.max_in; return x; });
   }
+  // a context window from the helper: a whole number of tokens in a sane range, else none (an older helper sends none)
+  function posInt(n) { return typeof n === "number" && Math.floor(n) === n && n >= 8000 && n <= 100000000 ? n : 0; }
   function setWebCredits(n) { if (typeof n === "number" && n >= 0 && n <= 50 && Math.floor(n) === n) pro.webCredits = n; }
   var PAUSED = "Answers here are paused right now. Open your question in each AI below.";           // only when switched off
   var NO_NET = "Couldn't connect. Check your internet and tap Ask again.";
@@ -2213,19 +2547,21 @@
   function askPro() {
     var q = askQ.trim(), pick = getPick();
     if (!q) { askSay("askqmsg", "Type a question first."); var b = document.getElementById("askq"); if (b) b.focus(); return; }
-    var afp = filePayload(pro.files);
+    var afp = tabFiles("ask");
     if (afp.reading) { askSay("askqmsg", "Wait until the files are read."); return; }
     if (!pick.length || pro.busy) return;
+    pro.fileTotal = afp.total; pro.fileTexts = afp.texts; pro.askedQ = q; pro.fileNames = fileNames(pro.files); pro.histMsg = ""; pro.view = null;
     pro.busy = true; pro.asked = pick; pro.askedChoice = getChoice(); pro.answers = null; pro.notice = ""; pro.short = false; pro.codeMsg = ""; pro.paid = null; pro.charged = null;
     askRedraw();
     var code = stored("ait.code"), body = { question: q, models: pick, choice: pro.askedChoice };   // choice: only non-defaults; the helper checks them and decides about the web
     if (afp.attachments.length) body.attachments = afp.attachments;
     if (code) body.code = code;
-    askApi("/ask", body, 150000).then(function (r) {
+    askApi("/ask", body, afp.attachments.length ? 330000 : 150000).then(function (r) {   // big files: the helper allows each AI more time
       var j = r.json;
       pro.busy = false;
       if (r.status === 200 && j.answers) {
         pro.answers = j.answers; setLeft(j); pro.charged = j.charged != null ? j.charged : null;
+        saveAsk();
       } else if (r.status === 402 && j.reason === "not_enough") {
         setLeft(j); pro.short = true; pro.asked = null;
       } else if (r.status === 402 && j.reason === "daily_cap") {
@@ -2547,7 +2883,7 @@
       }).then(function (pdf) {
         var pages = [], n = 0, total = 0;
         function next() {
-          if (n >= pdf.numPages || total > FILE_TEXT_MAX) { try { task.destroy(); } catch (e) {} return pages.join("\n\n"); }
+          if (n >= pdf.numPages || total > MAX_FILE_CHARS) { try { task.destroy(); } catch (e) {} return pages.join("\n\n"); }
           n++;
           return pdf.getPage(n).then(function (pg) { return pg.getTextContent(); }).then(function (tc) {
             var t = tc.items.map(function (i) { return (i.str || "") + (i.hasEOL ? "\n" : ""); }).join("").replace(/[ \t]+\n/g, "\n").trim();
@@ -2630,7 +2966,7 @@
       if (k === "olddoc") return msgs.push(file.name + ": save it as .docx first.");
       if (k === "oldppt") return msgs.push(file.name + ": save it as .pptx first.");
       if (!k) return msgs.push(file.name + ": this file type isn't supported.");
-      if (file.size > FILE_MAX_BYTES) return msgs.push(file.name + " is over 10 MB.");
+      if (file.size > FILE_MAX_BYTES) return msgs.push(file.name + " is over 50 MB.");
       var f = { id: ++fileSeq, name: file.name, size: file.size, kind: k, status: "reading" };
       st.files.push(f);
       READERS[k](file).then(function (r) {
@@ -2639,7 +2975,7 @@
         else {
           var t = String(r || "").replace(/\r\n?/g, "\n").replace(/\u0000/g, "");
           if (!t.trim()) throw readErr("is empty.");
-          f.text = t.length > FILE_TEXT_MAX ? t.slice(0, FILE_TEXT_MAX + 1) : t;  // more than is ever sent; enough to know it was cut
+          f.text = t.length > MAX_FILE_CHARS ? t.slice(0, MAX_FILE_CHARS + 1) : t;  // more than any model reads; enough to know it was cut
         }
         f.status = "ok";
         filesRedraw(w);

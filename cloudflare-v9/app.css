@@ -1,29 +1,34 @@
 /* AI Pro (v17 design): calm neutrals, one purple accent, flat cards, no double lines.
+   v17i colours: taken from the app icon (indigo #4f46e5 -> violet #7c3aed -> fuchsia #c026d3). The gradient (--grad)
+   only on key surfaces: the Home icon tiles, the primary buttons and the brand mark; everything else uses its solid
+   violet. Light: a soft lavender page with white cards; dark: near-black with a violet tint, cards a step lighter.
    Rules of thumb used everywhere:
-   - a card is ONE soft surface (no border, no shadow, 12px corners); rows inside it are split by at most one hairline
+   - a card is ONE white surface (no border, one very soft shadow, 12px corners); rows inside it are split by at most one hairline
    - spacing on an 8px grid (4px for tight inner gaps)
-   - primary = solid brand purple; secondary = soft surface; text buttons = accent text only
+   - primary = the icon gradient; secondary = white or soft surface; text buttons = accent text only
    v17: no tab bar. A home screen with 3 big cards opens 3 sections; each section has a back bar and segmented tabs.
    Light and dark follow the phone's setting (no switch). */
 :root{
-  --bg:#f6f6f8;--card:#ffffff;--soft:#eeeef2;--soft-2:#e4e4ea;--text:#16161d;--muted:#5f606c;--line:#e6e6ec;
-  --accent:#6d28d9;--brand:#6d28d9;--brand-hover:#5b21b6;--on-accent:#ffffff;--tint:#f1ecfd;
+  --bg:#f5f3ff;--card:#ffffff;--soft:#efecf8;--soft-2:#e5e1f3;--text:#17151f;--muted:#5d5a6e;--line:#e8e4f4;
+  --accent:#7c3aed;--brand:#7c3aed;--brand-hover:#6d28d9;--on-accent:#ffffff;--tint:#ede9fe;
   --good:#15803d;--warn:#a54b05;
-  --tie:#6d28d9;--tie-soft:#f1ecfd;--new:#6d28d9;--new-soft:#f1ecfd;--none-soft:#eeeef2;
-  --brand-soft:#f1ecfd;--pro:#6d28d9;
-  --shadow:none;--float:0 8px 28px rgba(16,16,24,.14);
+  --tie:#7c3aed;--tie-soft:#ede9fe;--new:#7c3aed;--new-soft:#ede9fe;--none-soft:#efecf8;
+  --brand-soft:#ede9fe;--pro:#7c3aed;
+  --grad:linear-gradient(135deg,#4f46e5 0%,#7c3aed 55%,#c026d3 100%);
+  --grad-hover:linear-gradient(135deg,#4338ca 0%,#6d28d9 55%,#a21caf 100%);
+  --shadow:0 1px 2px rgba(46,16,101,.05),0 2px 10px rgba(46,16,101,.05);--float:0 8px 28px rgba(46,16,101,.16);
   --r:12px;--nav:0px;
   --ease:cubic-bezier(.2,.8,.2,1);
   color-scheme:light;
 }
 @media (prefers-color-scheme: dark){
   :root{
-    --bg:#0d0d11;--card:#17171d;--soft:#212129;--soft-2:#2b2b35;--text:#ededf2;--muted:#a0a1ad;--line:#2a2a33;
-    --accent:#b39dff;--brand:#7c3aed;--brand-hover:#8b5cf6;--on-accent:#ffffff;--tint:#241d3b;
+    --bg:#110e1a;--card:#1b1727;--soft:#241f33;--soft-2:#2e2840;--text:#efedf5;--muted:#a8a3b8;--line:#2c2639;
+    --accent:#a78bfa;--brand:#7c3aed;--brand-hover:#6d28d9;--on-accent:#ffffff;--tint:#2a2142;
     --good:#4ade80;--warn:#fbbf24;
-    --tie:#c4b5fd;--tie-soft:#241d3b;--new:#c4b5fd;--new-soft:#241d3b;--none-soft:#212129;
-    --brand-soft:#241d3b;--pro:#b39dff;
-    --float:0 10px 32px rgba(0,0,0,.5);
+    --tie:#c4b5fd;--tie-soft:#2a2142;--new:#c4b5fd;--new-soft:#2a2142;--none-soft:#241f33;
+    --brand-soft:#2a2142;--pro:#a78bfa;
+    --shadow:none;--float:0 10px 32px rgba(0,0,0,.55);
     color-scheme:dark;
   }
 }
@@ -61,9 +66,9 @@ button{font:inherit;color:inherit}
 .linkbtn:hover{text-decoration:underline;text-underline-offset:3px}
 .linkbtn[aria-current="page"]{color:var(--text)}
 .actions{display:flex;gap:8px;flex:none;align-self:center}
-.icon-btn{width:44px;height:44px;border-radius:50%;border:0;background:var(--soft);color:var(--text);cursor:pointer;
+.icon-btn{width:44px;height:44px;border-radius:50%;border:0;background:var(--card);box-shadow:var(--shadow);color:var(--text);cursor:pointer;
   font-size:20px;line-height:1;display:grid;place-items:center;padding:0;transition:background-color .15s ease}
-.icon-btn:hover{background:var(--soft-2)}
+.icon-btn:hover{background:var(--soft)}
 .icon-btn svg{display:block;width:20px;height:20px}
 .icon-btn.spin span{display:inline-block;animation:spin 1s linear infinite;transform-origin:50% 50%}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -86,12 +91,12 @@ button{font:inherit;color:inherit}
 .hcard{--hcard-h:calc((100vh - 196px) / 3);
   position:relative;display:grid;grid-template-columns:64px minmax(0,1fr);
   grid-template-areas:"icon title" "icon desc" "chips chips";align-content:center;column-gap:16px;row-gap:4px;min-width:0;
-  min-height:max(150px,var(--hcard-h));padding:20px;border-radius:20px;background:var(--card);color:var(--text);cursor:pointer;transition:background-color .15s ease}
+  min-height:max(150px,var(--hcard-h));padding:20px;border-radius:20px;background:var(--card);color:var(--text);cursor:pointer;box-shadow:var(--shadow);transition:background-color .15s ease}
 @supports (height:100svh){ .hcard{--hcard-h:calc((100svh - 196px) / 3)} }
 .hcard:hover{background:color-mix(in srgb,var(--card) 82%,var(--tint))}
 .hcard:has(.hmain:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
 /* v17h-b: the icon, the title, a plain line on what's inside and the chips form one group, centred in the card */
-.hib{grid-area:icon;align-self:center;display:grid;place-items:center;width:64px;height:64px;border-radius:18px;background:var(--tint);color:var(--accent)}
+.hib{grid-area:icon;align-self:center;display:grid;place-items:center;width:64px;height:64px;border-radius:18px;background:var(--grad);color:#fff}
 .hib svg{width:36px;height:36px}
 .hib svg,.hch svg,.secback svg{display:block}
 .hch{position:absolute;top:20px;right:16px;color:var(--muted)}
@@ -112,10 +117,10 @@ button{font:inherit;color:inherit}
 .secback:hover{background:var(--tint)}
 .sectt{margin:4px 0 12px;font-size:30px;line-height:1.15;font-weight:700;letter-spacing:-.025em}
 /* segmented tabs: one soft track, the current tab is purple (the only accent) */
-.stabs{display:flex;gap:4px;padding:4px;border-radius:12px;background:var(--soft)}
+.stabs{display:flex;gap:4px;padding:4px;border-radius:12px;background:var(--card);box-shadow:var(--shadow)}
 .stab{flex:1 1 0;min-width:0;min-height:44px;margin:0;padding:0 8px;border:0;border-radius:9px;background:none;color:var(--text);
   font:inherit;font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background-color .15s ease,color .15s ease}
-.stab:hover{background:var(--soft-2)}
+.stab:hover{background:var(--soft)}
 .stab.on{background:var(--brand);color:var(--on-accent)}
 .secbar + h2{margin-top:24px}
 
@@ -133,7 +138,9 @@ main:focus{outline:none}
 .note{color:var(--muted);font-size:15px;margin:0 0 12px}
 .note.bad{color:var(--warn)}
 .stack{display:grid;gap:8px}
-.card{background:var(--card);border:0;border-radius:var(--r);box-shadow:none}
+.card{background:var(--card);border:0;border-radius:var(--r);box-shadow:var(--shadow)}
+/* a well inside a card (answers, the buy box) is flat: one shadow per surface */
+.acard,.outbox,.paidbox,.cand{box-shadow:none}
 .prose{padding:20px;margin-top:16px}
 .prose h3{margin-top:0}
 .prose p{margin:0 0 8px;color:var(--muted);font-size:15px}
@@ -193,7 +200,7 @@ details[open] > summary .chev{transform:rotate(45deg) translate(-2px,-2px)}
 .tick{color:var(--good);font-weight:700;white-space:nowrap}
 
 /* See more: per job (one surface; the source list is split by single hairlines) */
-.job{background:var(--card);border:0;border-radius:var(--r);box-shadow:none;padding:20px;margin-top:8px}
+.job{background:var(--card);border:0;border-radius:var(--r);box-shadow:var(--shadow);padding:20px;margin-top:8px}
 .job h3{margin:0 0 8px}
 .boards{list-style:none;margin:8px 0 0;padding:0;font-size:15px}
 .boards li{padding:8px 0;overflow-wrap:anywhere}
@@ -262,7 +269,8 @@ details[open] > summary .chev{transform:rotate(45deg) translate(-2px,-2px)}
 .abest .why{margin:8px 0 12px}
 b.big{font-size:20px;font-weight:700;letter-spacing:-.02em}
 /* a group: its header and its rows form ONE surface, split by a single hairline when open */
-details.agrp{margin-top:8px}
+details.agrp{margin-top:8px;border-radius:var(--r);box-shadow:var(--shadow)}
+.agrp > .rows.card{box-shadow:none}
 .agrp > summary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px;padding:12px 16px;
   background:var(--card);border:0;border-radius:var(--r);font-weight:600;font-size:16px;transition:border-radius .15s ease}
 .agrp[open] > summary{border-radius:var(--r) var(--r) 0 0}
@@ -335,11 +343,11 @@ h4.grp{font-size:12.5px;font-weight:650;letter-spacing:.06em;text-transform:uppe
 .morebtn2{display:flex;align-items:center;gap:6px;min-height:44px;margin:4px 0 0;padding:0 4px;text-decoration:none}
 .morechips{margin-top:4px}
 .morechips[hidden]{display:none}
-/* primary button: solid brand purple, no gradient, no shadow */
+/* primary button: the icon gradient (v17i), no shadow; disabled = faded and flat */
 .askfour{display:flex;align-items:center;justify-content:center;width:100%;min-height:52px;margin-top:12px;border:0;border-radius:12px;
-  background:var(--brand);color:var(--on-accent);font:inherit;font-size:16.5px;font-weight:650;letter-spacing:-.005em;cursor:pointer;transition:background-color .15s ease,opacity .15s ease}
-.askfour:hover:not([disabled]){background:var(--brand-hover)}
-.askfour[disabled]{opacity:.45;cursor:not-allowed}
+  background:var(--brand);background-image:var(--grad);color:var(--on-accent);font:inherit;font-size:16.5px;font-weight:650;letter-spacing:-.005em;cursor:pointer;transition:background-color .15s ease,opacity .15s ease}
+.askfour:hover:not([disabled]){background-image:var(--grad-hover)}
+.askfour[disabled]{background:var(--soft-2);color:var(--muted);cursor:not-allowed}
 .askleft{margin:8px 0 0;text-align:center}
 .offnote{margin:8px 0 0;text-align:center}
 .codeline{margin:4px 0 0;text-align:center;overflow-wrap:anywhere}
@@ -365,9 +373,9 @@ h4.grp{font-size:12.5px;font-weight:650;letter-spacing:.06em;text-transform:uppe
 .outbox{background:var(--soft)}
 .paidbox{background:var(--tint)}
 .outbox p,.paidbox p{margin:0 0 8px}
-.paybtn{display:flex;align-items:center;justify-content:center;min-height:48px;border-radius:12px;background:var(--brand);color:var(--on-accent);
+.paybtn{display:flex;align-items:center;justify-content:center;min-height:48px;border-radius:12px;background:var(--brand);background-image:var(--grad);color:var(--on-accent);
   font-weight:650;text-decoration:none;margin:4px 0 12px;transition:background-color .15s ease}
-.paybtn:hover{background:var(--brand-hover)}
+.paybtn:hover{background-image:var(--grad-hover)}
 .codebar{display:flex;gap:8px;align-items:center}
 .codebar .linkbtn{white-space:nowrap}
 .codebar input{flex:1 1 auto;min-width:0;min-height:44px;border:0;border-radius:10px;padding:0 12px;font:inherit;
@@ -376,7 +384,7 @@ h4.grp{font-size:12.5px;font-weight:650;letter-spacing:.06em;text-transform:uppe
 .code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.04em;overflow-wrap:anywhere}
 .orh{font-size:22px!important;margin-top:40px!important}
 .askbtn{display:block;width:100%;text-align:left;min-height:56px;padding:12px 16px;border-radius:12px;border:0;
-  background:var(--card);color:var(--accent);text-decoration:none;cursor:pointer;font:inherit;overflow-wrap:anywhere;transition:background-color .15s ease}
+  background:var(--card);box-shadow:var(--shadow);color:var(--accent);text-decoration:none;cursor:pointer;font:inherit;overflow-wrap:anywhere;transition:background-color .15s ease}
 .askbtn b{display:block;font-size:16px;font-weight:600}
 .askbtn small{display:block;color:var(--muted);font-size:14px;margin-top:2px}
 .askbtn.off{opacity:.5;cursor:not-allowed}
@@ -463,9 +471,9 @@ html.sheetopen{overflow:hidden}
 /* ---------------------------------------------------------------- shared buttons and footer */
 /* secondary: a quiet soft surface, accent text */
 .morebtn,.backbtn{display:flex;align-items:center;justify-content:center;width:100%;min-height:48px;margin-top:16px;border-radius:12px;
-  border:0;background:var(--card);cursor:pointer;font-weight:600;font-size:16px;color:var(--accent);text-decoration:none;transition:background-color .15s ease}
+  border:0;background:var(--card);box-shadow:var(--shadow);cursor:pointer;font-weight:600;font-size:16px;color:var(--accent);text-decoration:none;transition:background-color .15s ease}
 .morebtn:hover,.backbtn:hover{background:var(--tint)}
-.backbtn{width:auto;display:inline-flex;padding:0 16px;margin:16px 0 0;font-weight:600;background:var(--soft);color:var(--text)}
+.backbtn{width:auto;display:inline-flex;padding:0 16px;margin:16px 0 0;font-weight:600;background:var(--card);color:var(--text)}
 .backbtn:hover{background:var(--soft-2)}
 .credits{margin:24px 0 0;font-size:14px;color:var(--muted)}
 /* tap targets: small text links get padding above and below (44px+ to tap, at any font size) without moving the text */
@@ -476,10 +484,10 @@ html.sheetopen{overflow:hidden}
 .foot .copy{display:block;font-size:13px}
 .foot .linkbtn{color:inherit;font-weight:inherit}           /* "Sources" looks like the other footer links */
 .foot .linkbtn[aria-current="page"]{color:var(--text)}
-/* first screen: the way into Explore (solid brand, no gradient) */
+/* first screen: the way into Explore (the icon gradient, a primary button) */
 .askcta{display:flex;align-items:center;gap:8px;min-height:52px;margin:0 0 16px;padding:8px 16px;border-radius:12px;
-  background:var(--brand);color:var(--on-accent);text-decoration:none;font-size:16px;white-space:nowrap;overflow:hidden;transition:background-color .15s ease}
-.askcta:hover{background:var(--brand-hover)}
+  background:var(--brand);background-image:var(--grad);color:var(--on-accent);text-decoration:none;font-size:16px;white-space:nowrap;overflow:hidden;transition:background-color .15s ease}
+.askcta:hover{background-image:var(--grad-hover)}
 .askcta b{font-weight:650}
 .askcta .go{margin-left:auto;font-size:22px;line-height:1;opacity:.85}
 .askqmsg{margin:8px 0 0}
@@ -538,8 +546,53 @@ html.sheetopen{overflow:hidden}
 .b3t{display:flex;flex-direction:column;min-width:0}
 .b3t b{font-size:15px;font-weight:600}
 .b3t small{font-size:13px;color:var(--muted)}
+/* v17k: with files, the line when no AI read the whole file (the one that read the most wins) */
+.partwin{margin:16px 0 0;font-size:14.5px}
 .ltext.muted{color:var(--muted)}
 .ltext.bad{color:var(--warn)}
+
+/* ---------------------------------------------------------------- v17j: "New race" / "New question" and the past ones */
+/* the New button: a white secondary button with the accent text (the gradient stays on Start / Ask) */
+.newbar{display:flex;justify-content:flex-end;margin:16px 0 0}
+.newbtn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:0 20px;border:0;border-radius:12px;
+  background:var(--card);box-shadow:var(--shadow);color:var(--accent);font:inherit;font-size:16px;font-weight:650;cursor:pointer;transition:background-color .15s ease}
+.newbtn:hover{background:var(--tint)}
+.newbtn .ic{width:18px;height:18px}
+.askbox .newbar{margin-top:12px}
+.askbox .newbtn{background:var(--tint);box-shadow:none}           /* inside the white Explore card: a tinted button */
+.askbox .newbtn:hover{background:color-mix(in srgb,var(--tint),var(--accent) 12%)}
+.histmsg{margin:8px 0 0;text-align:right;font-size:14px}
+/* the past list: one white surface, one hairline between rows; the row opens it, the bin deletes it */
+.hist{margin-top:32px}
+.histhead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 8px}
+.view .histhead h3{margin:0;font-size:18px}
+.histhead .linkbtn{display:inline-flex;align-items:center;min-height:44px;margin:-6px 0;padding:0 6px}
+.histhead .linkbtn[disabled]{opacity:.45;cursor:not-allowed;text-decoration:none}
+.histconfirm{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;font-size:15px;color:var(--muted)}
+.histconfirm .histyes{color:var(--warn)}
+.histlist{list-style:none;margin:0;padding:0 4px;overflow:hidden}
+.histrow{display:flex;align-items:stretch;min-width:0}
+.histrow + .histrow{border-top:1px solid var(--line)}
+.histopen{flex:1 1 auto;display:flex;flex-direction:column;gap:2px;min-width:0;min-height:56px;margin:0;padding:12px;border:0;border-radius:10px;
+  background:none;color:var(--text);font:inherit;text-align:start;cursor:pointer;transition:background-color .15s ease}
+.histopen:hover:not([disabled]){background:color-mix(in srgb,var(--soft) 55%,transparent)}
+.histopen[disabled]{cursor:not-allowed;opacity:.6}
+.histrow.on .histopen{background:var(--tint)}
+.histrow.on .histq{color:var(--accent)}
+.histq{display:block;min-width:0;font-size:15.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.histmeta,.histwin{display:block;min-width:0;font-size:13.5px;line-height:1.4;color:var(--muted);overflow-wrap:anywhere}
+.histwin{color:var(--text);font-weight:550}
+.histdel{flex:none;align-self:center;display:grid;place-items:center;width:44px;height:44px;margin:0;padding:0;border:0;border-radius:10px;background:none;color:var(--muted);cursor:pointer}
+.histdel:hover:not([disabled]){color:var(--warn);background:var(--soft)}
+.histdel[disabled]{opacity:.45;cursor:not-allowed}
+.histdel .ic{width:19px;height:19px}
+/* a reopened past race / question: read only (its question, files, cost), then the lanes or cards as they were */
+.saved{padding:16px;margin-top:12px}
+.savedkick{margin:0;font-size:12.5px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.savedq{margin:6px 0 0;font-size:16.5px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+.fchip.saved{padding-right:12px}
+.savednote{margin:8px 0 0;font-size:14px}
+.savedcards .acard{background:var(--card);box-shadow:var(--shadow)}
 
 /* ---------------------------------------------------------------- Top Picks finder */
 .stackh{margin:32px 0 12px;font-size:18px}
@@ -563,9 +616,9 @@ html.sheetopen{overflow:hidden}
 .fname .muted{font-size:15px;font-weight:500;letter-spacing:0}
 .fwhy{margin:8px 0 0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:4px}
 .fwhy li{font-size:13.5px;padding:2px 8px;border-radius:6px;background:var(--card);border:0;color:var(--text)}
-.trybtn{display:flex;align-items:center;justify-content:center;width:100%;min-height:48px;margin-top:12px;border:0;border-radius:12px;background:var(--brand);color:var(--on-accent);
+.trybtn{display:flex;align-items:center;justify-content:center;width:100%;min-height:48px;margin-top:12px;border:0;border-radius:12px;background:var(--brand);background-image:var(--grad);color:var(--on-accent);
   font:inherit;font-weight:650;font-size:16px;cursor:pointer;transition:background-color .15s ease}
-.trybtn:hover{background:var(--brand-hover)}
+.trybtn:hover{background-image:var(--grad-hover)}
 .frank{margin-top:8px}
 .frank > summary{display:flex;align-items:center;min-height:44px;cursor:pointer;color:var(--accent);font-weight:600;list-style:none}
 .frank > summary::-webkit-details-marker{display:none}
@@ -603,7 +656,7 @@ html.sheetopen{overflow:hidden}
 
 /* ---------------------------------------------------------------- New releases: one surface per card; the whole card is the tap target */
 .rels{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
-.relcard{position:relative;display:flex;align-items:center;gap:16px;min-width:0;min-height:44px;padding:16px;background:var(--card);border:0;border-radius:12px;transition:background-color .15s ease}
+.relcard{position:relative;display:flex;align-items:center;gap:16px;min-width:0;min-height:44px;padding:16px;background:var(--card);box-shadow:var(--shadow);border:0;border-radius:12px;transition:background-color .15s ease}
 .rels .mo{grid-column:1/-1;margin:16px 0 0;font-size:12.5px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 .relcard .av{flex:none;width:40px;height:40px;border-radius:10px;display:grid;place-items:center;font-weight:650;font-size:16px;color:var(--accent);background:var(--tint)}
 .relcard .rb{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
