@@ -2166,18 +2166,46 @@ def clean_ai_summary(text, source):
     return clean_ai_summary_why(text, source)[0]
 
 
+# v17p: "SpaceX subsidiary xAI", "SpaceX's xAI", "SpaceX-owned xAI" ... read as one name: "SpaceXSI (formerly xAI)"
+_XAI_PREFIX = re.compile(r"\bSpaceX(?:['’]s)?(?:[- ](?:owned|backed))?\s+(?:(?:AI|artificial intelligence)\s+)?"
+                         r"(?:(?:subsidiary|unit|division|arm|company|lab|startup|business)\s+)?(?=xAI\b|SpaceXSI\b)")
+_XAI_FORMERLY = re.compile(r"\(?\bformerly (?:known as |called |named )?xAI\b\)?")
+
+
 def fix_maker_names(text):
-    """v17o product rule: Grok's maker is shown as "SpaceXSI (formerly xAI)" (first time) and "SpaceXSI" after."""
+    """v17o product rule: Grok's maker is shown as "SpaceXSI (formerly xAI)" (first time) and "SpaceXSI" after.
+    v17p: also run on every summary (cached ones too) when data.json is built; "SpaceX subsidiary xAI" becomes
+    "SpaceXSI (formerly xAI)", later mentions just "SpaceXSI" ("SpaceXSI's computing power"). Running it again
+    changes nothing."""
     t = str(text or "")
     if not re.search(r"\bxAI\b", t):
         return t
+    t = _XAI_PREFIX.sub("", t)                                           # "SpaceX subsidiary xAI" -> "xAI"
     t = re.sub(r"\bSpaceXSI \(formerly xAI\)", "\x00", t)               # keep correct ones as they are
-    t = re.sub(r"\(formerly xAI\)", "\x01", t)
-    t = re.sub(r"\bxAI\b", "SpaceXSI", t)
-    t = t.replace("\x01", "(formerly xAI)").replace("\x00", "SpaceXSI (formerly xAI)")
-    if "(formerly xAI)" not in t:
-        t = t.replace("SpaceXSI", "SpaceXSI (formerly xAI)", 1)
+    t = _XAI_FORMERLY.sub(lambda m: "\x01" + m.group(0) + "\x02", t)     # "(formerly xAI)", ", formerly xAI,"
+    parts = re.split(r"(\x01.*?\x02)", t)
+    t = "".join(x if x.startswith("\x01") else re.sub(r"\bxAI\b", "SpaceXSI", x) for x in parts)
+    t = t.replace("\x01", "").replace("\x02", "").replace("\x00", "SpaceXSI (formerly xAI)")
+    t = re.sub(r"\bSpaceXSI SpaceXSI\b", "SpaceXSI", t)
+    if "formerly" not in t or not re.search(r"\bformerly (?:known as |called |named )?xAI\b", t):
+        m = re.search(r"\bSpaceXSI\b(['’]s)?", t)
+        if m:
+            t = t[:m.start()] + ("SpaceXSI" + m.group(1) + " (formerly xAI)" if m.group(1) else "SpaceXSI (formerly xAI)") + t[m.end():]
     return t
+
+
+def fix_news_names(items):
+    """v17p: the maker-name rule on every shown story, every run: the summary ("xd") and the list line ("x"),
+    including summaries kept from the cache that were written before the rule. Returns how many fields changed."""
+    n = 0
+    for it in items:
+        for k in ("xd", "x"):
+            v = it.get(k)
+            if isinstance(v, str) and v:
+                f = fix_maker_names(v)
+                if f != v:
+                    it[k], n = f, n + 1
+    return n
 
 
 def aisum_request(model, prompt):
@@ -3636,6 +3664,12 @@ def main():
         log(f"AI summaries: {ast}" if ast["key"] else "AI summaries: OPENROUTER_API_KEY not set, skipped (stories keep 'x')")
     except Exception as e:                       # never let summaries stop the update
         log(f"AI summaries failed: {scrub_key(str(e), os.environ.get('OPENROUTER_API_KEY') or '')[:150]}")
+    try:                                         # v17p: name rule on cached summaries too, every run
+        nfix = fix_news_names(out["bignews"]["items"] + out["agents"]["news"]["items"])
+        if nfix:
+            log(f"Maker name fixed in {nfix} news text(s) (SpaceXSI (formerly xAI))")
+    except Exception as e:
+        log(f"Maker name fix failed: {str(e)[:150]}")
     raw["aisum"] = {u: x for u, x in aisum.items() if u in shown}               # bignews + agents news
     blob = json.dumps(out, ensure_ascii=False, separators=(",", ":"))
     raw_blob = json.dumps(raw, ensure_ascii=False, separators=(",", ":"))

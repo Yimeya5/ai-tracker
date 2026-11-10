@@ -2183,6 +2183,50 @@ class FullRunV16i(unittest.TestCase):
         m.main()                                                                  # second run: all from the cache
         self.assertEqual(len(asked), n)
 
+    def test_cached_summaries_get_the_maker_name_fix(self):
+        """v17p: a summary written before the name rule and served from the cache is fixed too, every run."""
+        os.environ["OPENROUTER_API_KEY"] = "sk-or-TEST-KEY-987654"
+        m = install_fakes(load(self.root), aa=False)
+        asked = []
+        def fake_or(key, title, source, feed, body, timeout=60):
+            asked.append(title)
+            return GOOD_SUMMARY, "anthropic/claude-haiku-5.5"
+        m.openrouter_summary = fake_or
+        def get(url, timeout=None, headers=None, **kw):
+            if url in EXTRA_PAGES:
+                return Resp(EXTRA_PAGES[url])
+            r = fake_get(url, timeout, headers, **kw)
+            return r if r.status_code == 200 else Resp(ARTICLE)
+        m.get = get
+        m.SECTIONS = [(n, getattr(m, "fetch_" + n)) for n in ALL_SECTIONS]
+        m.main()
+        rawp = self.root / "data" / "raw.json"
+        raw = json.loads(rawp.read_text())
+        old = ("Anthropic signed a deal for computing power. Its filing said it pays SpaceX subsidiary xAI $1.25 billion "
+               "per month to use xAI's computing power. The deal runs through May 2029. ") + GOOD_SUMMARY
+        for c in raw["aisum"].values():                               # as if written before the rule (cache only)
+            if c.get("xd"):
+                c["xd"] = old
+        rawp.write_text(json.dumps(raw))
+        n = len(asked)
+        m.main()
+        self.assertEqual(len(asked), n)                               # served from the cache, no new asks
+        d = self.data()
+        news = d["bignews"]["items"] + d["agents"]["news"]["items"]
+        fixed = [i for i in news if "computing power" in (i.get("xd") or "")]
+        self.assertTrue(fixed)
+        for i in news:
+            for k in ("xd", "x"):
+                v = (i.get(k) or "").replace("SpaceXSI (formerly xAI)", "")
+                self.assertNotRegex(v, r"\bxAI\b", (k, i["u"]))
+        xd = fixed[0]["xd"]
+        self.assertIn("it pays SpaceXSI (formerly xAI) $1.25 billion", xd)
+        self.assertIn("to use SpaceXSI's computing power", xd)
+        self.assertEqual(xd.count("(formerly xAI)"), 1)
+        self.assertNotIn("subsidiary", xd)
+        m.main()                                                      # a third run changes nothing more
+        self.assertEqual(self.data()["bignews"]["items"][0].get("xd"), d["bignews"]["items"][0].get("xd"))
+
 
 class AiSummariesV16i(unittest.TestCase):
     def setUp(self):
@@ -2596,6 +2640,43 @@ class AiSummariesV17o(unittest.TestCase):
         self.assertEqual(f("SpaceXSI (formerly xAI) said. xAI added."), "SpaceXSI (formerly xAI) said. SpaceXSI added.")
         self.assertEqual(f("No maker here."), "No maker here.")
         self.assertIn("SpaceXSI (formerly xAI)", self.m.AISUM_PROMPT)
+
+    def test_maker_name_reads_naturally_v17p(self):
+        f = self.m.fix_maker_names
+        self.assertEqual(f("It pays SpaceX subsidiary xAI $1.25 billion a month to use xAI's computing power."),
+                         "It pays SpaceXSI (formerly xAI) $1.25 billion a month to use SpaceXSI's computing power.")
+        self.assertEqual(f("SpaceX's xAI said. SpaceX-owned xAI added."), "SpaceXSI (formerly xAI) said. SpaceXSI added.")
+        self.assertEqual(f("SpaceX AI unit xAI said."), "SpaceXSI (formerly xAI) said.")
+        self.assertEqual(f("SpaceX and xAI merged."), "SpaceX and SpaceXSI (formerly xAI) merged.")   # two companies
+        self.assertEqual(f("SpaceXSI, formerly xAI, said. Later xAI added."),
+                         "SpaceXSI, formerly xAI, said. Later SpaceXSI added.")
+        self.assertEqual(f("SpaceXSI (formerly known as xAI) said. xAI added."),
+                         "SpaceXSI (formerly known as xAI) said. SpaceXSI added.")
+        self.assertEqual(f("SpaceX subsidiary SpaceXSI (formerly xAI) said."), "SpaceXSI (formerly xAI) said.")
+        self.assertEqual(f("xAI's model is fast."), "SpaceXSI's (formerly xAI) model is fast.")
+
+    def test_maker_name_fix_runs_once_only(self):
+        f = self.m.fix_maker_names
+        for s in ("It pays SpaceX subsidiary xAI $1 to use xAI's power.", "SpaceXSI (formerly xAI) said. xAI added.",
+                  "SpaceXSI (formerly xAI) said.", "xAI's model. xAI again. xAI.", "SpaceXSI, formerly xAI, said.",
+                  "Elon Musk's xAI launched Grok.", "No maker here."):
+            once = f(s)
+            self.assertEqual(f(once), once, s)
+            self.assertNotIn("(formerly xAI) (formerly xAI)", once)
+            self.assertNotIn("SpaceXSI SpaceXSI", once)
+            self.assertLessEqual(once.count("formerly"), 1, once)
+            self.assertNotRegex(re.sub(r"formerly (known as )?xAI", "", once), r"\bxAI\b", once)
+
+    def test_fix_news_names_covers_summary_and_list_line(self):
+        items = [{"u": "a", "x": "SpaceX subsidiary xAI raised money.", "xd": "xAI raised money. xAI's chips."},
+                 {"u": "b", "x": "SpaceXSI (formerly xAI) news.", "xd": "SpaceXSI (formerly xAI) said."},
+                 {"u": "c", "x": "OpenAI news."}]
+        self.assertEqual(self.m.fix_news_names(items), 2)
+        self.assertEqual(items[0]["x"], "SpaceXSI (formerly xAI) raised money.")
+        self.assertEqual(items[0]["xd"], "SpaceXSI (formerly xAI) raised money. SpaceXSI's chips.")
+        self.assertEqual(items[1]["xd"], "SpaceXSI (formerly xAI) said.")
+        self.assertNotIn("xd", items[2])
+        self.assertEqual(self.m.fix_news_names(items), 0)                 # nothing left to change
 
 
 if __name__ == "__main__":
