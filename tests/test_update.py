@@ -1988,6 +1988,9 @@ ARTICLE = ("<html><body><nav>Menu Home About</nav><article><h1>Big launch</h1>" 
 GOOD_SUMMARY = ("A new AI model was announced this week by the company. It is described as quicker than the version before it. "
                 "It should also cost less to run for people who build with it. Paying customers will get access gradually. "
                 "The rollout is planned to take a few weeks. Support for further languages is expected afterwards.")
+GOOD_SUMMARY_2 = ("The firm has shown a fresh model that answers faster than its last one. Builders should find it cheaper to use. "
+                  "Paid plans receive it step by step over several weeks. More languages are planned later on, "
+                  "and the firm says the older model stays on sale for now.")
 
 
 class MoreTestsV16i(unittest.TestCase):
@@ -2247,13 +2250,14 @@ class AiSummariesV16i(unittest.TestCase):
         self.assertNotIn("https://e.com/down", cache)                             # page down: tried again next run
         self.assertEqual((st["skipped"], st["failed"]), (2, 1))                  # v17n: spot#x read, no such section
 
-    def test_unusable_answer_is_retried_once(self):
+    def test_unusable_answer_is_retried_on_later_runs(self):
+        # v17o: tried again on every run (not just once) until AISUM_MAX_TRIES runs
         cache, items = {}, [{"u": "https://e.com/a", "t": "T", "x": ""}]
         calls = []
         ask = lambda *a: (calls.append(1) or ("SKIP", "m"))
-        for _ in range(3):
+        for _ in range(self.m.AISUM_MAX_TRIES + 3):
             self.m.fill_ai_summaries([dict(i) for i in items], cache, key="k", fetch=lambda u: ARTICLE, ask=ask)
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls), self.m.AISUM_MAX_TRIES)      # SKIP is not re-asked in the same run
 
     def test_limit_per_run(self):
         items = [{"u": f"https://e.com/{i}", "t": "T", "x": ""} for i in range(5)]
@@ -2357,10 +2361,10 @@ class AiSummariesV16j(unittest.TestCase):
         cache = {u: {"xd": "", "m": "anthropic/claude-haiku-5.5", "d": "2026-11-08", "tries": 1, "retry": True}}
         calls = []
         ask = lambda *a: (calls.append(1) or ("SKIP", "anthropic/claude-haiku-5.5"))
-        for _ in range(4):
+        for _ in range(self.m.AISUM_MAX_TRIES + 2):
             self.m.fill_ai_summaries([{"u": u, "t": "T", "x": ""}], cache, key="k", fetch=lambda u: ARTICLE, ask=ask)
-        self.assertEqual(len(calls), 2)                                          # fresh try + one retry, then given up
-        self.assertEqual(cache[u]["tries"], 2)
+        self.assertEqual(len(calls), self.m.AISUM_MAX_TRIES)                     # v17o: retried each run, then given up
+        self.assertEqual(cache[u]["tries"], self.m.AISUM_MAX_TRIES)
         self.assertFalse(cache[u].get("retry"))
         self.assertEqual(cache[u]["v"], self.m.AISUM_SETTINGS)
 
@@ -2464,8 +2468,12 @@ class AiSummariesV17n(unittest.TestCase):
         self.assertEqual(cache[u]["v"], self.m.AISUM_SETTINGS)
         again = [{"u": u, "t": "T", "x": "feed"}]
         self.m.fill_ai_summaries(again, cache, key="k", fetch=lambda u: ARTICLE, ask=lambda *a: (calls.append(1) or ("SKIP", "m")))
-        self.assertEqual(len(calls), 1)                                           # not asked again
-        self.assertEqual(again[0]["xd"], GOOD_SUMMARY)
+        self.assertEqual(len(calls), 2)                                           # v17o: asked again on the next run
+        self.assertEqual(again[0]["xd"], GOOD_SUMMARY)                            # the older one still shows
+        third = [{"u": u, "t": "T", "x": "feed"}]
+        self.m.fill_ai_summaries(third, cache, key="k", fetch=lambda u: ARTICLE, ask=lambda *a: (calls.append(1) or (GOOD_SUMMARY_2, "m")))
+        self.assertEqual(third[0]["xd"], GOOD_SUMMARY_2)                         # replaced once a redo is accepted
+        self.assertFalse(cache[u].get("redo"))
 
     def test_long_summary_is_kept_whole(self):
         long = " ".join(f"The company said point number {i} about the launch is true and matters to buyers." for i in range(30))
@@ -2474,6 +2482,121 @@ class AiSummariesV17n(unittest.TestCase):
     def test_prompt_asks_for_every_point(self):
         self.assertIn("EVERY point", self.m.AISUM_PROMPT)
         self.assertNotIn("5 to 8 sentences", self.m.AISUM_PROMPT)
+
+
+class AiSummariesV17o(unittest.TestCase):
+    """v17o: a rejected summary is asked again (same run, with the reason) and retried on later runs until one is
+    accepted; the reason is logged; a story that kept an older summary after a rejected redo gets fresh tries; blocked
+    pages use the public reader, then other coverage; Grok's maker is named "SpaceXSI (formerly xAI)"."""
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.m = load(self.root)
+        self.logs = []
+        self.m.log = lambda *a: self.logs.append(" ".join(map(str, a)))
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def copied(self):
+        return self.m.article_text(ARTICLE)          # the article's own words: rejected as copied
+
+    def test_reject_reasons_are_named(self):
+        self.assertIn("SKIP", self.m.clean_ai_summary_why("SKIP", "x")[1])
+        self.assertIn("too short", self.m.clean_ai_summary_why("One. Two. Three.", "x")[1])
+        self.assertIn("article's wording", self.m.clean_ai_summary_why(self.copied(), self.copied())[1])
+        self.assertEqual(self.m.clean_ai_summary_why(GOOD_SUMMARY, "unrelated"), (GOOD_SUMMARY, ""))
+
+    def test_rejected_answer_is_asked_again_with_the_reason_in_the_same_run(self):
+        u, bodies = "https://e.com/terra", []
+        answers = [self.copied(), GOOD_SUMMARY]
+        ask = lambda t, s, f, b: (bodies.append(b) or (answers[len(bodies) - 1], "m"))
+        cache, items = {}, [{"u": u, "t": "T", "x": "feed"}]
+        _, st = self.m.fill_ai_summaries(items, cache, key="k", fetch=lambda u: ARTICLE, ask=ask)
+        self.assertEqual(len(bodies), 2)
+        self.assertNotIn("previous version was not accepted", bodies[0])
+        self.assertIn("previous version was not accepted (too close to the article's wording", bodies[1])
+        self.assertEqual(items[0]["xd"], GOOD_SUMMARY)
+        self.assertEqual((st["new"], st["rejected"], st["reasked"]), (1, 1, 1))
+        self.assertTrue(any("rejected (too close to the article's wording" in l for l in self.logs))
+
+    def test_failed_story_keeps_trying_each_run_and_stores_why(self):
+        u, calls = "https://e.com/terra", []
+        cache = {u: {"xd": "", "m": "anthropic/claude-haiku-5.5", "d": "2026-11-09", "tries": 2, "v": self.m.AISUM_SETTINGS}}
+        ask = lambda *a: (calls.append(1) or (self.copied(), "m"))
+        items = [{"u": u, "t": "T", "x": "feed"}]
+        self.m.fill_ai_summaries(items, cache, key="k", fetch=lambda u: ARTICLE, ask=ask)
+        self.assertEqual(len(calls), self.m.AISUM_ASK_TRIES)           # the live 'given up after 2' entry is tried again
+        self.assertIn("article's wording", cache[u]["why"])
+        self.assertTrue(cache[u]["retry"])
+        self.assertEqual(cache[u]["tries"], 3)
+        self.assertTrue(any("will try again next run" in l for l in self.logs))
+        items = [{"u": u, "t": "T", "x": "feed"}]
+        self.m.fill_ai_summaries(items, cache, key="k", fetch=lambda u: ARTICLE, ask=lambda *a: (GOOD_SUMMARY, "m"))
+        self.assertEqual(items[0]["xd"], GOOD_SUMMARY)
+        self.assertFalse(cache[u].get("retry"))
+        self.assertNotIn("why", cache[u])
+
+    def test_gives_up_after_max_tries(self):
+        u, calls = "https://e.com/x", []
+        cache = {u: {"xd": "", "m": "m", "d": "2026-11-09", "tries": self.m.AISUM_MAX_TRIES - 1, "retry": True, "v": self.m.AISUM_SETTINGS}}
+        for _ in range(3):
+            self.m.fill_ai_summaries([{"u": u, "t": "T", "x": "f"}], cache, key="k", fetch=lambda u: ARTICLE,
+                                     ask=lambda *a: (calls.append(1) or ("SKIP", "m")))
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(cache[u].get("retry"))
+        self.assertTrue(any("given up" in l for l in self.logs))
+
+    def test_kept_older_summary_is_redone_once_listed(self):
+        u = "https://x.ai/news/grok-voice-3"
+        cache = {u: {"xd": GOOD_SUMMARY, "m": "m", "d": "2026-11-08", "tries": 1, "v": self.m.AISUM_SETTINGS}}
+        calls = []
+        items = [{"u": u, "t": "Grok", "x": "feed"}]
+        self.m.fill_ai_summaries(items, cache, key="k", fetch=lambda u: ARTICLE, ask=lambda *a: (calls.append(1) or (GOOD_SUMMARY_2, "m")))
+        self.assertEqual(items[0]["xd"], GOOD_SUMMARY_2)
+        self.assertEqual(cache[u]["fix"], self.m.AISUM_REDO_ONCE[u])
+        items = [{"u": u, "t": "Grok", "x": "feed"}]
+        self.m.fill_ai_summaries(items, cache, key="k", fetch=lambda u: ARTICLE, ask=lambda *a: (calls.append(1) or (GOOD_SUMMARY, "m")))
+        self.assertEqual(len(calls), 1)                                  # done: not redone again
+        self.assertEqual(items[0]["xd"], GOOD_SUMMARY_2)
+
+    def test_kept_older_summary_while_redo_fails_then_replaced(self):
+        u = "https://e.com/old"
+        cache = {u: {"xd": GOOD_SUMMARY, "m": "m", "d": "2026-11-01", "tries": 1, "v": 3}}
+        items = [{"u": u, "t": "T", "x": "feed"}]
+        self.m.fill_ai_summaries(items, cache, key="k", fetch=lambda u: ARTICLE, ask=lambda *a: (self.copied(), "m"))
+        self.assertEqual(items[0]["xd"], GOOD_SUMMARY)
+        self.assertTrue(cache[u]["redo"])
+        self.assertEqual(cache[u]["xd"], GOOD_SUMMARY)
+        items = [{"u": u, "t": "T", "x": "feed"}]
+        self.m.fill_ai_summaries(items, cache, key="k", fetch=lambda u: ARTICLE, ask=lambda *a: (GOOD_SUMMARY_2, "m"))
+        self.assertEqual(items[0]["xd"], GOOD_SUMMARY_2)
+
+    def test_blocked_page_uses_reader_then_other_coverage(self):
+        def blocked(u):
+            raise RuntimeError("403 Forbidden")
+        bodies = []
+        ask = lambda t, s, f, b: (bodies.append(b) or (GOOD_SUMMARY, "m"))
+        _, st = self.m.fill_ai_summaries([{"u": "https://openai.com/a", "t": "T", "x": "f"}], {}, key="k", fetch=blocked,
+                                         reader=lambda u: READER_MD, ask=ask)
+        self.assertEqual(st["reader"], 1)
+        self.assertIn("We are introducing X 0", bodies[0])
+        it = {"u": "https://openai.com/terra", "t": "Introducing GPT-6.1 Terra model", "x": "short"}
+        pool = [it, {"u": "https://other.com/t", "t": "OpenAI introducing GPT-6.1 Terra model", "s": "Other",
+                     "x": "Long coverage sentence about Terra and its prices and scores. " * 15}]
+        def reader_down(u):
+            raise RuntimeError("reader 429")
+        _, st = self.m.fill_ai_summaries([it], {}, key="k", fetch=blocked, reader=reader_down, ask=ask, pool=pool)
+        self.assertEqual(st["coverage"], 1)
+        self.assertIn("Long coverage sentence", bodies[-1])
+
+    def test_maker_named_spacexsi(self):
+        f = self.m.fix_maker_names
+        self.assertEqual(f("xAI launched Grok. Later xAI said more."),
+                         "SpaceXSI (formerly xAI) launched Grok. Later SpaceXSI said more.")
+        self.assertEqual(f("SpaceXSI (formerly xAI) said. xAI added."), "SpaceXSI (formerly xAI) said. SpaceXSI added.")
+        self.assertEqual(f("No maker here."), "No maker here.")
+        self.assertIn("SpaceXSI (formerly xAI)", self.m.AISUM_PROMPT)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

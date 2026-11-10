@@ -2007,6 +2007,16 @@ AISUM_SETTINGS = 4            # bump when the request changes: answers rejected 
                               # (v17n: 4 = better page reading + summaries cover every point; older summaries and 'too
                               #  little article text' entries get one fresh try, the old summary stays until a new one is made)
 AISUM_MAX_NEW = 20            # new summaries per run at most
+AISUM_MAX_TRIES = 6           # v17o: a story whose summary failed (answer rejected, page not readable) is tried again on
+                              #  each run (not just once) until one is accepted, up to this many runs; then it is given up
+AISUM_ASK_TRIES = 2           # v17o: answers per story per run: a rejected answer is asked again once, saying why
+AISUM_REDO_ONCE = {            # v17o: stories that kept an OLDER summary because their v17n redo was rejected (before
+    "https://x.ai/news/grok-voice-3": "v17o",   # v17o such a story was marked done): one more fresh try each
+}
+AISUM_REASK_HINT = (
+    "\n\nIMPORTANT: your previous version was not accepted ({why}). Write it again from the article above: use your "
+    "own sentence structure and different wording for every sentence, never more than 6 of the article's words in a "
+    "row, and still keep every name, number, price, score, date and point.")
 AISUM_MIN_SOURCE = 600        # characters of real article text needed; less -> no AI summary (nothing to summarise)
 AISUM_PROMPT = (
     "Rewrite this news article for a general reader, in your own clear and simple words.\n"
@@ -2015,6 +2025,7 @@ AISUM_PROMPT = (
     "follows the article: a short article gets a short summary, a long article a long one. Write short paragraphs of "
     "1 to 3 sentences, one topic each, with a blank line between paragraphs. Plain text only: no title, no lists, "
     "no markdown, no links. Do not say what the article leaves out. Do not copy sentences from the article and do not quote more than 6 words in a row. "
+    "Call the company xAI (maker of Grok) \"SpaceXSI (formerly xAI)\" the first time and \"SpaceXSI\" after that. "
     "If the text is not a real article (a cookie notice, a paywall, an error page), answer only: SKIP\n\n"
     "Headline: {title}\nSource: {source}\nFeed text: {feed}\n\nArticle text:\n{body}")
 AISUM_SOURCE_MAX = 24000      # v17n: characters of article text sent (was 9000), so long articles are covered whole
@@ -2117,11 +2128,15 @@ def _shingles(text, n=8):
     return {" ".join(w[i:i + n]) for i in range(max(0, len(w) - n + 1))}
 
 
-def clean_ai_summary(text, source):
-    """Plain text, short paragraphs (v17n: as long as the article needs), no links, not copied (at most a few 8-word runs shared with the source)."""
+def clean_ai_summary_why(text, source):
+    """v17o: (summary, '') when the answer is usable, else ('', the reason it was rejected) so the log can say why.
+    Plain text, short paragraphs (v17n: as long as the article needs), no links, not copied (at most a few 8-word
+    runs shared with the source)."""
     t = str(text or "").strip()
-    if not t or t.upper().startswith("SKIP"):
-        return ""
+    if not t:
+        return "", "empty answer"
+    if t.upper().startswith("SKIP"):
+        return "", "the AI answered SKIP (it judged the text not a real article)"
     t = re.sub(r"https?://\S+", "", t)
     t = re.sub(r"[*_#`>]+", "", t)
     t = "\n\n".join(" ".join(p.split()) for p in re.split(r"\n\s*\n", t) if p.strip())
@@ -2130,11 +2145,38 @@ def clean_ai_summary(text, source):
         t = t[:ends[-1]].rstrip() if ends else ""
     # sentences end at . ! ? followed by a space and a capital/digit/quote, so "U.S." and "Grok Voice 3.0" don't count
     sents = [x for x in re.split(r"(?<=[.!?])[\"”’)]?\s+(?=[A-Z0-9\"“‘(])", t.replace("\n\n", " ")) if len(x.strip()) > 2]
-    if len(t) < 250 or len(t) > 12000 or len(sents) < 3 or len(sents) > 120:      # v17n: length follows the article
-        return ""
+    if len(t) < 250:
+        return "", f"too short ({len(t)} characters, needs 250)"
+    if len(t) > 12000:
+        return "", f"too long ({len(t)} characters, max 12000)"
+    if len(sents) < 3:
+        return "", f"too few sentences ({len(sents)}, needs 3)"
+    if len(sents) > 120:
+        return "", f"too many sentences ({len(sents)}, max 120)"
     sh = _shingles(t)
-    if sh and len(sh & _shingles(source)) / len(sh) > 0.3:
-        return ""                     # too close to the article's own words (over 30% of its 8-word runs copied)
+    if sh:
+        share = len(sh & _shingles(source)) / len(sh)
+        if share > 0.3:               # too close to the article's own words (over 30% of its 8-word runs copied)
+            return "", f"too close to the article's wording ({round(share * 100)}% of its 8-word runs copied, max 30%)"
+    return fix_maker_names(t), ""
+
+
+def clean_ai_summary(text, source):
+    """The usable summary, or '' when it is rejected (see clean_ai_summary_why for the reason)."""
+    return clean_ai_summary_why(text, source)[0]
+
+
+def fix_maker_names(text):
+    """v17o product rule: Grok's maker is shown as "SpaceXSI (formerly xAI)" (first time) and "SpaceXSI" after."""
+    t = str(text or "")
+    if not re.search(r"\bxAI\b", t):
+        return t
+    t = re.sub(r"\bSpaceXSI \(formerly xAI\)", "\x00", t)               # keep correct ones as they are
+    t = re.sub(r"\(formerly xAI\)", "\x01", t)
+    t = re.sub(r"\bxAI\b", "SpaceXSI", t)
+    t = t.replace("\x01", "(formerly xAI)").replace("\x00", "SpaceXSI (formerly xAI)")
+    if "(formerly xAI)" not in t:
+        t = t.replace("SpaceXSI", "SpaceXSI (formerly xAI)", 1)
     return t
 
 
@@ -2199,33 +2241,56 @@ def related_coverage(it, pool, limit=4000):
     return "\n".join(out)[:limit]
 
 
+def _redo_due(u, c):
+    """v17o: a cached story is tried again on this run when its last answer was not usable and it has not used up
+    AISUM_MAX_TRIES runs: an empty summary (rejected answer, unreadable page; not 'too little article text'), or an
+    older summary kept because its fresh redo was rejected ("redo", or listed in AISUM_REDO_ONCE)."""
+    if u in AISUM_REDO_ONCE and c.get("fix") != AISUM_REDO_ONCE[u]:
+        return True
+    if int(c.get("tries", 0) or 0) >= AISUM_MAX_TRIES:
+        return False
+    if c.get("redo") or c.get("retry"):
+        return True
+    return not c.get("xd") and c.get("why") != "too little article text"
+
+
 def fill_ai_summaries(items, cache, key=None, max_new=AISUM_MAX_NEW, fetch=None, ask=None, reader=None, pool=None):
-    """Add 'xd' (+ 'xdBy') to each item. cache = {url: {"xd": text, "m": model, "d": date}} kept between runs;
-    an empty xd in the cache means 'tried, nothing usable': retried once (tries < 2), then given up. An answer rejected
-    under older request settings ("v" below AISUM_SETTINGS, e.g. cut off before v16j) starts again with a fresh try.
+    """Add 'xd' (+ 'xdBy') to each item. cache = {url: {"xd": text, "m": model, "d": date, "tries": n}} kept
+    between runs. An answer rejected under older request settings ("v" below AISUM_SETTINGS) starts again fresh.
     v17n: a link to one entry on a page (#part) is summarised from that entry's own section; a page that blocks the
     plain fetch (openai.com answers 403) or reads too short is read through the public reader (no key); with still no
     article text, the same story's feed text from other sites is used when there is enough of it. An item with no
-    feed line ('x' empty) gets the first sentence(s) of its summary as the list line. Returns (items, stats)."""
+    feed line ('x' empty) gets the first sentence(s) of its summary as the list line.
+    v17o: a rejected answer is asked again once in the same run with the reason; a story still without a usable
+    summary (or keeping an older one) is tried again on every run until one is accepted, up to AISUM_MAX_TRIES runs;
+    the reason is logged and kept in the cache ("why"). Returns (items, stats)."""
     key = key if key is not None else (os.environ.get("OPENROUTER_API_KEY") or "").strip()
     if reader is None and fetch is None:
         reader = lambda u: get(READER_URL + u, timeout=40, headers={"Accept": "text/plain"}).text
     fetch = fetch or (lambda u: html_of(get(u, timeout=15, headers=POLITE_UA)))
     ask = ask or (lambda title, src, feed, body: openrouter_summary(key, title, src, feed, body))
-    st = {"cached": 0, "new": 0, "skipped": 0, "failed": 0, "key": bool(key), "reader": 0, "coverage": 0}
+    st = {"cached": 0, "new": 0, "skipped": 0, "failed": 0, "key": bool(key), "reader": 0, "coverage": 0,
+          "reasked": 0, "rejected": 0}
     made = 0
     for it in items:
         u = it.get("u") or ""
         c = cache.get(u)
         old_xd, no_feed_line = "", not str(it.get("x") or "").strip()
+        prev_tries = 0
         if c is not None and int(c.get("v", 1)) < AISUM_SETTINGS and made < max_new and key:
-            old_xd = c.get("xd") or ""               # made under older settings: one fresh try; the old one stays
+            old_xd = c.get("xd") or ""               # made under older settings: a fresh try; the old one stays
             c = None                                 # shown (and cached) unless a new one is made
-            if old_xd:
-                it["xd"], it["xdBy"] = old_xd, "AI summary"
-                if not str(it.get("x") or "").strip():
-                    it["x"] = lead_text(old_xd)
-        if c is not None and not c.get("retry"):
+        elif c is not None and _redo_due(u, c) and made < max_new and key:
+            old_xd = c.get("xd") or ""               # v17o: last answer not usable: try again (old one stays shown)
+            prev_tries = int(c.get("tries", 0) or 0)
+            if u in AISUM_REDO_ONCE and c.get("fix") != AISUM_REDO_ONCE[u]:
+                prev_tries = 0                       # a fresh count for the one-time redo
+            c = None
+        if old_xd:
+            it["xd"], it["xdBy"] = old_xd, "AI summary"
+            if not str(it.get("x") or "").strip():
+                it["x"] = lead_text(old_xd)
+        if c is not None:
             if c.get("xd"):
                 it["xd"], it["xdBy"] = c["xd"], "AI summary"
                 if not str(it.get("x") or "").strip():
@@ -2235,8 +2300,28 @@ def fill_ai_summaries(items, cache, key=None, max_new=AISUM_MAX_NEW, fetch=None,
         if not key or not u.startswith("http") or made >= max_new:
             continue
         made += 1
+        tries = prev_tries + 1
+
+        def keep_trying(why, counted="skipped"):
+            """No usable summary this run: keep the older one (if any) and try again on the next run."""
+            ent = {**cache.get(u, {}), "xd": old_xd, "d": cache.get(u, {}).get("d") or TODAY, "tries": tries,
+                   "why": why, "v": AISUM_SETTINGS}
+            if not old_xd:
+                ent["d"] = TODAY
+            ent.pop("retry", None)
+            ent.pop("redo", None)
+            if u in AISUM_REDO_ONCE:
+                ent["fix"] = AISUM_REDO_ONCE[u]
+            if tries < AISUM_MAX_TRIES:
+                ent["redo" if old_xd else "retry"] = True
+            cache[u] = ent
+            st[counted] += 1
+            log(f"aisum: {u} no usable summary (try {tries} of {AISUM_MAX_TRIES}): {why}"
+                + ("; older summary kept" if old_xd else "")
+                + ("; will try again next run" if tries < AISUM_MAX_TRIES else "; given up"))
+
         page, frag = (u.split("#", 1) + [""])[:2]
-        body, err = "", None
+        body, err, src_used = "", None, "page"
         try:
             raw_page = fetch(page)
             body = section_text(raw_page, frag) if frag else article_text(raw_page)
@@ -2246,7 +2331,7 @@ def fill_ai_summaries(items, cache, key=None, max_new=AISUM_MAX_NEW, fetch=None,
             try:
                 rb = reader_text(reader(page))
                 if len(rb) > len(body):
-                    body, err = rb, None
+                    body, err, src_used = rb, None, "public reader"
                     st["reader"] += 1
             except Exception as e:
                 log(f"aisum: reader for {u} failed ({scrub_key(str(e), key)[:80]})")
@@ -2254,42 +2339,55 @@ def fill_ai_summaries(items, cache, key=None, max_new=AISUM_MAX_NEW, fetch=None,
             cov = related_coverage(it, pool)
             if len(cov) + len(body) >= AISUM_MIN_SOURCE:
                 body = (body + "\n" + cov).strip()
-                err = None
+                err, src_used = None, "other coverage"
                 st["coverage"] += 1
         if err is not None and len(body) < AISUM_MIN_SOURCE:
             log(f"aisum: {u} not read ({scrub_key(str(err), key)[:80]})")
-            st["failed"] += 1
-            continue                                 # page down today: try again tomorrow
+            if old_xd or (cache.get(u) or {}).get("tries"):
+                keep_trying(f"page not read ({scrub_key(str(err), key)[:60]})", "failed")
+            else:
+                st["failed"] += 1                    # page down today: try again tomorrow
+            continue
         if len(body) < AISUM_MIN_SOURCE:
-            cache[u] = ({**cache.get(u, {}), "xd": old_xd, "v": AISUM_SETTINGS} if old_xd else
-                        {"xd": "", "m": "", "d": TODAY, "why": "too little article text", "v": AISUM_SETTINGS})
+            if old_xd:
+                cache[u] = {**cache.get(u, {}), "xd": old_xd, "v": AISUM_SETTINGS, "why": "too little article text"}
+                cache[u].pop("retry", None)
+                cache[u].pop("redo", None)
+            else:
+                cache[u] = {"xd": "", "m": "", "d": TODAY, "why": "too little article text", "v": AISUM_SETTINGS}
             st["skipped"] += 1
             continue
-        try:
-            text, model = ask(it.get("t") or "", it.get("s") or "", it.get("x") or "", body)
-        except Exception as e:
-            log(f"aisum: {u} failed ({scrub_key(str(e), key)[:80]})")
-            st["failed"] += 1
-            continue
-        if not model:
-            st["failed"] += 1
-            continue
-        xd = clean_ai_summary(text, body + "\n" + (it.get("x") or ""))
-        tries = int((c or {}).get("tries", 0)) + 1
-        if not xd and old_xd:                        # the fresh try was not usable: keep the older summary
-            cache[u] = {**cache.get(u, {}), "xd": old_xd, "v": AISUM_SETTINGS}
-            st["skipped"] += 1
+        xd, model, why, feed = "", "", "", it.get("x") or ""
+        for n in range(AISUM_ASK_TRIES):
+            hint_body = body if n == 0 else body + AISUM_REASK_HINT.format(why=why)
+            try:
+                text, model = ask(it.get("t") or "", it.get("s") or "", feed, hint_body)
+            except Exception as e:
+                log(f"aisum: {u} failed ({scrub_key(str(e), key)[:80]})")
+                model, why = "", "the AI request failed"
+                break
+            if not model:
+                why = "no AI model answered"
+                break
+            xd, why = clean_ai_summary_why(text, body + "\n" + feed)
+            if xd:
+                break
+            st["rejected"] += 1
+            log(f"aisum: {u} answer from {model} rejected ({why}), source: {src_used}")
+            if why.startswith("the AI answered SKIP"):
+                break                                # not an article: asking again won't help
+            if n + 1 < AISUM_ASK_TRIES:
+                st["reasked"] += 1
+        if not xd:
+            keep_trying(why or "rejected", "failed" if not model else "skipped")
             continue
         cache[u] = {"xd": xd, "m": model, "d": TODAY, "tries": tries, "v": AISUM_SETTINGS}
-        if not xd and tries < 2:
-            cache[u]["retry"] = True                 # the answer was not usable; one more try on the next run
-        if xd:
-            it["xd"], it["xdBy"] = xd, "AI summary"
-            if no_feed_line:
-                it["x"] = lead_text(xd)
-            st["new"] += 1
-        else:
-            st["skipped"] += 1
+        if u in AISUM_REDO_ONCE:
+            cache[u]["fix"] = AISUM_REDO_ONCE[u]
+        it["xd"], it["xdBy"] = xd, "AI summary"
+        if no_feed_line or (old_xd and str(it.get("x") or "") == lead_text(old_xd)):
+            it["x"] = lead_text(xd)
+        st["new"] += 1
     return items, st
 
 
