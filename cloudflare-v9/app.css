@@ -717,7 +717,9 @@ html.sheetopen{overflow:hidden}
 .story{max-width:680px}
 .story .storyback{margin:24px 0 8px}
 .story .storyback.bottom{margin:24px 0 0}
-.story .stag{margin:16px 0 0}
+.story .stag{margin:16px 0 0;display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px}
+.story .stag .tag{margin:0}
+.story .stag .ndate{font-size:13.5px;line-height:1.4;color:var(--muted);white-space:nowrap}   /* v17n7: the date beside the label */
 .story .sth{margin:8px 0;font-size:24px;line-height:1.2;letter-spacing:-.025em;overflow-wrap:anywhere}
 .story .sth:focus{outline:none}
 .story .smeta{margin:0 0 16px;font-size:14.5px;color:var(--muted)}

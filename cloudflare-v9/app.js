@@ -4,7 +4,7 @@
   //   Find your AI: Top Picks · Cost · Agents   Try it: Explore · Race   Updates: New Releases · News
   // Each tab shows a short simple view first, and "See more" opens the full details.
   // All picks are made by fixed rules in scripts/update_data.py; this file only shows them.
-  var VERSION = "v17n6-2026-11-12";   // the same as sw.js
+  var VERSION = "v17n8-2026-11-12";   // the same as sw.js
   // ---- settings for Explore ("Ask the AIs", see worker/README.md). Leave ASK_API empty and the Ask tab is the free v8 tab.
   var CONFIG = {
     ASK_API: "https://ai-tracker-ask.ai-tracker-ask.workers.dev",            // the Worker URL, e.g. "https://ai-tracker-ask.<you>.workers.dev"
@@ -796,7 +796,9 @@
     if (!paras.length) paras = list(n.w).filter(function (x) { return typeof x === "string" && x.trim(); }).map(function (x) { return x.trim(); });
     var meta = [n.s ? String(n.s) : "", n.d ? day(n.d) : ""].filter(Boolean).join(" · ");
     return '<article class="story">' + back +
-      (n.tag ? '<p class="stag"><span class="tag">' + esc(tagName(n.tag)) + "</span></p>" : "") +
+      // v17n7: the date on the top line beside the label (as in the list rows); no label = the date alone
+      (n.tag || (n.d && day(n.d)) ? '<p class="stag">' + (n.tag ? '<span class="tag">' + esc(tagName(n.tag)) + "</span>" : "") +
+        (n.d && day(n.d) ? '<small class="ndate">' + esc(day(n.d)) + "</small>" : "") + "</p>" : "") +
       '<h2 class="sth" id="storyh" tabindex="-1" dir="auto">' + esc(n.t) + "</h2>" +
       (paras.length ? '<div class="sbody" dir="auto">' + paras.map(function (x) { return "<p>" + esc(x) + "</p>"; }).join("") + "</div>"
         : '<p class="snone muted">No summary from the source yet.</p>') +
@@ -813,7 +815,7 @@
   }
   function vNewsMore() {
     var items = list(D.bignews && D.bignews.items);
-    var h = backButton() + "<h2>News: last 30 days</h2><p class=\"sub\">" + esc((D.bignews && D.bignews.rules) || "") + " From the companies' own pages, AI lab blogs and tech sites, picked by fixed word rules (opinion, lawsuits, rumors, partnerships and customer stories are left out). The same story from several sites is shown once, from the company's own page when there is one.</p>" + staleNote("news");
+    var h = backButton() + "<h2>News</h2><p class=\"sub\">Latest AI news.</p>" + staleNote("news");
     h += '<ul class="rows card">' + (items.slice(0, 30).map(function (n, i) { return newsRow(n, "news", i); }).join("") || '<li class="muted">No updates right now.</li>') + "</ul>";
     return h + backButton() + creditsText(["official", "news"]);
   }
