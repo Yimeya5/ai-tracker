@@ -58,7 +58,7 @@ button{font:inherit;color:inherit}
 .brand{display:flex;align-items:center;gap:12px;min-width:0;color:var(--text);text-decoration:none;border-radius:12px}
 .brand .mark{flex:none;display:block;width:44px;height:44px}
 .title{min-width:0}
-.wordmark{margin:0;font-size:26px;line-height:1.05;font-weight:700;letter-spacing:-.03em}
+.wordmark{margin:0;font-size:30px;line-height:1.05;font-weight:700;letter-spacing:-.03em}
 .wordmark .pro{color:var(--accent)}
 .tagline{margin:4px 0 0;font-size:14px;line-height:1.3;color:var(--muted);font-weight:500;letter-spacing:0;white-space:nowrap}
 .linkbtn[hidden]{display:none}
@@ -101,7 +101,7 @@ button{font:inherit;color:inherit}
 .hib svg,.hch svg,.secback svg{display:block}
 .hch{position:absolute;top:20px;right:16px;color:var(--muted)}
 .hbody{display:contents}
-.view .htt{grid-area:title;margin:0;padding-right:24px;font-size:27px;line-height:1.15;font-weight:700;letter-spacing:-.025em}
+.view .htt{grid-area:title;margin:0;padding-right:24px;font-size:24px;line-height:1.15;font-weight:700;letter-spacing:-.025em}
 .hdesc{grid-area:desc;margin:0;font-size:14.5px;line-height:1.4;color:var(--muted)}
 .hmain{display:block;margin:0;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .hmain:focus-visible{outline:none}
@@ -115,7 +115,7 @@ button{font:inherit;color:inherit}
 .secback{display:inline-flex;align-items:center;gap:2px;min-height:44px;margin:0 0 0 -10px;padding:0 12px 0 4px;border:0;border-radius:10px;
   background:none;color:var(--accent);font:inherit;font-size:16px;font-weight:550;cursor:pointer}
 .secback:hover{background:var(--tint)}
-.sectt{margin:4px 0 12px;font-size:30px;line-height:1.15;font-weight:700;letter-spacing:-.025em}
+.sectt{margin:4px 0 12px;font-size:25px;line-height:1.15;font-weight:700;letter-spacing:-.025em}
 /* segmented tabs: one soft track, the current tab is purple (the only accent) */
 .stabs{display:flex;gap:4px;padding:4px;border-radius:12px;background:var(--card);box-shadow:var(--shadow)}
 .stab{flex:1 1 0;min-width:0;min-height:44px;margin:0;padding:0 8px;border:0;border-radius:9px;background:none;color:var(--text);
@@ -132,7 +132,7 @@ button{font:inherit;color:inherit}
 
 /* ---------------------------------------------------------------- content */
 main:focus{outline:none}
-.view h2{font-size:28px;line-height:1.15;font-weight:700;letter-spacing:-.025em;margin:32px 0 8px;text-wrap:balance}
+.view h2{font-size:24px;line-height:1.15;font-weight:700;letter-spacing:-.025em;margin:32px 0 8px;text-wrap:balance}
 .view h3{font-size:18px;line-height:1.3;font-weight:650;letter-spacing:-.01em;margin:32px 0 12px;text-wrap:balance}
 .sub{margin:0 0 24px;color:var(--muted);font-size:16px}
 .note{color:var(--muted);font-size:15px;margin:0 0 12px}
@@ -699,7 +699,7 @@ html.sheetopen{overflow:hidden}
 .story .storyback{margin:24px 0 8px}
 .story .storyback.bottom{margin:24px 0 0}
 .story .stag{margin:16px 0 0}
-.story .sth{margin:8px 0;font-size:28px;line-height:1.2;letter-spacing:-.025em;overflow-wrap:anywhere}
+.story .sth{margin:8px 0;font-size:24px;line-height:1.2;letter-spacing:-.025em;overflow-wrap:anywhere}
 .story .sth:focus{outline:none}
 .story .smeta{margin:0 0 16px;font-size:14.5px;color:var(--muted)}
 .sbody p{margin:0 0 16px;font-size:17px;line-height:1.65;overflow-wrap:anywhere}
@@ -727,7 +727,7 @@ html.sheetopen{overflow:hidden}
   .hib{width:96px;height:96px;border-radius:26px}
   .hib svg{width:48px;height:48px}
   .hch{top:50%;right:28px;transform:translateY(-50%)}
-  .view .htt{font-size:38px;padding-right:40px}
+  .view .htt{font-size:30px;padding-right:40px}
   .hdesc{font-size:17px;padding-right:40px}
   .hchips{margin-top:16px;gap:10px}
   .hchip{min-height:48px;font-size:16px;padding:0 20px}
@@ -740,17 +740,18 @@ html.sheetopen{overflow:hidden}
   .lanes{grid-template-columns:repeat(2,minmax(0,1fr))}
   .racechips{grid-template-columns:repeat(4,minmax(0,1fr))}
   .toast,.swupdate,.offline{bottom:24px}
-  .view h2{font-size:32px;margin-top:40px}
+  .view h2{font-size:28px;margin-top:40px}
+  .wordmark{font-size:34px}
 }
 @media (max-width:420px){
-  .wordmark{font-size:24px}
+  .wordmark{font-size:28px}
   .brand .mark{width:42px;height:42px}
   .tagline{font-size:13.5px}
   .ico{width:44px;height:44px;font-size:22px}
   .name{font-size:19px}
   .pick .body{padding:0 16px 16px 16px}
   .rows{padding:0 16px}
-  .view h2{font-size:26px}
+  .view h2{font-size:23px}
 }
 /* small phones (360 px): a little more room for the AI names next to the ▾ */
 @media (max-width:380px){
@@ -765,7 +766,7 @@ html.sheetopen{overflow:hidden}
   .hcard{grid-template-columns:minmax(0,1fr);grid-template-areas:"icon" "title" "desc" "chips";row-gap:8px;padding:28px 36px}
   .hib{justify-self:start;margin-bottom:16px}
   .hch{top:40px;transform:none;right:32px}
-  .view .htt{font-size:40px}
+  .view .htt{font-size:30px}
   .hdesc{font-size:18px}
   .hchips{margin-top:18px}
 }
@@ -774,7 +775,7 @@ html.sheetopen{overflow:hidden}
   .page{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
   .top{gap:8px}
   .brand{gap:10px}
-  .wordmark{font-size:23px}
+  .wordmark{font-size:26px}
   .tagline{font-size:12.5px}
   .askbox{padding:8px}
   .chips{gap:6px}

@@ -25,10 +25,10 @@ function manyReleases(n) {
   return out;
 }
 
-test("v17l: version bumped in app.js and sw.js", () => {
-  assert.match(read("cloudflare-v9/sw.js"), /const VERSION = "v17l2-2026-11-11"/);
-  assert.match(read("cloudflare-v9/app.js"), /var VERSION = "v17l2-2026-11-11"/);
-  assert.equal(load().version, "v17l2-2026-11-11");
+test("v17l: version bumped in app.js and sw.js (v17m: header sizes)", () => {
+  assert.match(read("cloudflare-v9/sw.js"), /const VERSION = "v17m-2026-11-11"/);
+  assert.match(read("cloudflare-v9/app.js"), /var VERSION = "v17m-2026-11-11"/);
+  assert.equal(load().version, "v17m-2026-11-11");
 });
 
 test("v17l2: 'It may contain mistakes.' and the 'Summary written by AI' line are both gone, no empty line left", () => {
