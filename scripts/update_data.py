@@ -558,7 +558,7 @@ BIG = {"openai", "anthropic", "google", "x-ai", "meta", "meta-llama", "deepseek"
        "tencent", "liquid", "inception", "perplexity", "ibm-granite", "allenai", "xiaomi", "inclusionai"}
 
 
-def parse_openrouter(data):
+def parse_openrouter(data, keep_old=False):
     out = []
     for m in data:
         mid = m.get("id", "")
@@ -568,7 +568,7 @@ def parse_openrouter(data):
         if lab not in BIG or not m.get("created"):
             continue
         dt = datetime.fromtimestamp(m["created"], timezone.utc)
-        if dt < NOW - timedelta(days=400):
+        if dt < NOW - timedelta(days=400) and not keep_old:
             continue
         p = m.get("pricing") or {}
         def per_m(v):
@@ -586,10 +586,14 @@ def parse_openrouter(data):
 
 
 def fetch_openrouter(prev=None):
-    models = parse_openrouter(get(OR_URL, timeout=40).json().get("data") or [])
+    data = get(OR_URL, timeout=40).json().get("data") or []
+    models = parse_openrouter(data)
     if len(models) < 20:
         raise ValueError(f"OpenRouter list looks too short ({len(models)})")
-    return {"models": models}
+    # v17l: models listed more than 400 days ago, kept apart and used ONLY for the New Releases history
+    cut = (NOW - timedelta(days=400)).date().isoformat()
+    older = [{k: m[k] for k in ("id", "k", "n", "o", "d", "mods", "cs", "u")} for m in parse_openrouter(data, keep_old=True) if m["d"] < cut]
+    return {"models": models, "older": older}
 
 
 # ======================================================================= consumer app prices
@@ -1397,11 +1401,19 @@ def fetch_official(prev=None):
                 posts = parse_html_posts(raw.decode("utf-8", "replace"), url, mode or "inside")
             else:
                 posts = parse_deepseek_log(raw.decode("utf-8", "replace"), url)
+            older = [p for p in posts if p["d"] < cut and old_release(p["t"])]     # v17l: release posts only, for history
             posts = [p for p in posts if cut <= p["d"] <= TODAY]
             if not posts:
                 raise ValueError("no dated posts found on the page")
             posts.sort(key=lambda p: p["d"], reverse=True)
             srcs[sid] = {"ok": True, "updated": NOW_ISO, "posts": posts[:400]}   # 120 days of even a busy blog
+            kept = {(p["t"], p["d"]) for p in older}
+            for p in (old.get(sid) or {}).get("older") or []:          # never forget an older release post
+                if (p["t"], p["d"]) not in kept:
+                    older.append(p)
+                    kept.add((p["t"], p["d"]))
+            older.sort(key=lambda p: p["d"], reverse=True)
+            srcs[sid]["older"] = [{k: p.get(k, "") for k in ("t", "u", "d")} for p in older[:2000]]
             ok += 1
         except Exception as e:
             log(f"official: {label} failed: {e}")
@@ -1457,6 +1469,18 @@ def release_names(title):
     return names
 
 
+OLD_JUNK_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9.]+)+$|\bupgrad\w*\b|\b(?:Store|Studio|apps?)\b", re.I)
+
+
+def old_release(title):
+    """v17l: an older post kept for the New Releases history only when it clearly names a release
+    (not an API id like 'deepseek-coder' or an 'X upgraded to Y' change-log line)."""
+    names = release_names(title)
+    def plain_name(n):                                   # every word a name word: "GPT-3 powers the next ..." is a sentence
+        return len(n.split()) <= 6 and all(w[:1].isupper() or w[:1].isdigit() or w.lower() in VARIANT_WORDS or w == "to" for w in n.split())
+    return bool(names) and all(plain_name(n) and not OLD_JUNK_RE.search(n) and not (n == n.lower() and "-" in n) for n in names)
+
+
 def rel_key(name):
     """Key for 'same release': keeps version and date suffixes ('DeepSeek V4.1 Flash 1017' != 'DeepSeek V4.1 Flash')."""
     s = str(name or "")
@@ -1475,9 +1499,18 @@ def official_posts(raw):
     return out
 
 
+def official_release_posts(raw):
+    """v17l: the kept posts plus the older release posts (New Releases history only)."""
+    out = official_posts(raw)
+    for sid, s in ((raw.get("official") or {}).get("sources") or {}).items():
+        for p in s.get("older") or []:
+            out.append(dict(p, t=deepseek_name(p.get("t")), o=s.get("company", ""), s=s.get("label", ""), sid=sid))
+    return out
+
+
 def official_releases(raw):
     rel = {}
-    for p in official_posts(raw):
+    for p in official_release_posts(raw):
         for n in release_names(p["t"]):
             k = rel_key(n)
             cur = rel.get(k)
@@ -3225,10 +3258,53 @@ def build_cost(raw, picks):
     return {"apps": apps, "dev": dev[:40]}
 
 
-def build_releases(raw, days=60):
+# v17l: the model's type for its small label in New Releases. OpenRouter's output_modalities first, then name words.
+TYPE_WORDS = [  # (type, name words), checked in this order
+    ("robotics", ("robotics", "robot", "robots", "gr00t")),   # v17l2: robot models (e.g. Gemini Robotics 2.5) were labeled Text
+    ("world", ("genie", "world model")),
+    ("music", ("music", "lyria", "song", "suno", "udio")),
+    ("video", ("video", "veo", "sora", "kling", "hailuo", "seedance", "wan", "runway", "gen-4", "ray")),
+    ("voice", ("voice", "tts", "speech", "voxtral", "realtime", "transcribe", "transcription", "whisper", "asr", "live")),
+    ("audio", ("audio", "sound")),
+    ("image", ("image", "images", "imagen", "banana", "imagine", "diffusion", "flux", "dall-e", "dalle", "seedream")),
+    ("embeddings", ("embed", "embedding", "embeddings", "rerank")),
+]
+TYPE_RES = [(t, re.compile(r"(?<![a-z0-9])(" + "|".join(re.escape(w) for w in sorted(ws, key=len, reverse=True)) + r")(?![a-z0-9])", re.I))
+            for t, ws in TYPE_WORDS]
+REL_TYPES = ("text", "image", "video", "voice", "music", "audio", "embeddings", "world", "robotics")
+NAME_FIRST = ("robotics", "world", "music", "video", "embeddings")   # a clear name word wins over the output list
+
+
+def rel_type(name, mods=None):
+    """'text', 'image', 'video', 'voice', 'music', 'audio', 'embeddings', 'world' or 'robotics'. Label only."""
+    n = str(name or "")
+    for t, rx in TYPE_RES:
+        if t in NAME_FIRST and rx.search(n):
+            return t                                     # a clear name word wins over the output list
+    if mods is not None:
+        ms = [str(x).lower() for x in mods]
+        if "video" in ms:
+            return "video"
+        if "image" in ms:
+            return "image"
+        if "audio" in ms:
+            return "voice" if TYPE_RES[3][1].search(n) or "text" in ms else "audio"
+        if "embeddings" in ms:
+            return "embeddings"
+        if ms == ["text"]:
+            return "text"
+    for t, rx in TYPE_RES:
+        if rx.search(n):
+            return t
+    return "text"
+
+
+def build_releases(raw, days=None, prev=None):
     """Official company pages first (their date and link), then OpenRouter for the rest, then AA when it is on.
-    The same model is listed once (matched by name, keeping version and date suffixes apart)."""
-    cut = (NOW - timedelta(days=days)).date().isoformat()
+    The same model is listed once (matched by name, keeping version and date suffixes apart).
+    v17l: every release ever (days=None), of every type ("ty"), newest first. Releases kept in the last
+    published data (prev) stay listed even after they fall off a source's page, so the history only grows."""
+    cut = (NOW - timedelta(days=days)).date().isoformat() if days else "0000-00-00"
     _, mods_rel = mods_index(raw)
     seen_rel, seen_k, out = set(), set(), []
     for r in official_releases(raw):
@@ -3238,9 +3314,11 @@ def build_releases(raw, days=60):
         seen_rel.add(rk)
         seen_k.add(normalize(r["n"]))
         out.append({"k": normalize(r["n"]), "n": r["n"], "o": r["o"], "d": r["d"], "u": r["u"], "src": r["src"], "official": True,
-                    "how": "date of the company's own announcement", "fast": is_fast(r["n"], mods_rel.get(rk))})
+                    "how": "date of the company's own announcement", "fast": is_fast(r["n"], mods_rel.get(rk)),
+                    "ty": rel_type(r["n"], mods_rel.get(rk))})
     posts = maker_date_posts(raw)                         # v17f: earliest real date, not just the listing date
-    for m in (raw.get("openrouter") or {}).get("models") or []:
+    orr = raw.get("openrouter") or {}
+    for m in (orr.get("models") or []) + (orr.get("older") or [] if not days else []):
         rk = rel_key(m["n"])
         if m["d"] < cut or rk in seen_rel:
             continue
@@ -3250,7 +3328,7 @@ def build_releases(raw, days=60):
         if d < cut:
             continue                                      # released before the window: not new, only listed late
         item = {"k": m["k"], "n": m["n"], "o": m["o"], "d": d, "u": u, "src": src_, "official": off,
-                "how": how, "fast": is_fast(m["n"], m.get("mods"))}
+                "how": how, "fast": is_fast(m["n"], m.get("mods")), "ty": rel_type(m["n"], m.get("mods"))}
         if d != m["d"]:
             item["listed"] = m["d"]                       # the OpenRouter listing date, kept for reference
         out.append(item)
@@ -3258,11 +3336,30 @@ def build_releases(raw, days=60):
         if not m.get("rel") or m["rel"] < cut or m["rel"] > TODAY or m["k"] in seen_k or rel_key(m["n"]) in seen_rel:
             continue
         seen_k.add(m["k"])
+        seen_rel.add(rel_key(m["n"]))
         out.append({"k": m["k"], "n": m["n"], "o": m["o"], "d": m["rel"], "official": False,
                     "u": "https://artificialanalysis.ai/models/" + m["slug"] if m.get("slug") else AA_PAGE,
-                    "src": AA_CREDIT, "how": "release date listed by Artificial Analysis", "fast": is_fast(m["n"])})
+                    "src": AA_CREDIT, "how": "release date listed by Artificial Analysis", "fast": is_fast(m["n"]),
+                    "ty": rel_type(m["n"])})
+    aa_on = bool((raw.get("aa") or {}).get("llm"))
+    for r in (((prev or {}).get("releases") or {}).get("items") or []) if not days else []:
+        if not isinstance(r, dict) or not r.get("n") or not r.get("d") or r["d"] > TODAY:
+            continue
+        if rel_key(r["n"]) in seen_rel or (r.get("k") and r["k"] in seen_k):
+            continue
+        if not aa_on and "artificialanalysis.ai" in str(r.get("u") or ""):
+            continue                                      # AA is off: never carry its rows forward
+        seen_rel.add(rel_key(r["n"]))
+        seen_k.add(r.get("k") or normalize(r["n"]))
+        ty = r.get("ty") if r.get("ty") in REL_TYPES else rel_type(r["n"])
+        if rel_type(r["n"]) in ("robotics", "world"):
+            ty = rel_type(r["n"])                        # v17l2: a clear robot / world name fixes an old stored label
+        out.append(dict(r, ty=ty,
+                        fast=is_fast(r["n"]) if r.get("fast") is None else r["fast"]))
     out.sort(key=lambda r: (r["d"], r["official"], r["n"]), reverse=True)
-    return {"items": out[:100], "days": days}
+    if days:
+        return {"items": out[:100], "days": days}
+    return {"items": out, "all": True, "days": None}
 
 
 def official_status(raw):
@@ -3644,7 +3741,7 @@ def main():
         "sources": [dict(SRC[k], id=k) for k in SOURCE_ORDER if k != "aa" or aa_on],
         "picks": picks,
         "cost": build_cost(raw, picks),
-        "releases": build_releases(raw),
+        "releases": build_releases(raw, prev=prev_out),
         "bignews": {"items": fill_summaries(big_news(news_items, official_posts(raw)), summaries), "feeds": (raw.get("news") or {}).get("feeds") or [],
                     "rules": "Only new model launches, big price changes, major product launches or shutdowns by AI labs, "
                              "funding of about $1B or more, acquisitions of or by AI labs, and IPO filings."},

@@ -176,7 +176,8 @@ details > summary::-webkit-details-marker{display:none}
 .badge.tie{background:var(--tie-soft);color:var(--tie)}
 .badge.none{background:var(--none-soft);color:var(--muted)}
 .stale{display:inline-block;font-size:12.5px;font-weight:600;color:var(--warn);white-space:nowrap;margin-left:4px}
-.fast{display:inline-block;font-size:12px;font-weight:600;line-height:1.35;padding:1px 6px;border-radius:6px;background:var(--tint);color:var(--accent);white-space:nowrap;vertical-align:2px;margin-left:4px}
+.fast,.rtype{display:inline-block;font-size:12px;font-weight:600;line-height:1.35;padding:1px 6px;border-radius:6px;background:var(--tint);color:var(--accent);white-space:nowrap;vertical-align:2px;margin-left:4px}
+/* v17l: the model type on a release card (Text, Image, Video...) shares the Fast tag's pill */
 .badge.one{background:var(--none-soft);color:var(--text);white-space:normal}
 .note.aa{font-size:14px}
 .chev{width:9px;height:9px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);
@@ -679,6 +680,8 @@ html.sheetopen{overflow:hidden}
 .relcard:hover{background:color-mix(in srgb,var(--card) 70%,var(--tint))}
 .relcard .rm{font-size:14px;color:var(--muted)}
 .relcard .badge{font-size:11px;padding:1px 6px;vertical-align:2px}
+.relcard .rtype{margin-left:2px}
+.relmorebtn{margin-top:12px}
 
 /* ---------------------------------------------------------------- news (read inside the app) */
 .newsitem .nt{display:block;font-size:16px;font-weight:600;line-height:1.4;overflow-wrap:anywhere}

@@ -4,7 +4,7 @@
   //   Find your AI: Top Picks · Cost · Agents   Try it: Explore · Race   Updates: New Releases · News
   // Each tab shows a short simple view first, and "See more" opens the full details.
   // All picks are made by fixed rules in scripts/update_data.py; this file only shows them.
-  var VERSION = "v17k-2026-11-09";   // the same as sw.js
+  var VERSION = "v17l2-2026-11-11";   // the same as sw.js
   // ---- settings for Explore ("Ask the AIs", see worker/README.md). Leave ASK_API empty and the Ask tab is the free v8 tab.
   var CONFIG = {
     ASK_API: "https://ai-tracker-ask.ai-tracker-ask.workers.dev",            // the Worker URL, e.g. "https://ai-tracker-ask.<you>.workers.dev"
@@ -653,13 +653,17 @@
       return a.d < b.d ? 1 : a.d > b.d ? -1 : a.i - b.i;
     }).map(function (x) { return x.r; });
   }
+  // v17l: the model's type ("ty" in the data); old data without it = no label
+  var REL_TYPES = { text: "Text", image: "Image", video: "Video", voice: "Voice", music: "Music", audio: "Audio", embeddings: "Embeddings", world: "World", robotics: "Robotics" };
+  function relType(r) { var t = String((r && r.ty) || "").toLowerCase(); return own(REL_TYPES, t) ? REL_TYPES[t] : ""; }
+  function typeTag(r) { var t = relType(r); return t ? ' <span class="rtype">' + esc(t) + "</span>" : ""; }
   // the whole card is one button (it opens the model's sheet); the release date stays on the card
   function relCard(r, withSrc) {
     var o = String(makerName(r.o) || ""), fresh = r.d && (Date.now() - new Date(String(r.d).slice(0, 10) + "T12:00:00Z").getTime()) / 864e5 <= 3;
     var key = r.k || r.n;
     return '<li class="relcard">' + makerLogo(r.o) +
       '<span class="rb"><span class="rt"><button type="button" class="rtb" data-rel="' + esc(key) + '" aria-haspopup="dialog">' + esc(r.n) + "</button>" +
-      (fresh ? ' <span class="badge new">NEW</span>' : "") + fastTag(r.fast) + "</span>" +
+      (fresh ? ' <span class="badge new">NEW</span>' : "") + fastTag(r.fast) + typeTag(r) + "</span>" +
       '<span class="rm">' + (withSrc ? esc(o) + " · " + esc(day(r.d)) + " · " + esc(r.src) : (o ? "New model from " + esc(o) + " · " : "") + esc(day(r.d))) + "</span></span></li>";
   }
   function relRow(r) { return relCard(r, true); }
@@ -679,7 +683,7 @@
   function relSheetHtml(r) {
     var o = String(makerName(r.o) || ""), when = day(r.d), src = String(r.src || "");
     var desc = [(o ? o + " released " : "Released ") + String(r.n) + (when ? " on " + when : "") + "." +
-      (src ? (r.official ? " Announced on " : " Listed on ") + src + "." : "")];
+      (relType(r) ? " " + relType(r) + " model." : "") + (src ? (r.official ? " Announced on " : " Listed on ") + src + "." : "")];
     var hint = NAME_HINTS.filter(function (x) { return x[0].test(String(r.n)); })[0];
     if (hint) desc.push(hint[1]);
     // its places in the tests (the Find your AI ranking, quality first), "Top pick" when it is a pick's winner
@@ -717,18 +721,46 @@
     h += moreButton("releases", items.length > 6) + plainCredits();
     return h;
   }
-  function vReleasesMore() {
-    var items = relSorted(D.releases && D.releases.items);
-    var h = backButton() + "<h2>New Releases: last " + ((D.releases && D.releases.days) || 60) + " days</h2>" +
-      "<p class=\"sub\">Date and link = the company's own announcement when it has one (OpenAI, Google, Anthropic, Mistral, xAI, Meta, DeepSeek), otherwise the date it became available on OpenRouter" + (D.aaEnabled ? " or the release date listed by " + AA_CREDIT : "") + ". Each model is listed once. " + ic("bolt") + " " + esc(fastNote()) + "</p>" + staleNote("openrouter");
-    var lastMo = "", body = "";
-    items.forEach(function (r) {
-      var mo = /^\d{4}-\d{2}/.test(String(r.d || "")) ? String(r.d).slice(0, 7) : "none";
+  // v17l: every release ever recorded (hundreds), newest first, in batches of REL_BATCH: "Show more" (#relmore) adds the
+  // next batch in place. relShown stays for the visit, so Back / reopening shows the same cards (and the same scroll).
+  var REL_BATCH = 40, relShown = REL_BATCH;
+  function relMonth(r) { return /^\d{4}-\d{2}/.test(String(r.d || "")) ? String(r.d).slice(0, 7) : "none"; }
+  // cards from..to, with a month heading where the month changes (prev = the card before `from`)
+  function relBatchHtml(items, from, to) {
+    var lastMo = from > 0 ? relMonth(items[from - 1]) : "", body = "";
+    items.slice(from, to).forEach(function (r) {
+      var mo = relMonth(r);
       if (mo !== lastMo) { body += '<li class="mo">' + esc(mo === "none" ? "No date" : MON[+mo.slice(5, 7) - 1] + " " + mo.slice(0, 4)) + "</li>"; lastMo = mo; }
       body += relRow(r);
     });
-    h += '<ul class="rels">' + (body || '<li class="relcard muted">Nothing new yet.</li>') + "</ul>";
+    return body;
+  }
+  function relFastNote(items) {
+    return items.some(function (r) { return r.fast; }) ? '<p class="note relfast">' + ic("bolt") + " " + esc(fastNote()) + "</p>" : "";
+  }
+  function vReleasesMore() {
+    var items = relSorted(D.releases && D.releases.items), n = Math.min(items.length, Math.max(REL_BATCH, relShown));
+    var h = backButton() + "<h2>New Releases</h2><p class=\"sub\">New AI models, newest first.</p>" + staleNote("openrouter");
+    h += '<ul class="rels" id="relsall">' + (relBatchHtml(items, 0, n) || '<li class="relcard muted">Nothing new yet.</li>') + "</ul>";
+    h += relFastNote(items.slice(0, n));
+    if (n < items.length) h += '<button type="button" class="morebtn relmorebtn" id="relmore">Show more</button>';
     return h + backButton() + credits(["official", "openrouter", "aa"]);
+  }
+  // "Show more": the next batch is added to the list (no redraw, the scroll stays); the button goes after the last one
+  function relShowMore(btn) {
+    var items = relSorted(D.releases && D.releases.items), ul = document.getElementById("relsall");
+    if (!ul) return;
+    var from = ul.querySelectorAll("li.relcard").length, to = Math.min(items.length, from + REL_BATCH);
+    ul.insertAdjacentHTML("beforeend", relBatchHtml(items, from, to));
+    relShown = to;
+    var fast = document.querySelector(".relfast");
+    if (!fast && items.slice(from, to).some(function (r) { return r.fast; })) ul.insertAdjacentHTML("afterend", relFastNote(items.slice(from, to)));
+    if (to >= items.length) {
+      var next = ul.querySelectorAll("li.relcard")[from];
+      btn.parentNode.removeChild(btn);
+      var b = next && next.querySelector(".rtb");                          // keep the keyboard in the list
+      if (b) b.focus({ preventScroll: true });
+    }
   }
 
   // ---------------------------------------------------------------- views: Big news
@@ -766,7 +798,6 @@
       '<h2 class="sth" id="storyh" tabindex="-1" dir="auto">' + esc(n.t) + "</h2>" +
       (paras.length ? '<div class="sbody" dir="auto">' + paras.map(function (x) { return "<p>" + esc(x) + "</p>"; }).join("") + "</div>"
         : '<p class="snone muted">No summary from the source yet.</p>') +
-      (byAi ? '<p class="smeta">Summary written by AI from the article. It may contain mistakes.</p>' : "") +
       (meta ? '<p class="smeta">' + esc(meta) + "</p>" : "") +
       back.replace("storyback", "storyback bottom") + "</article>";
   }
@@ -806,7 +837,7 @@
     var b = AG().best || {}, w = list(b.winners);
     if (!w.length || b.hide) return "";                              // never a "no winner" card
     var h = '<section class="card abest"><h3><span class="ico sm" aria-hidden="true">' + ic("agent") + '</span>Best AI for agents</h3>' +
-      '<p class="note">' + (full ? esc(plainRule(noOne(AG().rule), AGENT_RULE) || AGENT_RULE) : "The AI model inside an agent. " + esc(AGENT_RULE)) + "</p>";
+      '<p class="note">' + (full ? esc(plainRule(noOne(AG().rule), AGENT_RULE) || AGENT_RULE) : "The best AI model for agents.") + "</p>";
     var bwhy = b.status === "lead" ? leadWhy(b.why) : "";
     if (bwhy) h += '<p class="why">' + esc(bwhy) + "</p>";
     if (w.length) {
@@ -1840,6 +1871,7 @@
   if (hasDom) document.addEventListener("click", function (e) {
     if (!e.target.closest) return;
     var b;
+    if ((b = e.target.closest("#relmore"))) { relShowMore(b); return; }
     if ((b = e.target.closest("#racenew"))) { newStart("race"); return; }
     if ((b = e.target.closest("#asknew"))) { newStart("ask"); return; }
     var kind = state.tab === "race" ? "race" : "ask";
@@ -2185,7 +2217,7 @@
       "<p><b>LiveBench:</b> new tasks every release, kept hidden, so models can't have learned the answers.</p>" +
       "<p><b>" + ic("bolt") + " Fast:</b> " + esc(fastNote()) + " A rough guide only; it never changes a pick.</p>" +
       "<p><b>Prices:</b> \u201cApp Store price (US)\u201d comes from the company's own App Store listing. A price not confirmed for more than " + ((D && D.staleDays) || 30) + " days is marked " + ic("warn") + " stale.</p>" +
-      "<p><b>New Releases:</b> taken from each company's own page when it announced the model (that date and link), otherwise the date it appeared on OpenRouter.</p>" +
+      "<p><b>New Releases:</b> every release ever recorded, of every type (text, image, video, voice, music and more), with the date and link from the company's own page when it announced the model, otherwise the date it appeared on OpenRouter.</p>" +
       "<p><b>Epoch Capabilities Index:</b> many benchmarks combined into one score, with a margin of error.</p>" +
       (ag ? "<p><b>Agent tests:</b> LMArena Agent Arena score (people's votes between two agents, higher is better), LiveBench Long Agentic (0 to 100), APEX-Agents (share of work tasks solved on the first try). " + esc(AGENT_RULE) + "</p>" : "") +
       "<p>Data built " + esc(new Date(D.built).toLocaleString()) + ". No AI is used to pick anything. No sign-in, no tracking.</p></div>";
