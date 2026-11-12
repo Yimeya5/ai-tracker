@@ -39,6 +39,19 @@ body{margin:0;background:var(--bg);color:var(--text);
   font:16px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
   padding-bottom:calc(var(--nav) + env(safe-area-inset-bottom,0px) + 24px);overflow-x:hidden}
+/* v17n4: sticky footer. The body is at least one screen tall (its bottom padding included) and a column: the main
+   area takes the free space, so on a short page the footer sits at the bottom of the screen; on a long page it simply
+   follows the content (never fixed, never over the content). On Home, the "Sources · updated" line goes down with it. */
+body{display:flex;flex-direction:column;min-height:100vh}
+@supports (min-height:100dvh){ body{min-height:100dvh} }
+body > .page{width:100%}                       /* in the column, the centred .page blocks keep their full width (max 760) */
+main.page{flex:1 0 auto}
+main.page:has(> .view > .home){display:flex;flex-direction:column}
+main.page > .view:has(> .home){flex:1 0 auto;display:flex;flex-direction:column}
+.view > .homefoot{margin-top:auto;padding-top:16px}
+/* v17n5: on a tall screen the 3 Home cards spread evenly through the free space (same card heights; the 12px gaps
+   and the 20px top margin are the minimum, so a short screen keeps the normal flow) */
+main.page > .view:has(> .home) > .home{flex:1 0 auto;align-content:space-evenly}
 a{color:var(--accent);text-decoration-color:color-mix(in srgb,currentColor 35%,transparent);text-underline-offset:3px}
 a:hover{text-decoration-color:currentColor}
 button{font:inherit;color:inherit}
@@ -91,7 +104,7 @@ button{font:inherit;color:inherit}
 .hcard{--hcard-h:calc((100vh - 196px) / 3);
   position:relative;display:grid;grid-template-columns:54px minmax(0,1fr);
   grid-template-areas:"icon title" "icon desc" "chips chips";align-content:center;column-gap:14px;row-gap:4px;min-width:0;
-  min-height:max(124px,calc(var(--hcard-h) * .82));padding:16px;border-radius:20px;background:var(--card);color:var(--text);cursor:pointer;box-shadow:var(--shadow);transition:background-color .15s ease}
+  min-height:max(120px,calc(var(--hcard-h) * .68));padding:14px 16px;border-radius:20px;background:var(--card);color:var(--text);cursor:pointer;box-shadow:var(--shadow);transition:background-color .15s ease}
 @supports (height:100svh){ .hcard{--hcard-h:calc((100svh - 196px) / 3)} }
 .hcard:hover{background:color-mix(in srgb,var(--card) 82%,var(--tint))}
 .hcard:has(.hmain:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
@@ -777,12 +790,13 @@ html.sheetopen{overflow:hidden}
 /* tablet portrait (Yisroel's iPad, ~820 x 1180): the tall cards hold the group as a column (big icon, title, line,
    chips), centred, so the card is filled with no empty band */
 @media (min-width:700px) and (orientation:portrait){
-  .hcard{grid-template-columns:minmax(0,1fr);grid-template-areas:"icon" "title" "desc" "chips";row-gap:8px;padding:22px 30px}
-  .hib{justify-self:start;margin-bottom:12px}
-  .hch{top:32px;transform:none;right:26px}
+  .hcard{grid-template-columns:minmax(0,1fr);grid-template-areas:"icon" "title" "desc" "chips";row-gap:6px;padding:18px 30px}
+  .hib{justify-self:start;margin-bottom:8px;width:60px;height:60px;border-radius:17px}   /* v17n6: shorter cards */
+  .hib svg{width:32px;height:32px}
+  .hch{top:28px;transform:none;right:26px}
   .view .htt{font-size:27px}
   .hdesc{font-size:16.5px}
-  .hchips{margin-top:14px}
+  .hchips{margin-top:12px}
 }
 /* very small phones (under 340 px): a little more room for the chips and the tab labels */
 @media (max-width:339px){
