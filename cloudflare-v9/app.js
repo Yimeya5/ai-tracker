@@ -4,7 +4,7 @@
   //   Find your AI: Top Picks · Cost · Agents   Try it: Explore · Race   Updates: New Releases · News
   // Each tab shows a short simple view first, and "See more" opens the full details.
   // All picks are made by fixed rules in scripts/update_data.py; this file only shows them.
-  var VERSION = "v17m-2026-11-11";   // the same as sw.js
+  var VERSION = "v17n3-2026-11-12";   // the same as sw.js
   // ---- settings for Explore ("Ask the AIs", see worker/README.md). Leave ASK_API empty and the Ask tab is the free v8 tab.
   var CONFIG = {
     ASK_API: "https://ai-tracker-ask.ai-tracker-ask.workers.dev",            // the Worker URL, e.g. "https://ai-tracker-ask.<you>.workers.dev"
@@ -774,7 +774,9 @@
   function tagName(t) { return /^\s*news\s*$/i.test(String(t)) ? "Update" : t; }
   function newsRow(n, src, i) {
     var sum = newsSummary(n);
-    var body = (n.tag ? '<span class="tag">' + esc(tagName(n.tag)) + "</span>" : "") + '<b class="nt">' + esc(n.t) + "</b>" +
+    var dt = src ? day(n.d) : "", tag = n.tag ? '<span class="tag">' + esc(tagName(n.tag)) + "</span>" : "";
+    // v17n2: the date sits on the top line, beside the label (no date = nothing; no label = the date alone)
+    var body = (dt ? '<span class="ntop">' + tag + '<small class="ndate">' + esc(dt) + "</small></span>" : tag) + '<b class="nt">' + esc(n.t) + "</b>" +
       (sum ? '<span class="nsum">' + esc(sum) + "</span>" : "") +
       '<small class="nmeta">' + esc(day(n.d)) + (n.s ? " · " + esc(n.s) : "") + ' <span class="go" aria-hidden="true">›</span></small>';
     return src ? '<li class="newsitem"><a class="nlink rn" href="#story/' + esc(src) + "/" + (+i) + '" data-story="' + esc(src) + "|" + (+i) + '">' + body + "</a></li>"
