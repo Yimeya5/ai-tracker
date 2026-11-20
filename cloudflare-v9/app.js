@@ -4,7 +4,7 @@
   //   Find your AI: Top Picks · Cost · Agents   Try it: Explore · Race   Updates: New Releases · News
   // Each tab shows a short simple view first, and "See more" opens the full details.
   // All picks are made by fixed rules in scripts/update_data.py; this file only shows them.
-  var VERSION = "v17n8-2026-11-12";   // the same as sw.js
+  var VERSION = "v17n9-2026-11-20";   // the same as sw.js
   // ---- settings for Explore ("Ask the AIs", see worker/README.md). Leave ASK_API empty and the Ask tab is the free v8 tab.
   var CONFIG = {
     ASK_API: "https://ai-tracker-ask.ai-tracker-ask.workers.dev",            // the Worker URL, e.g. "https://ai-tracker-ask.<you>.workers.dev"
@@ -300,7 +300,7 @@
     if (!finder) { var raw = null; try { raw = JSON.parse(stored("ait.finder")); } catch (e) {} finder = raw && typeof raw === "object" ? raw : {}; }
     var tasks = finderTasks().map(function (p) { return p.id; });
     var ok = function (v, l, d) { return l.indexOf(v) >= 0 ? v : d; };
-    return { task: ok(finder.task, tasks, tasks[0] || ""), prio: ok(finder.prio, prios().map(function (x) { return x[0]; }), "quality"),
+    return { task: ok(finder.task, tasks, tasks[0] || ""), prio: "quality",   // v17n9: the "Most important" row is gone; always Quality
              plan: ok(finder.plan, PLANS.map(function (x) { return x[0]; }), "any") };
   }
   function setFinder(k, v) { var f = getFinder(); f[k] = v; finder = f; store("ait.finder", JSON.stringify(f)); }
@@ -437,7 +437,6 @@
     var f = getFinder(), ranked = rankModels(D, f.task, f.prio, f.plan), best = ranked[0];
     var h = '<section class="finder card" id="finder" aria-labelledby="finderh"><h3 id="finderh">Find your AI</h3>' +
       seg("ftask", tasks.map(function (p) { return [p.id, p.label]; }), f.task, "Task") +
-      seg("fprio", prios(), f.prio, "Most important") +
       seg("fplan", PLANS, f.plan, "Plan") +
       '<div class="fresult" aria-live="polite">';
     var fell = "";
@@ -2682,7 +2681,7 @@
   });
   document.addEventListener("change", function (e) {
     if (e.target && e.target.name === "mopt" && pro.sheet) { chooseModel(pro.sheet, e.target.value); return; }
-    if (e.target && /^f(task|prio|plan)$/.test(e.target.name || "")) {
+    if (e.target && /^f(task|plan)$/.test(e.target.name || "")) {
       setFinder(e.target.name.slice(1), e.target.value);
       var fb = document.getElementById("finder");
       if (fb) { fb.outerHTML = finderHtml(); var again = document.querySelector('#finder input[name="' + e.target.name + '"][value="' + e.target.value + '"]'); if (again) again.focus(); }
