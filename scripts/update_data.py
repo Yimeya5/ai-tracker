@@ -3,7 +3,7 @@
 
 The app answers 5 questions: which model is best for what, what each one costs, what was released lately,
 the big news, and AI agents (the best model inside an agent, agent apps and their prices, agent news).
-No AI calls anywhere: every pick is a fixed rule.
+No AI calls anywhere: every pick is a fixed rule (v17o: one main public test per task; see TASKS_V17O).
 
 Sources (only these):
   lmarena    LMArena official Hugging Face dataset (parquet, CC-BY-4.0): people's blind votes
@@ -13,8 +13,14 @@ Sources (only these):
              AA's Data Platform Terms don't allow its data in a public product, so keep it off for the public app.
              When off: no AA requests, and no AA data in data.json, data.js or raw.json.
   livebench  LiveBench latest release CSV: fresh, contamination-free tasks (incl. Long Agentic and Browser)
-  epoch      Epoch AI benchmark zip (CC-BY): Capabilities Index with error bars, plus agent tests run by others:
-             APEX-Agents (Mercor), Vending-Bench 2 (Andon Labs), Remote Labor Index (Scale AI / CAIS)
+  (v17o: Epoch AI is no longer used or collected.)
+  matharena  MathArena ArXivMath (newest monthly board): main test for Math
+  vals       Vals AI Terminal-Bench 4.0: main test for the Agents tab's terminal work
+  taubench   Sierra tau-Voice leaderboard JSON (standard submissions): main test for Voice & talking
+  mercor / designarena
+             no machine-readable feed: today's published values are seeded in scripts/rankings_static.json with the
+             date they were checked (Mercor APEX-Agents = professional tasks, DesignArena = cross-check only,
+             agree / disagree). (v17o: the Translation task was removed; WMT26 and the Intento note are not collected.)
   openrouter OpenRouter models API: developer prices, release dates, what each model outputs (text/image/...)
   official   each company's own news page/blog (OpenAI, Google DeepMind, Google AI, Anthropic, Mistral, xAI, Meta,
              DeepSeek): new model announcements (for New releases and Big news)
@@ -216,7 +222,10 @@ LM_BOARDS = [  # (board id, dataset config, category, label, page link)
     ("search", "search", "overall", "Search Arena", "https://lmarena.ai/leaderboard/search"),
     ("text_to_video", "text_to_video", "overall", "Text-to-video", "https://lmarena.ai/leaderboard/text-to-video"),
     ("image_to_video", "image_to_video", "overall", "Image-to-video", "https://lmarena.ai/leaderboard/image-to-video"),
-    ("text_non_english", "text", "non_english", "Non-English questions", "https://lmarena.ai/leaderboard/text"),
+    # v17o main tests: Chat = the style-adjusted text board (its own dataset config); Research = the Search Arena's
+    # factuality view (config search_factuality; its category is found by lm_board when it isn't "overall")
+    ("text_sc", "text_style_control", "overall", "Text, style-adjusted", "https://lmarena.ai/leaderboard/text"),
+    ("search_fact", "search_factuality", None, "Search, factuality view", "https://lmarena.ai/leaderboard/search"),
 ]
 # The Agent Arena uses other column names: score (IPS, higher = better), score_ci_lower/upper, observation_count.
 # Every row of every board is kept in raw.json: a model ranked #75 is still "covered" (with its votes),
@@ -229,6 +238,9 @@ def read_parquet(raw):
 
 
 def lm_board(rows_all, category):
+    if category is None:                    # v17o: "overall" when the config has it, else its first category
+        cats = sorted({str(r.get("category") or "") for r in rows_all})
+        category = "overall" if "overall" in cats else (cats[0] if cats else "overall")
     rows = [r for r in rows_all if r.get("category") == category]
     if not rows:
         return None, []
@@ -2467,14 +2479,17 @@ def fill_ai_summaries(items, cache, key=None, max_new=AISUM_MAX_NEW, fetch=None,
 CC_BY = "https://creativecommons.org/licenses/by/4.0/"
 SRC = {
     "lmarena": {"name": "LMArena", "credit": "LMArena (lmarena.ai)", "url": "https://lmarena.ai/leaderboard",
-                "what": "People compare two anonymous answers and vote for the better one.",
+                "what": "People compare two anonymous answers and vote for the better one. Main test for Chat (style-adjusted), "
+                        "Writing (creative writing), Coding: websites (WebDev), Pictures, Research (Search, factuality view) and Video.",
                 "license": "CC BY 4.0", "licenseUrl": CC_BY,
                 "data": "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset"},
     "aa": {"name": "Artificial Analysis", "credit": "Artificial Analysis (artificialanalysis.ai)", "url": "https://artificialanalysis.ai/",
            "what": "Independent company that runs the same tests on every model, and measures prices.",
            "license": "Free API, attribution required. Private use only.", "licenseUrl": ""},
     "livebench": {"name": "LiveBench", "credit": "LiveBench (livebench.ai)", "url": "https://livebench.ai/",
-                  "what": "New, hidden tasks every release, so models can't have seen the answers.", "license": "", "licenseUrl": ""},
+                  "what": "New, hidden tasks every release, so models can't have seen the answers. Its Coding suite is the "
+                          "main test for Coding: other code, its Reasoning suite for Logic.",
+                  "license": "No reuse license stated", "licenseUrl": ""},
     "epoch": {"name": "Epoch AI", "credit": "Epoch AI (epoch.ai)", "url": EPOCH_PAGE,
               "what": "Non-profit research group. Its Capabilities Index combines many benchmarks, with error bars.",
               "license": "CC BY 4.0", "licenseUrl": CC_BY, "data": EPOCH_ZIP},
@@ -2502,18 +2517,30 @@ SRC = {
                   "what": "Writing test: stories written to the same short brief, compared in pairs by several AI judges. "
                           "Graded by AI. Used for Writing.",
                   "license": "No data license stated", "licenseUrl": ""},
-    "vals": {"name": "Vals AI", "credit": "Vals AI Terminal-Bench 4 (vals.ai)", "url": "",
-             "what": "Coding test: real tasks in a computer terminal, every model run by Vals AI with the same setup. "
-                     "Used for Coding.",
-             "license": "No data license stated", "licenseUrl": ""},
-    "matharena": {"name": "MathArena", "credit": "MathArena by ETH Zurich (matharena.ai)", "url": "",
-                  "what": "Math test: new research-level problems from recent arXiv papers, so models can't have seen them; "
-                          "answers checked automatically. The newest monthly board is used. Used for Math.",
-                  "license": "Public leaderboard (MathArena code is MIT licensed)", "licenseUrl": ""},
-    "taubench": {"name": "τ³-Voice (Sierra)", "credit": "τ-bench by Sierra (taubench.com)", "url": "https://taubench.com/leaderboard/?benchmark=voice",
-                 "what": "Live voice modes must finish real customer-service tasks by talking, with noise and interruptions, "
-                         "in six languages. Used for Voice & talking in Find your AI.",
-                 "license": "Public leaderboard (τ-bench code is MIT licensed)", "licenseUrl": "https://github.com/sierra-research/tau2-bench"},
+    "vals": {"name": "Vals AI", "credit": "Vals AI Terminal-Bench 4.0 (vals.ai)", "url": "https://www.vals.ai/benchmarks/terminal-bench-4",
+             "what": "Real tasks in a computer terminal, every model run by Vals AI with the same setup. Score = average "
+                     "task pass rate. Main test for the Agents tab's terminal work.",
+             "license": "No reuse license stated", "licenseUrl": ""},
+    "matharena": {"name": "MathArena", "credit": "MathArena by ETH Zurich (matharena.ai)", "url": "https://matharena.ai/",
+                  "what": "New research-level problems from recent arXiv papers, so models can't have seen them; answers "
+                          "checked automatically. The newest monthly ArXivMath board is the main test for Math.",
+                  "license": "No reuse license stated for the results (MathArena code is MIT licensed)", "licenseUrl": ""},
+    "taubench": {"name": "Sierra τ-Voice", "credit": "τ-Voice by Sierra, the voice track of τ²-bench v2.0 (taubench.com)",
+                 "url": "https://taubench.com/leaderboard/?benchmark=voice",
+                 "what": "Live voice modes must finish real customer-service tasks by talking, with noise and interruptions. "
+                         "Score = pass@1 task completion, standard submissions only. Main test for Voice & talking.",
+                 "license": "No reuse license stated for the results (τ-bench code is MIT licensed)", "licenseUrl": "https://github.com/sierra-research/tau2-bench"},
+    # v17o: new main tests and the cross-check (no machine-readable feed: today's published values are seeded in
+    # scripts/rankings_static.json with the date they were checked)
+    "mercor": {"name": "Mercor APEX-Agents", "credit": "APEX-Agents by Mercor (mercor.com)",
+               "url": "https://www.mercor.com/apex/apex-agents-leaderboard/?pass=pass-1",
+               "what": "Real professional tasks (banking, consulting, law) done by an agent. Score = share fully passed on "
+                       "the first try (pass@1). Main test for the Agents tab's professional tasks.",
+               "license": "No reuse license stated", "licenseUrl": ""},
+    "designarena": {"name": "DesignArena", "credit": "DesignArena (designarena.ai)", "url": "https://www.designarena.ai/leaderboard",
+                    "what": "People vote between two anonymous designs. Cross-check only for websites and pictures: it says "
+                            "whether its #1 agrees with the main test. It adds no points.",
+                    "license": "No reuse license stated", "licenseUrl": ""},
 }
 NOT_SURE_VOTES = 5000
 
@@ -2821,13 +2848,13 @@ def rule_info(aa_on, raw=None):
                  if raw.get(sid)]
     if aa_on:
         names.insert(1, "Artificial Analysis")
-    if aa_on:
-        text = ("A model is called best when at least 3 of the tests for its task put it in their top 3 "
-                "(2 of 2 for pictures).")
-    else:
-        text = ("A model is called best when at least 3 of the tests for its task put it in their top 3 "
-                "(all 3 when a task has only 3). Pictures have only 1 source, so no picture model is called best.")
-    return {"text": text, "textSources": t, "need": 3, "picSources": p, "picNeed": 2 if aa_on else None,
+    # v17o: one main public test per task (see TASKS_V17O); the main tests' names, in task order, once each
+    names = []
+    for _tid, _l, _i, _lst, spec, _c, _e, _w in TASKS_V17O:
+        nm = MAIN_META.get(spec, ("",))[0]
+        if nm and nm not in names and (raw is None or raw.get(spec[0])):
+            names.append(nm)
+    return {"text": V17O_RULE, "rules": "v17o", "textSources": 1, "need": 1, "picSources": 1, "picNeed": None,
             "votes": NOT_SURE_VOTES, "names": ", ".join(names[:-1]) + " and " + names[-1] if len(names) > 1 else "".join(names)}
 
 
@@ -2957,8 +2984,8 @@ def build_picks(raw, aa_on=False):
     mods, _ = mods_index(raw)
     text_votes = lm_votes(raw, "text")
     img_votes = lm_votes(raw, "text_to_image")
-    picks = []
-    for jid, label, icon, need in JOBS + [("cheap", "Cheapest good one", "💰", 2)]:
+    picks = build_picks_v17o(raw, "picks", names, mods)          # v17o: one main test per task
+    for jid, label, icon, need in [("cheap", "Cheapest good one", "💰", 2)]:   # "cheap" keeps its own rule
         boards = [b for b in job_boards(raw, "chat" if jid == "cheap" else jid) if b and b.get("rows")]
         if jid == "cheap":
             res = cheap_pick(raw, names, text_votes)
@@ -2995,18 +3022,15 @@ def build_picks(raw, aa_on=False):
 #   video     = LMArena text-to-video (image-to-video ranks shown beside it; same source, so still 1 source)
 #   voice     = Sierra's tau3-Voice leaderboard (real-time voice agents finishing real tasks by talking), only the
 #               voice models of apps the app lists (ChatGPT, Gemini, Grok...): developer-only voice agents are left out
-#   translate = LMArena questions in languages other than English (+ hand-checked Hebrew / Yiddish note, Intento 2026)
 # Privacy is a choice under "Most important": a score per app from scripts/privacy_static.json (hand-checked).
 TAU_VOICE = "https://taubench.com/voice-leaderboard.json"
 TAU_PAGE = "https://taubench.com/leaderboard/?benchmark=voice"
 PRIVACY_FILE = Path(__file__).resolve().parent / "privacy_static.json"
-TRANSLATION_FILE = Path(__file__).resolve().parent / "translation_static.json"
 PRIVACY_STALE_DAYS = 120          # hand-checked facts older than this are flagged (the Action prints a warning)
 FINDER_TASKS = [  # (id, label, icon, boards: (source, board id) - the first one decides the order)
     ("research", "Research", "🔎", [("lmarena", "search")]),
     ("video", "Video", "🎬", [("lmarena", "text_to_video"), ("lmarena", "image_to_video")]),
     ("voice", "Voice & talking", "🎙️", [("taubench", "voice")]),
-    ("translate", "Translation", "🌐", [("lmarena", "text_non_english")]),
 ]
 
 
@@ -3082,8 +3106,6 @@ def finder_how(tid):
                  "decides the order; image-to-video is shown beside it). 1 source only.",
         "voice": "Sierra's τ³-Voice test: each AI's live voice mode has to finish real customer-service tasks by talking, "
                  "with noise and interruptions, in six languages. Only voice modes of apps listed here. 1 source only.",
-        "translate": "LMArena, questions asked in languages other than English (people's votes). Hebrew and Yiddish are "
-                     "not tested there; see the note from Intento's 2026 translation test. 1 source only.",
     }.get(tid, "")
 
 
@@ -3095,18 +3117,9 @@ def load_static(path):
         return None
 
 
-def translation_note(path=None):
-    t = load_static(path or TRANSLATION_FILE)
-    if not t:
-        return None
-    return {"checked": t.get("checked"), "credit": (t.get("source") or {}).get("credit", ""), "unit": t.get("unit", ""),
-            "langs": [{"lang": x["lang"], "line": x["line"], "url": x["url"], "app": x.get("app", "")} for x in t.get("langs") or []]}
-
-
 def build_finder_tasks(raw, mods=None):
     names = names_index(raw)
     mods = mods if mods is not None else mods_index(raw)[0]
-    text_votes = lm_votes(raw, "text")
     out = []
     for tid, label, icon, spec in FINDER_TASKS:
         boards = [b for b in (finder_board(raw, s, bid) for s, bid in spec) if b and b.get("rows")]
@@ -3117,9 +3130,8 @@ def build_finder_tasks(raw, mods=None):
         for b in boards:                          # video / voice models are not in the text sources: use the board's names
             for r in b["rows"]:
                 nm.setdefault(r["k"], {"n": r.get("n") or r["k"], "o": r.get("o") or ""})
-        own_votes = lm_votes(raw, spec[0][1]) if spec[0][0] == "lmarena" else {}
-        votes = text_votes if tid == "translate" else own_votes      # category boards use text-overall votes, arenas their own
-        label_v = "text overall" if tid == "translate" else spec[0][1].replace("_", "-")
+        votes = lm_votes(raw, spec[0][1]) if spec[0][0] == "lmarena" else {}
+        label_v = spec[0][1].replace("_", "-")
         first = boards[0]["rows"]
         ws = [describe(first[0]["k"], boards, nm, votes, label_v)]
         cs = [describe(r["k"], boards, nm, votes, label_v) for r in first[1:6]]
@@ -3136,10 +3148,6 @@ def build_finder_tasks(raw, mods=None):
             "boards": [{"src": b["src"], "name": SRC[b["src"]]["name"], "board": b["board"], "date": b.get("date") or "",
                         "url": b.get("url") or "", "top": [r.get("n") or r["k"] for r in b["rows"][:3]]} for b in boards],
         }
-        if tid == "translate":
-            note = translation_note()
-            if note:
-                task["note"] = note
         out.append(task)
     return out
 
@@ -3213,7 +3221,7 @@ def build_privacy(path=None):
 
 
 def build_finder(raw, mods=None):
-    return {"tasks": build_finder_tasks(raw, mods), "privacy": build_privacy()}
+    return {"tasks": build_picks_v17o(raw, "finder", mods=mods), "privacy": build_privacy()}     # v17o
 
 
 # ======================================================================= cost, releases
@@ -3383,19 +3391,20 @@ def official_status(raw):
 AGENT_NEED = 2
 AGENT_MAX_AGE = 120
 AGENT_TESTS = [  # id, name, credit, page, what it measures, license, license url, unit, in the rule
+    # v17o: the two main tests (Vals Terminal-Bench 4.0, Mercor APEX-Agents) decide; the others are information only.
+    # Epoch is dropped, so its Vending-Bench 2 and Remote Labor Index copies are gone.
+    ("vals_tb4", "Vals AI Terminal-Bench 4.0", "Vals AI (vals.ai)", "https://www.vals.ai/benchmarks/terminal-bench-4",
+     "Real tasks in a computer terminal. Score = average task pass rate (%). Main test for terminal work.",
+     "No reuse license stated", "", "num", True),
+    ("apex", "Mercor APEX-Agents", "APEX-Agents by Mercor (mercor.com)", "https://www.mercor.com/apex/apex-agents-leaderboard/?pass=pass-1",
+     "Real work tasks from banking, consulting and law, done by an agent. Score = share fully passed on the first try "
+     "(pass@1, %). Main test for professional tasks. Early data: few models tested.", "No reuse license stated", "", "num", True),
     ("arena", "LMArena Agent Arena", "LMArena (lmarena.ai)", "https://lmarena.ai/leaderboard/agent",
-     "People give the same task to two hidden agents and vote for the one that did it better.", "CC BY 4.0", CC_BY, "num", True),
+     "People give the same task to two hidden agents and vote for the one that did it better.", "CC BY 4.0", CC_BY, "num", False),
     ("lb_agentic", "LiveBench Long Agentic", "LiveBench (livebench.ai)", "https://livebench.ai/",
-     "Long, many-step tasks done with tools. New, hidden tasks every release.", "", "", "num", True),
-    ("apex", "APEX-Agents", "APEX-Agents by Mercor, via Epoch AI", "https://www.mercor.com/apex/",
-     "Real work tasks from banking, consulting and law, done by an agent. Score = share solved on the first try.",
-     "CC BY 4.0 (Epoch AI data)", CC_BY, "pct", True),
+     "Long, many-step tasks done with tools. New, hidden tasks every release.", "", "", "num", False),
     ("lb_browser", "LiveBench Browser", "LiveBench (livebench.ai)", "https://livebench.ai/",
      "Tasks done in a web browser.", "", "", "num", False),
-    ("vending", "Vending-Bench 2", "Vending-Bench 2 by Andon Labs, via Epoch AI", "https://andonlabs.com/evals/vending-bench-2",
-     "An agent runs a pretend vending-machine business for a year. Score = money at the end.", "CC BY 4.0 (Epoch AI data)", CC_BY, "usd", False),
-    ("rli", "Remote Labor Index", "Remote Labor Index by Scale AI and CAIS, via Epoch AI", "https://labs.scale.com/leaderboard/rli",
-     "Real paid freelance projects. Score = share done well enough to be accepted.", "CC BY 4.0 (Epoch AI data)", CC_BY, "pct", False),
 ]
 
 
@@ -3417,9 +3426,9 @@ def agent_boards(raw):
         "lb_agentic": (lbrows("long agentic"), lb.get("date") or "", st_lb, lb.get("_updated")),
         "lb_browser": (lbrows("browser"), lb.get("date") or "", st_lb, lb.get("_updated")),
     }
-    for bid in ("apex", "vending", "rli"):
-        b = ep.get(bid) or {}
-        data[bid] = (b.get("rows") or [], b.get("newest") or "", bool(b.get("ok")), b.get("updated"))
+    va, me = raw.get("vals") or {}, raw.get("mercor") or {}
+    data["vals_tb4"] = ([dict(r) for r in va.get("rows") or []], va.get("date") or "", bool(va), va.get("_updated"))
+    data["apex"] = ([dict(r) for r in me.get("rows") or []], me.get("published") or me.get("checked") or "", bool(me), me.get("_updated"))
     cut = (NOW - timedelta(days=AGENT_MAX_AGE)).date().isoformat()
     out = []
     for bid, name, credit, url, what, lic, lic_url, unit, in_rule in AGENT_TESTS:
@@ -3585,8 +3594,8 @@ def fmt_score(v, unit):
 
 def build_agents(raw, news_items, official, summaries=None):
     names = names_index(raw)
-    pick = agent_pick(raw, names)
     mods, _ = mods_index(raw)
+    pick = agents_best_v17o(raw, names, mods)                     # v17o: terminal work + professional tasks
     for c in pick["winners"] + pick["candidates"]:
         c["fast"] = is_fast(c["n"], mods.get(c["k"]))
         for x in c["ranks"]:
@@ -3596,8 +3605,8 @@ def build_agents(raw, news_items, official, summaries=None):
         top = [{"k": r["k"], "n": (names.get(r["k"]) or {}).get("n") or r["n"], "o": (names.get(r["k"]) or {}).get("o") or r.get("o", ""),
                 "s": r["s"], "shown": fmt_score(r["s"], b["unit"])} for r in b["rows"][:5]]
         tests.append({k: b[k] for k in b if k != "rows"} | {"top": top, "count": len(b["rows"])})
-    return {"best": pick, "tests": tests, "rule": f"A model is named best for agents only when it is in the top 3 of at least "
-                                                    f"{AGENT_NEED} of the 3 independent agent tests.",
+    return {"best": pick, "tests": tests, "rule": "Terminal work is ranked by Vals AI Terminal-Bench 4.0, professional tasks by "
+                                                    "Mercor APEX-Agents: each by its published scores, highest first.",
             "apps": build_agent_apps(raw), "groups": [{"id": g, "label": l} for g, l in AGENT_GROUPS],
             "news": {"items": fill_summaries(agent_news(news_items, official), summaries if summaries is not None else {}, 0 if summaries is None else SUMMARY_FETCH_MAX), "days": AGENT_NEWS_DAYS, "max": AGENT_NEWS_MAX,
                      "rules": "Titles about AI agents from the last 14 days. Customer stories, opinion, lawsuits, policy, "
@@ -3605,15 +3614,276 @@ def build_agents(raw, news_items, official, summaries=None):
             "maxAge": AGENT_MAX_AGE, "staleDays": STALE_DAYS}
 
 
+# ======================================================================= v17o: one main public test per task
+# Approved rule set (2026-11-21):
+#  1. Each task has ONE main public test, chosen before looking at winners (TASKS_V17O below). No tests run by us,
+#     no Artificial Analysis, no Epoch.
+#  2. Models are ranked by that test's published scores, highest first. A model the test doesn't list is unranked
+#     (never counted as zero). Equal published scores stay ties (same rank number, "r").
+#  3. DesignArena is a cross-check only (websites, pictures; video when its #1 can be read): it says agree or disagree
+#     with the main #1. It adds no points and no score is ever averaged.
+#  4. The app builds ONE ordered list per task from "ranked" (ties broken by fixed tiebreakers: lower verified cost,
+#     then fewer usage limits, then fresher test) and both Top Picks and Find your AI show that list, so they agree.
+#  5. Tasks whose main test is thin (LMArena video boards, Mercor APEX, tau-voice) carry "early": true.
+# Data stays format v3; these fields are added: task.main, task.ranked, task.early, task.cross, task.why.
+RANKINGS_FILE = Path(__file__).resolve().parent / "rankings_static.json"
+RANKED_MAX = 40                 # models kept per task list (enough for the Free / Paid filters)
+DESIGNARENA_PAGE = "https://www.designarena.ai/leaderboard"
+
+
+def _static_section(key, path=None):
+    """One section of scripts/rankings_static.json, as a raw.json section. Raises when missing (keep-last-good)."""
+    d = load_static(path or RANKINGS_FILE)
+    sec = (d or {}).get(key)
+    if not isinstance(sec, dict):
+        raise ValueError(f"{key}: not in {Path(path or RANKINGS_FILE).name}")
+    return json.loads(json.dumps(sec))
+
+
+def _seed_rows(sec):
+    rows = []
+    for r in sec.get("rows") or []:
+        s = num(r.get("s"))
+        k = normalize(r.get("n"))
+        if not k or s is None:
+            continue
+        row = {"k": k, "n": display_name(r.get("n")), "o": org_name(r.get("o") or "") if r.get("o") else "", "s": s}
+        if num(r.get("lo")) is not None and num(r.get("hi")) is not None:
+            row.update(lo=num(r["lo"]), hi=num(r["hi"]))
+        rows.append(row)
+    return _rank_rows(rows)
+
+
+def fetch_mercor(prev=None):
+    """Mercor APEX-Agents: no machine-readable feed; today's published values are seeded (rankings_static.json)."""
+    sec = _static_section("mercor")
+    sec["rows"] = _seed_rows(sec)
+    if len(sec["rows"]) < 3:
+        raise ValueError(f"Mercor APEX-Agents: only {len(sec['rows'])} rows")
+    return sec
+
+
+def fetch_designarena(prev=None):
+    """DesignArena cross-check: each board's #1 only (agree / disagree). No feed; seeded."""
+    sec = _static_section("designarena")
+    boards = {}
+    for tid, b in (sec.get("boards") or {}).items():
+        if isinstance(b, dict) and b.get("top"):
+            boards[tid] = dict(b, k=normalize(b["top"]))
+    if not boards:
+        raise ValueError("DesignArena: no boards")
+    sec["boards"] = boards
+    return sec
+
+
+TASKS_V17O = [  # (id, label, icon, list, main test, cross-check board, early data, why)
+    ("chat", "Chat & questions", "💬", "picks", ("lmarena", "text_sc"), None, False,
+     "Top rating in people's blind votes (LMArena Text, style-adjusted)."),
+    ("writing", "Writing", "✍️", "picks", ("lmarena", "text_creative_writing"), None, False,
+     "Top rating in people's blind votes on creative writing (LMArena)."),
+    ("webdev", "Coding: websites", "💻", "picks", ("lmarena", "webdev"), "webdev", False,
+     "Top rating in people's blind votes on building websites (LMArena WebDev)."),
+    ("coding", "Coding: other code", "💻", "picks", ("livebench", "coding"), None, False,
+     "Top score on LiveBench's coding tasks."),
+    ("math", "Math", "🧮", "picks", ("matharena", ""), None, False,
+     "Top answer accuracy on new research-level problems (MathArena ArXivMath)."),
+    ("logic", "Logic", "🧮", "picks", ("livebench", "reasoning"), None, False,
+     "Top score on LiveBench's reasoning tasks."),
+    ("pictures", "Pictures", "🎨", "picks", ("lmarena", "text_to_image"), "pictures", False,
+     "Top rating in people's blind votes on pictures made from text (LMArena)."),
+    ("research", "Research", "🔎", "finder", ("lmarena", "search_fact"), None, False,
+     "Top rating for web answers, factuality view (LMArena Search)."),
+    ("video", "Video: from text", "🎬", "finder", ("lmarena", "text_to_video"), "video", True,
+     "Top rating in people's blind votes on videos made from text (LMArena)."),
+    ("video_image", "Video: from an image", "🎬", "finder", ("lmarena", "image_to_video"), "video_image", True,
+     "Top rating in people's blind votes on videos made from an image (LMArena)."),
+    ("voice", "Voice & talking", "🎙️", "finder", ("taubench", "voice"), None, True,
+     "Most real tasks finished by talking, first try (Sierra τ-Voice)."),
+]
+AGENTS_V17O = [  # the Agents tab's "Best AI for agents": two rankings, same rules
+    ("terminal", "Terminal work", ("vals", ""), False, "Highest average task pass rate on Vals AI Terminal-Bench 4.0."),
+    ("pro", "Professional tasks", ("mercor", ""), True, "Most professional tasks fully passed on the first try (Mercor APEX-Agents)."),
+]
+MAIN_META = {  # (src, board) -> (source name, board label, page, what the score is)
+    ("lmarena", "text_sc"): ("LMArena", "Text, style-adjusted", "https://lmarena.ai/leaderboard/text", "rating"),
+    ("lmarena", "text_creative_writing"): ("LMArena", "Text, creative writing (raw)", "https://lmarena.ai/leaderboard/text", "rating"),
+    ("lmarena", "webdev"): ("LMArena", "WebDev", "https://lmarena.ai/leaderboard/webdev", "rating"),
+    ("lmarena", "text_to_image"): ("LMArena", "Text-to-image", "https://lmarena.ai/leaderboard/text-to-image", "rating"),
+    ("lmarena", "search_fact"): ("LMArena", "Search, factuality view", "https://lmarena.ai/leaderboard/search", "rating"),
+    ("lmarena", "text_to_video"): ("LMArena", "Text-to-video", "https://lmarena.ai/leaderboard/text-to-video", "rating"),
+    ("lmarena", "image_to_video"): ("LMArena", "Image-to-video", "https://lmarena.ai/leaderboard/image-to-video", "rating"),
+    ("livebench", "coding"): ("LiveBench", "LiveBench 2.0, Coding", LB_SITE, "score"),
+    ("livebench", "reasoning"): ("LiveBench", "LiveBench 2.0, Reasoning", LB_SITE, "score"),
+    ("matharena", ""): ("MathArena", "ArXivMath, answer accuracy", "https://matharena.ai/", "accuracy (%)"),
+    ("taubench", "voice"): ("Sierra τ-Voice", "τ-Voice (τ²-bench v2.0 voice track), pass@1", TAU_PAGE, "pass@1 (%)"),
+    ("vals", ""): ("Vals AI", "Terminal-Bench 4.0, average task pass rate", VALS_TB4, "pass rate (%)"),
+    ("mercor", ""): ("Mercor", "APEX-Agents, pass@1 (fully passed)", "https://www.mercor.com/apex/apex-agents-leaderboard/?pass=pass-1",
+                     "tasks fully passed (%)"),
+}
+
+
+def main_board(raw, src, bid):
+    """The main test's rows {k, n, o, s, lo?, hi?, d?} best first, plus its date. None = no data today."""
+    meta = MAIN_META.get((src, bid))
+    rows, date, extra = [], "", {}
+    if src == "lmarena":
+        b = ((raw.get("lmarena") or {}).get("boards") or {}).get(bid) or {}
+        rows, date = [dict(r) for r in b.get("rows") or []], b.get("date") or ""
+        if bid == "search_fact":                      # "claude-opus-4-6-search" = Claude Opus 4.6 with search
+            seen, keep = set(), []
+            for r in rows:
+                k = SEARCH_SUFFIX.sub("", r["k"])
+                if k not in seen:
+                    seen.add(k)
+                    keep.append(dict(r, k=k, n=SEARCH_SUFFIX.sub("", str(r.get("n") or "")) or k))
+            rows = keep
+    elif src == "livebench":
+        lb = raw.get("livebench") or {}
+        rows = [{"k": r["k"], "n": r["n"], "s": r["cats"][bid]} for r in lb.get("rows") or []
+                if (r.get("cats") or {}).get(bid) is not None]
+        date = lb.get("date") or ""
+    elif src == "taubench":
+        b = finder_board(raw, "taubench", "voice")   # voice modes of the apps listed here (as before)
+        if b:
+            rows, date = [dict(r, d=r.get("date") or "") for r in b["rows"]], b.get("date") or ""
+            for r in rows:
+                r.pop("date", None)
+    elif src in ("matharena", "vals", "mercor"):
+        sec = raw.get(src) or {}
+        rows = [dict(r) for r in sec.get("rows") or []]
+        date = sec.get("published") or sec.get("date") or sec.get("checked") or (sec.get("_updated") or "")[:10]
+        if sec.get("checked"):
+            extra["checked"] = sec["checked"]
+        if sec.get("publishedText"):
+            extra["publishedText"] = sec["publishedText"]
+        if src == "matharena" and sec.get("board"):
+            extra["edition"] = sec["board"]
+    if not meta or not rows:
+        return None
+    rows = _rank_rows([r for r in rows if r.get("k") and num(r.get("s")) is not None])
+    name, label, url, unit = meta
+    return dict({"src": src, "name": name, "board": label, "date": date, "url": url, "unit": unit, "rows": rows}, **extra)
+
+
+def published_ranks(rows):
+    """Rank numbers as published: equal scores share a rank (1, 1, 3)."""
+    out, prev, r = [], None, 0
+    for i, row in enumerate(rows):
+        if row["s"] != prev:
+            r, prev = i + 1, row["s"]
+        out.append(r)
+    return out
+
+
+def cross_check(raw, board_id, main_rows):
+    """DesignArena's #1 vs the main test's #1: agree / disagree only."""
+    if not board_id:
+        return None
+    da = raw.get("designarena") or {}
+    b = (da.get("boards") or {}).get(board_id)
+    if not b or not main_rows:
+        return None
+    return {"src": "designarena", "name": "DesignArena", "board": b.get("board") or "", "date": b.get("date") or da.get("checked") or "",
+            "url": b.get("url") or DESIGNARENA_PAGE, "top": b.get("top") or "", "agree": b.get("k") == main_rows[0]["k"]}
+
+
+def ranked_task(raw, names, mods, spec_main, label=""):
+    """{main, ranked, winners, candidates} for one task from its main test, or None when the test has no data."""
+    b = main_board(raw, *spec_main)
+    if not b:
+        return None
+    rows = b["rows"][:RANKED_MAX]
+    ranks = published_ranks(rows)
+    ranked = []
+    for r, rk in zip(rows, ranks):
+        nm = names.get(r["k"]) or {}
+        n = nm.get("n") or r.get("n") or r["k"]
+        o = r.get("o") or nm.get("o") or ""
+        c = {"k": r["k"], "n": n, "o": o, "s": r["s"], "r": rk, "fast": is_fast(n, mods.get(r["k"]))}
+        if r.get("lo") is not None and r.get("hi") is not None:
+            c.update(lo=r["lo"], hi=r["hi"])
+        if r.get("d"):
+            c["d"] = r["d"]
+        ranked.append(c)
+    main = {k: b[k] for k in ("src", "name", "board", "date", "url", "unit", "checked", "publishedText", "edition") if b.get(k)}
+
+    def full(c):                 # the old shape (winners / candidates) so every older screen keeps working
+        info = {"src": b["src"], "name": b["name"], "board": b["board"], "date": c.get("d") or b["date"], "url": b["url"],
+                "rank": c["r"], "score": c["s"], "top3": c["r"] <= 3, "unit": "num"}
+        if c.get("lo") is not None:
+            info.update(lo=c["lo"], hi=c["hi"])
+        return {"k": c["k"], "n": c["n"], "o": c["o"], "top3": 1 if c["r"] <= 3 else 0, "covered": 1, "votes": None,
+                "notSure": False, "why": [], "ranks": [info], "fast": c["fast"]}
+    return {"main": main, "ranked": ranked, "winners": [full(ranked[0])], "candidates": [full(c) for c in ranked[1:6]], "board": b}
+
+
+def build_picks_v17o(raw, which, names=None, mods=None):
+    """The Top Picks tasks ("picks") or the Find your AI extra tasks ("finder") under the v17o rules."""
+    names = names if names is not None else names_index(raw)
+    mods = mods if mods is not None else mods_index(raw)[0]
+    out = []
+    for tid, label, icon, lst, spec, cross_id, early, why in TASKS_V17O:
+        if lst != which:
+            continue
+        t = ranked_task(raw, names, mods, spec, label)
+        if not t:
+            log(f"{which}: no data for {tid} ({spec[0]}); left out today")
+            continue
+        b = t.pop("board")
+        task = {"id": tid, "label": label, "icon": icon, "status": "lead", "need": 1, "n": 1, "rules": "v17o",
+                "main": t["main"], "ranked": t["ranked"], "early": bool(early), "why": why,
+                "winners": t["winners"], "candidates": t["candidates"], "new": [], "usesAA": False,
+                "how": f"{b['name']} {b['board']}: models ranked by its published {b['unit']}, highest first. "
+                       f"Models it doesn't list are not ranked.",
+                "boards": [{"src": b["src"], "name": b["name"], "board": b["board"], "date": b.get("date") or "",
+                            "url": b.get("url") or "", "top": [c["n"] for c in t["ranked"][:3]]}]}
+        if which == "finder":
+            task["finder"] = True
+        cc = cross_check(raw, cross_id, b["rows"])
+        if cc:
+            task["cross"] = cc
+        out.append(task)
+    return out
+
+
+def agents_best_v17o(raw, names=None, mods=None):
+    """Best AI for agents: two rankings (terminal work, professional tasks); the first one with data leads."""
+    names = names if names is not None else names_index(raw)
+    mods = mods if mods is not None else mods_index(raw)[0]
+    groups = []
+    for gid, label, spec, early, why in AGENTS_V17O:
+        t = ranked_task(raw, names, mods, spec, label)
+        if not t:
+            continue
+        t.pop("board")
+        groups.append({"id": gid, "label": label, "rules": "v17o", "main": t["main"], "ranked": t["ranked"], "early": bool(early), "why": why,
+                       "winners": t["winners"], "candidates": t["candidates"]})
+    if not groups:
+        return {"status": "none", "need": 1, "n": 0, "winners": [], "candidates": [], "groups": [], "rules": "v17o",
+                "why": "No agent test has data right now.", "testsUsed": []}
+    g0 = groups[0]
+    return {"status": "lead", "need": 1, "n": len(groups), "rules": "v17o", "groups": groups,
+            "winners": g0["winners"], "candidates": g0["candidates"], "why": g0["why"],
+            "testsUsed": [{"terminal": "vals_tb4", "pro": "apex"}[g["id"]] for g in groups]}
+
+
+V17O_RULE = ("Each task has one main public test, chosen before looking at the results. Models are ranked by that test's "
+             "published scores, highest first; a model the test doesn't list is not ranked. When top scores are tied or "
+             "within each other's error margins, one pick is still shown, chosen by lower cost, then fewer usage limits, "
+             "then the fresher test.")
+
+
 # ======================================================================= main
-SECTIONS = [("lmarena", fetch_lmarena), ("aa", fetch_aa), ("livebench", fetch_livebench), ("epoch", fetch_epoch),
+SECTIONS = [("lmarena", fetch_lmarena), ("aa", fetch_aa), ("livebench", fetch_livebench),
             ("openrouter", fetch_openrouter), ("official", fetch_official), ("prices", fetch_prices), ("news", fetch_news),
             ("agentapps", fetch_agentapps), ("taubench", fetch_taubench),
             ("eqbench", fetch_eqbench), ("lechmazur", fetch_lechmazur), ("vals", fetch_vals), ("matharena", fetch_matharena),
-            ("makerdates", fetch_makerdates)]
-TEXT_SOURCES = ("lmarena", "aa", "livebench", "epoch")
-SOURCE_ORDER = ("lmarena", "aa", "livebench", "epoch", "eqbench", "lechmazur", "vals", "matharena", "openrouter", "official", "prices",
-                "news", "agentapps", "taubench")
+            ("makerdates", fetch_makerdates), ("mercor", fetch_mercor), ("designarena", fetch_designarena)]
+# v17o: Epoch is no longer collected (dropped everywhere); EQ-Bench and Lech Mazur are still collected but feed no pick
+TEXT_SOURCES = ("lmarena", "aa", "livebench")
+SEEDED = ("mercor", "designarena")      # read from scripts/rankings_static.json, not from the network
+SOURCE_ORDER = ("lmarena", "aa", "livebench", "matharena", "taubench", "vals", "mercor", "designarena", "openrouter",
+                "official", "prices", "news", "agentapps")
 
 
 def load_json(p):
@@ -3682,7 +3952,7 @@ def main():
             sec["_updated"] = NOW_ISO
             raw[name] = sec
             status[name] = {"ok": True, "updated": NOW_ISO, "checked": NOW_ISO, "secs": round(time.time() - t0, 1)}
-            fresh += 1
+            fresh += name not in SEEDED          # v17o: a hand-seeded file read again is not a fresh source
             log(f"ok    {name} ({time.time() - t0:.1f}s)")
         except Exception as e:
             err = scrub(e)[:200]
@@ -3785,7 +4055,7 @@ def main():
         log("built data failed the final check; not writing")
         return 5
     write_raw(raw)
-    n_active = len(active)
+    n_active = len([n for n, _ in active if n not in SEEDED])
     if prev_out and fingerprint(prev_out) == fingerprint(out):
         log("Nothing changed since the last update; app files left as they are.")
         return 0 if fresh == n_active else 1

@@ -56,18 +56,43 @@ jobs:
           import json
           d = json.load(open("data/data.json"))
           assert d.get("v") == 3, "old data format"
+          # v17o: one main public test per task, ranked by its published scores (highest first, ties share a place)
+          EARLY = {"video", "video_image", "voice", "pro"}
+          def v17o(t, where):
+              m = t.get("main") or {}
+              assert m.get("name") and str(m.get("url", "")).startswith("https://") and (m.get("date") or m.get("checked")), where + " main test without name, link or date"
+              rk = t.get("ranked") or []
+              assert rk and all(r.get("k") and r.get("n") and isinstance(r.get("s"), (int, float)) and r.get("r", 0) >= 1 for r in rk), where + " ranked list missing or incomplete"
+              assert all(a["s"] >= b["s"] and (b["r"] == a["r"] if b["s"] == a["s"] else b["r"] > a["r"]) for a, b in zip(rk, rk[1:])), where + " not ranked by published score"
+              assert t.get("why") and t.get("winners") and t["winners"][0]["k"] == rk[0]["k"], where + " without reason, or winner is not the test's #1"
+              assert t.get("early") is (t["id"] in EARLY), where + " early-data label wrong"
+              c = t.get("cross")
+              assert not c or (c.get("agree") in (True, False) and str(c.get("url", "")).startswith("https://") and c.get("date")), where + " bad cross-check"
           assert len(d["picks"]) >= 3, "too few picks"
           assert all(p["why"] and p["boards"] for p in d["picks"]), "pick without reason or sources"
-          assert all(p["n"] >= 2 or (p["status"] == "single" and p["id"] == "pictures") for p in d["picks"]), "pick from a single source"
-          assert not any(p["status"] == "best" and p["n"] < 2 for p in d["picks"]), "'best' from one source"
+          old = [p for p in d["picks"] if p.get("rules") != "v17o"]
+          assert all(p["n"] >= 2 or (p["status"] == "single" and p["id"] == "pictures") for p in old), "pick from a single source"
+          assert not any(p["status"] == "best" and p["n"] < 2 for p in old), "'best' from one source"
+          for p in d["picks"]:
+              if p.get("rules") == "v17o":
+                  v17o(p, "pick " + p["id"])
+                  assert p["status"] != "best", "v17o pick marked best: " + p["id"]
+                  assert all(b["url"] and b["date"] for b in p["boards"]), "pick source without link or date: " + p["id"]
           assert d["cost"]["apps"], "no app prices"
           assert all(a["page"] and a["checked"] for a in d["cost"]["apps"]), "price without source or date"
           assert "items" in d["releases"] and "items" in d["bignews"], "missing releases or news"
-          for s in ("lmarena", "livebench", "epoch", "openrouter", "official", "prices", "news", "agentapps"):
+          for s in ("lmarena", "livebench", "matharena", "taubench", "vals", "mercor", "designarena", "openrouter", "official", "prices", "news", "agentapps"):
               assert s in d["status"], "no status for " + s
           ag = d["agents"]
-          assert all(w["top3"] >= 2 for w in ag["best"]["winners"]), "agent pick from fewer than 2 tests"
-          assert ag["best"]["status"] != "best" or ag["best"]["n"] >= 2, "agent pick with fewer than 2 usable tests"
+          if ag["best"].get("rules") == "v17o":
+              gs = ag["best"].get("groups") or []
+              assert gs and all(g.get("rules") == "v17o" for g in gs), "agent pick without its v17o groups"
+              for g in gs:
+                  v17o(g, "agent group " + g["id"])
+              assert ag["best"]["testsUsed"] == [{"terminal": "vals_tb4", "pro": "apex"}[g["id"]] for g in gs], "agent tests used don't match the groups"
+          else:
+              assert all(w["top3"] >= 2 for w in ag["best"]["winners"]), "agent pick from fewer than 2 tests"
+              assert ag["best"]["status"] != "best" or ag["best"]["n"] >= 2, "agent pick with fewer than 2 usable tests"
           assert len(ag["apps"]) >= 10, "agent apps missing"
           assert all(a["src"].get("url") and a["checked"] for a in ag["apps"]), "agent app without source or date"
           assert all(a["proof"] and a["proof"].get("url") for a in ag["apps"] if a.get("plansFrom")), "agent app without its proof page"
@@ -77,7 +102,11 @@ jobs:
           fi = d.get("finder") or {}
           for t in fi.get("tasks", []):
               assert t["why"] and t["boards"] and t["winners"], "finder task without reason, sources or models: " + t["id"]
-              assert t["status"] == "single" or t["n"] >= 2, "finder task called best from 1 source: " + t["id"]
+              if t.get("rules") == "v17o":
+                  v17o(t, "finder task " + t["id"])
+                  assert t["status"] != "best", "v17o finder task marked best: " + t["id"]
+              else:
+                  assert t["status"] == "single" or t["n"] >= 2, "finder task called best from 1 source: " + t["id"]
               assert all(b["url"] and b["date"] for b in t["boards"]), "finder task source without link or date: " + t["id"]
           pv = fi.get("privacy")
           assert pv and pv["apps"], "no privacy data for Find your AI"

@@ -8,7 +8,13 @@ const read = (f) => fs.readFileSync(path.join(R, f), "utf8");
 // Until the daily Action has run v6 once, data/data.json has no "agents" part: the Agents-tab tests then use
 // tests/fixtures/agents_sample.json (built by v6 from the real pages saved on 2026-11-02).
 const AGENTS_SAMPLE = () => JSON.parse(read("tests/fixtures/agents_sample.json"));
-const data = () => { const d = JSON.parse(read("data/data.json")); if (!d.agents) d.agents = AGENTS_SAMPLE(); return d; };
+// v17o: the root app.js is the superseded GitHub Pages v7 app. Its tests render a PINNED pre-v17o data file
+// (tests/fixtures/data_pre_v17o.json = the last data/data.json the old pipeline built, 2026-11-21) so they keep their full
+// coverage now that data/data.json has the v17o shape. The real data/data.json is checked against the live app's v17o
+// contract in site_v17o.test.js; the checks below that read data/data.json / data.js directly (secrets, AA off, the
+// data.js wrapper) still run on the real files.
+const LEGACY_DATA = "tests/fixtures/data_pre_v17o.json";
+const data = () => { const d = JSON.parse(read(LEGACY_DATA)); if (!d.agents) d.agents = AGENTS_SAMPLE(); return d; };
 
 function loadApp(d) {
   const ctx = { AI_DATA: d || data() };
@@ -73,17 +79,17 @@ test("exactly 5 tabs (short labels on a phone), a Sources view, no tables, no le
 });
 
 test("no secrets in the app or data", () => {
-  const blob = read("app.js") + read("index.html") + read("data/data.json") + read("data/data.js");
+  const blob = read("app.js") + read("index.html") + read("data/data.json") + read("data/data.js") + read(LEGACY_DATA);
   assert.doesNotMatch(blob, /x-api-key|api_key|AA_API_KEY=/i);
 });
 
-test("data file has the new shape", () => {
+test("data file has the new shape (pinned pre-v17o data for the root app)", () => {
   const d = data();
   assert.equal(d.v, 3);
   for (const k of ["status", "sources", "picks", "cost", "releases", "bignews", "rule"]) assert.ok(d[k], "missing " + k);
   assert.equal(typeof d.aaEnabled, "boolean");
   const ids = ["lmarena", "livebench", "epoch", "openrouter", "official", "prices", "news"].concat(d.aaEnabled ? ["aa"] : [])
-    .concat(JSON.parse(read("data/data.json")).agents ? ["agentapps"] : []);
+    .concat(JSON.parse(read(LEGACY_DATA)).agents ? ["agentapps"] : []);
   for (const s of ids) {
     assert.ok(d.status[s], "no status for " + s);
     assert.ok(d.sources.some((x) => x.id === s), "no source entry for " + s);
@@ -178,7 +184,7 @@ test("a failed source shows 'using last good copy'", () => {
 test("Artificial Analysis off: no AA anywhere, 3-of-3 rule, pictures marked '1 source only'", () => {
   const d = data();
   if (d.aaEnabled) return;   // this repo is running with AA on (private); covered by the next test
-  assert.doesNotMatch(read("data/data.json") + read("data/data.js"), /artificialanalysis\.ai|"aa"/i);
+  assert.doesNotMatch(read("data/data.json") + read("data/data.js") + read(LEGACY_DATA), /artificialanalysis\.ai|"aa"/i);
   if (fs.existsSync(path.join(R, "data/raw.json"))) assert.doesNotMatch(read("data/raw.json"), /"aa":|artificialanalysis\.ai/);
   const A = loadApp(d);
   const all = ["best", "cost", "releases", "news", "agents"].map((t) => A.view(t, false) + A.view(t, true)).join("") + A.view("sources", false);
@@ -514,7 +520,7 @@ test("v7b: both themes, every group open, nothing wider than 390 px", { skip: ((
 // ---- v16h (cloudflare-v9, the live app): picker fix, no outside links, finder wording
 test("v16h: cloudflare-v9 app - tapping the already-chosen model ticks the AI; no outside links; no '1 test' note on finder tasks", () => {
   const app = read("cloudflare-v9/app.js"), sw = read("cloudflare-v9/sw.js");
-  assert.match(sw, /const VERSION = "(v16[hi]\d|v17[dehklm]2?|v17n3|v17n6|v17n8|v17n9)-2026-11-\d\d"/);
+  assert.match(sw, /const VERSION = "(v16[hi]\d|v17[dehklm]2?|v17n3|v17n6|v17n8|v17n9|v17o)-2026-11-\d\d"/);
   assert.match(app, /function chooseSame\(input\)/);                                   // the same-row handler
   assert.match(app, /addEventListener\("click", function \(e\) \{\s*if \(e\.target && e\.target\.name === "mopt" && pro\.sheet\) chooseSame\(e\.target\);/);
   assert.match(app, /e\.key === "Enter" \|\| e\.key === " "\) && e\.target && e\.target\.name === "mopt"\) \{ chooseSame\(e\.target\)/);
@@ -540,21 +546,19 @@ test("v16h: cloudflare-v9 app - tapping the already-chosen model ticks the AI; n
 // ---- v16i (cloudflare-v9): AI-written detailed story summaries + the 4 extra tests in Top Picks
 test("v16i: story page shows the AI summary (xd) with its note, else x; boards graded by AI are marked", () => {
   const sw = read("cloudflare-v9/sw.js");
-  assert.match(sw, /const VERSION = "(v16i\d|v17[dehklm]2?|v17n3|v17n6|v17n8|v17n9)-2026-11-\d\d"/);
-  const ctx = { AI_DATA: data() };
+  assert.match(sw, /const VERSION = "(v16i\d|v17[dehklm]2?|v17n3|v17n6|v17n8|v17n9|v17o)-2026-11-\d\d"/);
+  const live = () => JSON.parse(read("data/data.json"));               // the real data (any shape): story pages
+  const ctx = { AI_DATA: live() };
   ctx.window = ctx;
   vm.createContext(ctx);
   vm.runInContext(read("cloudflare-v9/app.js"), ctx);
   const A = ctx.AITracker;
-  const d = JSON.parse(JSON.stringify(data()));
+  const d = live();
   const items = d.bignews.items;
   assert.ok(items.length >= 2);
   items[0].xd = "First paragraph of an AI summary.\n\nSecond paragraph of it.";
   items[0].xdBy = "AI summary";
   items[1].x = "The feed's own short text."; delete items[1].xd;
-  const wb = d.picks.find((p) => p.id === "writing");
-  wb.boards.push({ src: "eqbench", name: "EQ-Bench", board: "Creative Writing v3 (Elo)", date: "2026-10-28", url: "", ai: true, top: ["A", "B", "C"], topFast: [false, false, false] });
-  d.ruleInfo = Object.assign({}, d.ruleInfo, { names: "LMArena, LiveBench, Epoch AI, EQ-Bench, Lech Mazur's story test, Vals AI and MathArena" });
   A.setData(d);
   const s0 = A.storyHtml("news", 0);
   assert.match(s0, /<p>First paragraph of an AI summary\.<\/p><p>Second paragraph of it\.<\/p>/);
@@ -562,6 +566,12 @@ test("v16i: story page shows the AI summary (xd) with its note, else x; boards g
   const s1 = A.storyHtml("news", 1);
   assert.match(s1, /The feed&#39;s own short text\.|The feed's own short text\./);
   assert.doesNotMatch(s1, /Summary written by AI/);
+  // boards graded by AI (EQ-Bench, pre-v17o data only: v17o has one main test per task) are still marked in the live app
+  const old = data();
+  const wb = old.picks.find((p) => p.id === "writing");
+  wb.boards.push({ src: "eqbench", name: "EQ-Bench", board: "Creative Writing v3 (Elo)", date: "2026-10-28", url: "", ai: true, top: ["A", "B", "C"], topFast: [false, false, false] });
+  old.ruleInfo = Object.assign({}, old.ruleInfo, { names: "LMArena, LiveBench, Epoch AI, EQ-Bench, Lech Mazur's story test, Vals AI and MathArena" });
+  A.setData(old);
   const more = A.view("best", true);
   assert.match(more, /EQ-Bench · Creative Writing v3 \(Elo\) \(graded by AI\)/);
   assert.match(more, /Lech Mazur's story test|Lech Mazur&#39;s story test/);

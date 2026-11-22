@@ -1,0 +1,37 @@
+{
+ "_about": "v17o: published values for main tests and cross-checks that have no machine-readable feed. Copied by hand from each source's own page on the 'checked' date; the daily Action reads this file (keep-last-good: if it can't be read, yesterday's copy in data/raw.json is kept). Edit by hand and update 'checked' when a source publishes new values. Values only, exactly as published; nothing is averaged or adjusted.",
+ "mercor": {
+  "name": "APEX-Agents (Mercor)",
+  "credit": "APEX-Agents by Mercor (mercor.com)",
+  "url": "https://www.mercor.com/apex/apex-agents-leaderboard/?pass=pass-1",
+  "board": "APEX-Agents v1.1, pass@1 (fully passed)",
+  "metric": "share of tasks fully passed on the first try (%)",
+  "published": "",
+  "checked": "2026-11-22",
+  "note": "The leaderboard page shows these models; several run settings of one model = its best run counts (Gemini 4 Neon: xHigh 82.9, High 82.7). The page states no reuse license.",
+  "rows": [
+   {"n": "Gemini 4 Carbon", "o": "Google", "s": 84.2, "lo": 79.9, "hi": 88.5},
+   {"n": "Gemini 4 Neon", "o": "Google", "s": 82.9, "lo": 78.3, "hi": 87.5},
+   {"n": "Gemini 4 Argon", "o": "Google", "s": 82.4, "lo": 78.1, "hi": 86.7},
+   {"n": "Claude Fable 5.2", "o": "Anthropic", "s": 80.1, "lo": 75.4, "hi": 84.8},
+   {"n": "Gemini 4 Hydrogen", "o": "Google", "s": 78.0, "lo": 73.2, "hi": 82.8}
+  ]
+ },
+ "designarena": {
+  "name": "DesignArena",
+  "credit": "DesignArena (designarena.ai)",
+  "url": "https://www.designarena.ai/leaderboard",
+  "checked": "2026-11-22",
+  "note": "Cross-check only: each board's #1 is compared with the main test's #1 (agree / disagree). No scores are used. The site states no reuse license. Video boards: the #1 as shown on each board page (page update time in UTC).",
+  "boards": {
+   "webdev": {"board": "Website", "top": "Muse Wonder", "o": "Meta", "date": "2026-11-22",
+              "url": "https://www.designarena.ai/leaderboard?section=website&board=website"},
+   "pictures": {"board": "Image", "top": "GPT-Image-2.5 Sunburst", "o": "OpenAI", "date": "2026-11-22",
+                "url": "https://www.designarena.ai/leaderboard?tab=image&section=image&board=image"},
+   "video": {"board": "Text-to-video", "top": "Gemini Omni 1.2 Flash", "o": "Google", "date": "2026-11-21",
+             "url": "https://www.designarena.ai/leaderboard?section=text-to-video&tab=video"},
+   "video_image": {"board": "Image-to-video", "top": "MiniMax H3 Max", "o": "Fal", "date": "2026-11-22",
+                   "url": "https://www.designarena.ai/leaderboard/image-to-video"}
+  }
+ }
+}

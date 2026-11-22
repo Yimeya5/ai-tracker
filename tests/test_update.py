@@ -24,6 +24,11 @@ def load(root):
     m.RAW_JSON = m.DATA_DIR / "raw.json"
     m.NOW, m.NOW_ISO, m.TODAY = FIXED_NOW, FIXED_NOW.isoformat(timespec="seconds"), FIXED_NOW.date().isoformat()
     m.sleep = lambda s: None
+    real_parquet = m.read_parquet
+    def read_parquet(raw):                  # v17o: the fake LMArena configs (no Epoch any more to carry a run without them)
+        key = raw.decode("utf-8", "ignore") if len(raw) < 64 else ""
+        return LM_ROWS[key]() if key in LM_ROWS else real_parquet(raw)
+    m.read_parquet = read_parquet
     return m
 
 
@@ -94,7 +99,26 @@ def lm_agent_rows():
     return json.loads(fx("lmarena_agent_latest.json"))
 
 
-LM_ROWS = {"text": lm_text_rows, "webdev": lm_webdev_rows, "text_to_image": lm_image_rows, "agent": lm_agent_rows}
+def lm_style_rows():
+    """v17o: the style-adjusted text board (its own dataset config). Carbon and Argon within each other's ranges."""
+    top = [("gemini-4-carbon-high", "Google", 1527, 9.6, 4403), ("gemini-4-argon", "Google", 1520, 5.1, 11889),
+           ("claude-opus-5-5-20260922", "Anthropic", 1506, 5.7, 11415), ("claude-fable-5-1", "Anthropic", 1503, 5, 17200),
+           ("gpt-6-1-sol", "OpenAI", 1490, 6, 9367), ("claude-sonnet-5-5", "Anthropic", 1480, 6, 10033)]
+    rows = [lm(n, o, s, h, v) for n, o, s, h, v in top]
+    rows += [lm(n, o, 1460 - i * 5, 6, 9000) for i, (n, o) in enumerate(FILLER)]
+    return rows
+
+
+def lm_search_fact_rows():
+    """v17o: Search Arena, factuality view. Its category is not 'overall' (found by lm_board); '-search' runs merge."""
+    top = [("amazon-web-search-agent", "Amazon", 1266, 15, 1565), ("gemini-4-argon-grounding", "Google", 1250, 9, 6000),
+           ("claude-opus-5-5-search", "Anthropic", 1244, 9, 5000), ("gpt-6-1-sol-search", "OpenAI", 1230, 9, 7000),
+           ("claude-sonnet-5-5-search", "Anthropic", 1210, 9, 7000), ("claude-opus-5-5", "Anthropic", 1200, 9, 3000)]
+    return [lm(n, o, s, h, v, cat="factuality") for n, o, s, h, v in top]
+
+
+LM_ROWS = {"text": lm_text_rows, "webdev": lm_webdev_rows, "text_to_image": lm_image_rows, "agent": lm_agent_rows,
+           "text_style_control": lm_style_rows, "search_factuality": lm_search_fact_rows}
 
 AA_TOP = [("Gemini 4 Carbon (High)", "gemini-4-carbon", "Google", 59.4, 4, 20, "2026-10-28"),
           ("Claude Opus 5.5 (max with fallback)", "claude-opus-5-5", "Anthropic", 58.4, 4, 20, "2026-09-22"),
@@ -325,7 +349,9 @@ def install_fakes(m, aa=True):
     return m
 
 
-ALL_SECTIONS = ("lmarena", "aa", "livebench", "epoch", "openrouter", "official", "prices", "news", "agentapps")
+# v17o: Epoch is no longer collected; the seeded main test (Mercor) and the DesignArena cross-check are read from
+# scripts/rankings_static.json (the Translation task and WMT26 were removed)
+ALL_SECTIONS = ("lmarena", "aa", "livebench", "openrouter", "official", "prices", "news", "agentapps", "mercor", "designarena")
 
 
 def boom(*a, **k):
@@ -413,7 +439,7 @@ class FastTag(unittest.TestCase):
             for p in ps:
                 for b in p["boards"]:
                     b.pop("topFast", None)
-                for c in p["winners"] + p["candidates"] + p["new"]:
+                for c in p["winners"] + p["candidates"] + p["new"] + p.get("ranked", []):
                     c.pop("fast", None)
             return ps
         self.assertEqual(clean(with_tag), clean(without))
@@ -784,7 +810,12 @@ def agent_raw(m, apex_newest=None):
     return {"lmarena": {"boards": {"agent": {"label": "Agent Arena", "date": date, "url": "https://lmarena.ai/leaderboard/agent", "rows": rows}},
                         "_updated": m.NOW_ISO},
             "livebench": {"rows": lb, "date": "2026-10-25", "release": "20261025", "_updated": m.NOW_ISO},
-            "epoch": {"rows": [], "agent": agent, "_updated": m.NOW_ISO}}
+            "epoch": {"rows": [], "agent": agent, "_updated": m.NOW_ISO},
+            # v17o main tests: Vals AI Terminal-Bench 4.0 (terminal work) and Mercor APEX-Agents (professional tasks, seeded)
+            "vals": {"rows": [{"k": "claude-opus-5-5", "n": "Claude Opus 5.5", "s": 65.15}, {"k": "claude-fable-5-2", "n": "Claude Fable 5.2", "s": 65.15},
+                              {"k": "claude-sonnet-5-5", "n": "Claude Sonnet 5.5", "s": 64.14}, {"k": "kimi-k3-1-pro", "n": "Kimi K3.1 Pro", "s": 63.64}],
+                     "date": "2026-10-30", "board": "Terminal-Bench 4", "_updated": m.NOW_ISO},
+            "mercor": dict(m.fetch_mercor(None), _updated=m.NOW_ISO)}
 
 
 class AgentTests(unittest.TestCase):
@@ -827,44 +858,50 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(rows[0]["s"], 0.824)
 
     def test_rule_today(self):
-        res = self.m.agent_pick(agent_raw(self.m))
-        self.assertEqual(res["status"], "best")
-        self.assertEqual([(w["n"], w["top3"]) for w in res["winners"]], [("Claude Opus 5.5", 3), ("Claude Sonnet 5.5", 2)])
-        self.assertEqual(res["n"], 3)
-        cands = {c["n"]: c["top3"] for c in res["candidates"]}
-        self.assertEqual(cands.get("Gemini 4 Carbon"), 1)                          # #2 on the Arena only: not best
-        for w in res["winners"]:
-            self.assertTrue(all(x["url"].startswith("https://") and x["date"] for x in w["ranks"]))
+        # v17o: two rankings, each by its own main test's published scores (ties kept as ties)
+        res = self.m.agents_best_v17o(agent_raw(self.m))
+        self.assertEqual((res["status"], res["rules"]), ("lead", "v17o"))
+        g = {x["id"]: x for x in res["groups"]}
+        self.assertEqual(list(g), ["terminal", "pro"])
+        self.assertEqual([(c["k"], c["r"]) for c in g["terminal"]["ranked"][:3]],
+                         [("claude-opus-5-5", 1), ("claude-fable-5-2", 1), ("claude-sonnet-5-5", 3)])
+        self.assertEqual(g["pro"]["ranked"][0]["k"], "gemini-4-carbon")
+        self.assertEqual((g["terminal"]["early"], g["pro"]["early"]), (False, True))      # APEX: few models = early data
+        self.assertEqual(g["terminal"]["main"]["name"], "Vals AI")
+        self.assertEqual(g["pro"]["main"]["name"], "Mercor")
+        for x in res["groups"]:
+            self.assertEqual(x["rules"], "v17o")                                     # the app draws only v17o groups
+            self.assertTrue(x["main"]["url"].startswith("https://") and (x["main"].get("date") or x["main"].get("checked")) and x["why"])
+            self.assertTrue(all(r["url"].startswith("https://") and r["date"] for w in x["winners"] for r in w["ranks"]))
+        self.assertEqual(res["testsUsed"], ["vals_tb4", "apex"])
 
     def test_one_test_alone_never_names_best(self):
         raw = agent_raw(self.m)
-        raw["livebench"]["rows"] = []
-        raw["epoch"]["agent"] = {}
-        res = self.m.agent_pick(raw)
-        # v16h "always a winner": with one test, that test's #1 leads (never called "best")
+        raw.pop("mercor")
+        res = self.m.agents_best_v17o(raw)
         self.assertEqual((res["status"], res["n"], len(res["winners"])), ("lead", 1, 1))
-        self.assertIn("the only agent test with fresh data", res["why"])
+        self.assertEqual(res["winners"][0]["k"], "claude-opus-5-5")
         self.assertNotIn("No clear winner", res["why"])
 
     def test_old_test_is_skipped(self):
-        raw = agent_raw(self.m, apex_newest="2026-06-01")                         # more than 120 days before Nov 1
+        raw = agent_raw(self.m)
+        raw["mercor"]["checked"] = "2026-06-01"                                  # more than 120 days before Nov 1
         tests = {b["id"]: b for b in self.m.agent_boards(raw)}
         self.assertTrue(tests["apex"]["skipped"])
         self.assertIn("120 days", tests["apex"]["skipWhy"])
-        res = self.m.agent_pick(raw)
-        self.assertEqual(res["n"], 2)
-        self.assertEqual([w["n"] for w in res["winners"]], ["Claude Opus 5.5"])     # Sonnet was top 3 only on APEX + Arena
+        self.assertFalse(tests["vals_tb4"]["skipped"])
 
     def test_info_tests_not_in_rule(self):
         out = self.m.build_agents(agent_raw(self.m), [], [])
         tests = {t["id"]: t for t in out["tests"]}
-        self.assertEqual({k for k, t in tests.items() if t["inRule"]}, {"arena", "lb_agentic", "apex"})
-        self.assertEqual(tests["vending"]["top"][0]["shown"], "$16,484")
-        self.assertEqual(tests["apex"]["top"][0]["shown"], "82.4%")
-        self.assertEqual(tests["rli"]["top"][0]["n"], "Claude Opus 5.5")
-        self.assertEqual(out["best"]["testsUsed"], ["arena", "lb_agentic", "apex"])
+        self.assertEqual(set(tests), {"vals_tb4", "apex", "arena", "lb_agentic", "lb_browser"})     # no Epoch copies
+        self.assertEqual({k for k, t in tests.items() if t["inRule"]}, {"vals_tb4", "apex"})
+        self.assertEqual(tests["apex"]["top"][0]["shown"], "84.2")
+        self.assertEqual(tests["vals_tb4"]["top"][0]["n"], "Claude Opus 5.5")
+        self.assertEqual(out["best"]["testsUsed"], ["vals_tb4", "apex"])
+        self.assertIn("Terminal-Bench 4.0", out["rule"])
         for t in out["tests"]:
-            self.assertTrue(t["url"].startswith("https://") and t["credit"] and t["date"] and len(t["top"]) == 5)
+            self.assertTrue(t["url"].startswith("https://") and t["credit"] and t["date"] and len(t["top"]) == min(5, t["count"]))
 
     def test_epoch_agent_test_keeps_last_good(self):
         good = self.m.parse_epoch_bench(zipfile.ZipFile(io.BytesIO(fx("epoch_agent_subset.zip"))).read("rli_external.csv").decode(), "Score")
@@ -1089,8 +1126,8 @@ class PersonalAssistants(unittest.TestCase):
         self.assertIsNone(out["instinct"]["cheapest"])
         self.assertIsNone(out["tab"]["proof"])
         self.assertEqual(out["tab"]["src"]["checked"], "2026-11-02")
-        res = self.m.agent_pick(agent_raw(self.m))
-        self.assertEqual([w["n"] for w in res["winners"]], ["Claude Opus 5.5", "Claude Sonnet 5.5"])
+        res = self.m.agents_best_v17o(agent_raw(self.m))
+        self.assertEqual([w["n"] for w in res["winners"]], ["Claude Opus 5.5"])
 
 
 class StaticAgents(unittest.TestCase):
@@ -1315,17 +1352,24 @@ class Pipeline(unittest.TestCase):
         d = self.data()
         self.assertEqual(d["v"], 3)
         picks = {p["id"]: p for p in d["picks"]}
-        self.assertEqual(set(picks), {"chat", "writing", "coding", "math", "pictures", "cheap"})
-        self.assertEqual(picks["chat"]["status"], "best")
-        self.assertEqual(picks["chat"]["winners"][0]["n"], "Claude Opus 5.5")
-        self.assertIn("gemini-4-carbon", [c["k"] for c in picks["chat"]["new"]])     # #1 on LMArena but new
+        # v17o: one main test per task (Math needs MathArena, not in these fakes: left out, never invented)
+        self.assertEqual(set(picks), {"chat", "writing", "webdev", "coding", "logic", "pictures", "cheap"})
+        self.assertEqual(picks["chat"]["main"]["board"], "Text, style-adjusted")
+        self.assertEqual(picks["chat"]["ranked"][0]["k"], "gemini-4-carbon")
+        self.assertEqual(picks["chat"]["winners"][0]["n"], "Gemini 4 Carbon")
         self.assertEqual(picks["pictures"]["winners"][0]["k"], "gpt-image-2-5-sunburst")
+        self.assertEqual((picks["pictures"]["cross"]["agree"], picks["webdev"]["cross"]["agree"]), (True, False))
         cheap = picks["cheap"]["winners"][0]
         blend = lambda c: 3 * c["price"]["pin"] + c["price"]["pout"]
         self.assertTrue(all(blend(cheap) <= blend(c) for c in picks["cheap"]["candidates"]))
         self.assertGreaterEqual(sum(1 for rk in cheap["ranks"] if rk.get("rank") and rk["rank"] <= 10), 2)
         for p in d["picks"]:
-            self.assertGreaterEqual(p["n"], 2)
+            if p["id"] != "cheap":                                   # v17o picks: one main test, its rows only
+                self.assertEqual((p["rules"], p["n"]), ("v17o", 1))
+                self.assertTrue(p["main"]["url"].startswith("https://") and p["main"]["date"] and p["ranked"])
+                self.assertFalse(p["usesAA"])
+            else:
+                self.assertGreaterEqual(p["n"], 2)
             self.assertTrue(p["why"] and p["boards"])
             for w in p["winners"]:
                 for rk in w["ranks"]:
@@ -1339,49 +1383,48 @@ class Pipeline(unittest.TestCase):
         self.assertTrue((self.root / "data" / "data.js").read_text().startswith("window.AI_DATA="))
         for f in ("data.json", "data.js", "raw.json"):
             self.assertNotIn("TEST-KEY-123456", (self.root / "data" / f).read_text())
-        # AA on: 3 of 4 rule, 2 of 2 for pictures, AA credited, all 7 sources listed
+        # AA on (private use): still listed as a source, but no pick uses it (v17o: no Artificial Analysis in picks)
         self.assertTrue(d["aaEnabled"])
-        self.assertEqual((d["ruleInfo"]["textSources"], d["ruleInfo"]["picSources"]), (4, 2))
-        self.assertIn("at least 3 of the tests", d["rule"])
-        self.assertEqual(picks["chat"]["n"], 4)
-        self.assertEqual(picks["pictures"]["status"], "best")
-        self.assertTrue(picks["chat"]["usesAA"])
+        self.assertEqual(d["ruleInfo"]["rules"], "v17o")
+        self.assertIn("one main public test", d["rule"])
         self.assertIn("aa", [s["id"] for s in d["sources"]])
+        self.assertNotIn("epoch", [s["id"] for s in d["sources"]])
         self.check_agents(d)
 
     def check_agents(self, d):
         ag = d["agents"]
-        self.assertEqual(ag["best"]["status"], "best")
-        self.assertEqual([w["n"] for w in ag["best"]["winners"]], ["Claude Opus 5.5", "Claude Sonnet 5.5"])
+        self.assertEqual((ag["best"]["status"], ag["best"]["rules"]), ("lead", "v17o"))
+        self.assertEqual([g["id"] for g in ag["best"]["groups"]], ["pro"])          # no Vals in these fakes: terminal left out
+        self.assertEqual([w["n"] for w in ag["best"]["winners"]], ["Gemini 4 Carbon"])
         self.assertEqual(len(ag["apps"]), 49)
         self.assertTrue(all(a["src"]["url"].startswith("https://") and a["checked"] and a["group"] in ("tasks", "code", "assistants", "research") for a in ag["apps"]))
-        self.assertEqual({t["id"] for t in ag["tests"]}, {"arena", "lb_agentic", "apex", "lb_browser", "vending", "rli"})
+        self.assertEqual({t["id"] for t in ag["tests"]}, {"vals_tb4", "apex", "arena", "lb_agentic", "lb_browser"})
         self.assertTrue(all(n["u"] and n["s"] and n["d"] for n in ag["news"]["items"]))
         self.assertTrue(d["status"]["agentapps"]["ok"])
         self.assertIn("agentapps", [s["id"] for s in d["sources"]])
         self.assertNotIn("artificialanalysis", json.dumps(ag).lower())
 
     def test_coverage_and_votes_use_every_row_and_text_overall(self):
+        # v17o: a task's list holds only the models its main test lists, in published order; untested = unranked
         self.run_main()
         picks = {p["id"]: p for p in self.data()["picks"]}
-        astra = [c for c in picks["chat"]["candidates"] + picks["chat"]["winners"] if c["k"] == "gpt-6-astra"][0]
-        lm = [r for r in astra["ranks"] if r["src"] == "lmarena"][0]
-        self.assertGreater(lm["rank"], 60)               # past the old 60-row cut-off, but covered
-        self.assertEqual(astra["covered"], 4)
-        self.assertEqual(astra["votes"], 15038)
-        # Opus 5.5 has only 2,672 creative-writing votes but 11,415 overall -> sure, and best for writing
-        self.assertEqual(picks["writing"]["status"], "best")
-        self.assertEqual(picks["writing"]["winners"][0]["k"], "claude-opus-5-5")
-        self.assertFalse(picks["writing"]["winners"][0]["notSure"])
-        self.assertEqual(picks["writing"]["winners"][0]["votes"], 11415)
-        self.assertEqual(picks["coding"]["winners"][0]["k"], "claude-opus-5-5")   # 4 of 4, not flagged by webdev votes
+        chat = [c["k"] for c in picks["chat"]["ranked"]]
+        self.assertNotIn("gpt-6-astra", chat)                   # not on the style-adjusted board: not ranked (not zero)
+        self.assertEqual(chat[:3], ["gemini-4-carbon", "gemini-4-argon", "claude-opus-5-5"])
+        self.assertEqual(picks["writing"]["ranked"][0]["k"], "claude-fable-5-1")    # creative writing (raw) decides alone
+        self.assertEqual(picks["coding"]["ranked"][0]["k"], "claude-fable-5-1")     # LiveBench coding decides alone
+        self.assertEqual(picks["webdev"]["ranked"][0]["k"], "claude-opus-5-5")
+        for p in picks.values():
+            if p.get("ranked"):
+                s = [c["s"] for c in p["ranked"]]
+                self.assertEqual(s, sorted(s, reverse=True), p["id"])
 
     def test_board_tops_use_canonical_names(self):
         self.run_main()
         for p in self.data()["picks"]:
             for b in p["boards"]:
                 self.assertNotIn("GPT 6 Astra", b["top"])
-        lb = [b for b in {p["id"]: p for p in self.data()["picks"]}["chat"]["boards"] if b["src"] == "livebench"][0]
+        lb = [b for b in {p["id"]: p for p in self.data()["picks"]}["logic"]["boards"] if b["src"] == "livebench"][0]
         self.assertIn("GPT-6 Astra", lb["top"])
 
     def test_livebench_finds_newest_release(self):
@@ -1503,21 +1546,16 @@ class AAOff(unittest.TestCase):
         self.assertEqual(self.aa_calls, [], "no request to Artificial Analysis when it is off")
         d = self.assert_no_aa()
         self.assertFalse(d["aaEnabled"])
-        self.assertEqual((d["ruleInfo"]["textSources"], d["ruleInfo"]["picSources"]), (3, 1))
-        self.assertIn("all 3", d["rule"])
+        self.assertEqual(d["ruleInfo"]["rules"], "v17o")
+        self.assertIn("one main public test", d["rule"])
         picks = {p["id"]: p for p in d["picks"]}
-        # text: 3 of 3
-        self.assertEqual(picks["chat"]["n"], 3)
-        self.assertEqual(picks["chat"]["status"], "best")
-        self.assertEqual(picks["chat"]["winners"][0]["k"], "claude-opus-5-5")
-        self.assertEqual(picks["chat"]["winners"][0]["top3"], 3)
-        # pictures: one source, never "best"
+        # v17o: chat = LMArena Text, style-adjusted; one winner per task, never "best"/"tie"
+        self.assertEqual(picks["chat"]["winners"][0]["k"], "gemini-4-carbon")
         pic = picks["pictures"]
-        self.assertEqual((pic["status"], pic["n"]), ("single", 1))
+        self.assertEqual((pic["status"], pic["n"]), ("lead", 1))
         self.assertEqual(pic["winners"][0]["k"], "gpt-image-2-5-sunburst")
         self.assertTrue(pic["candidates"])
-        self.assertIn("1 source", pic["why"])
-        self.assertNotIn("best", [p["status"] for p in d["picks"] if p["id"] == "pictures"])
+        self.assertTrue(all(p["status"] == "lead" for p in d["picks"] if p["id"] != "cheap"))   # "cheap" keeps its own rule
         # prices and releases from OpenRouter only
         self.assertTrue(all(x["src"] == "openrouter" for x in d["cost"]["dev"]))
         self.assertTrue(all("artificialanalysis" not in x["u"] for x in d["releases"]["items"]))
@@ -1591,8 +1629,6 @@ class FinderExtrasTest(unittest.TestCase):
                 "text_to_video": self.lmb("Text-to-video", [("Gemini Omni 1.2 Flash", "google", 1541, 1742), ("Wan 3.0", "alibaba", 1477, 3082),
                                                             ("MiniMax H3", "minimax", 1456, 28443)]),
                 "image_to_video": self.lmb("Image-to-video", [("MiniMax H3", "minimax", 1493, 120401), ("Gemini Omni 1.2 Flash", "google", 1502, 2745)]),
-                "text_non_english": self.lmb("Non-English questions", [("Gemini 4 Carbon (High)", "google", 1536, 2845),
-                                                                      ("Claude Fable 5.1 (Max)", "anthropic", 1509, 10256)], "2026-10-28"),
             }},
             "taubench": {"voice": m.parse_tau_voice(json.loads(fx("taubench_voice.json"))), "date": "2026-10-29"},
         }
@@ -1607,7 +1643,7 @@ class FinderExtrasTest(unittest.TestCase):
 
     def test_finder_tasks_shape_and_rules(self):
         tasks = {t["id"]: t for t in self.m.build_finder_tasks(self.raw(), mods={})}
-        self.assertEqual(set(tasks), {"research", "video", "voice", "translate"})
+        self.assertEqual(set(tasks), {"research", "video", "voice"})           # v17o: no Translation task
         for t in tasks.values():
             self.assertEqual(t["status"], "single")               # 1 source: never called best
             self.assertTrue(t["why"] and t["how"] and t["boards"] and t["winners"])
@@ -1626,16 +1662,14 @@ class FinderExtrasTest(unittest.TestCase):
         makers = {c["o"] for c in tasks["voice"]["winners"] + tasks["voice"]["candidates"]}
         self.assertTrue(makers <= {"OpenAI", "Google", "SpaceXSI (formerly xAI)", "Anthropic", "Microsoft", "Meta", "Mistral", "Perplexity", "DeepSeek"}, makers)
         self.assertEqual(tasks["voice"]["winners"][0]["o"], "OpenAI")
-        # translation carries the hand-checked Hebrew / Yiddish note
-        langs = [x["lang"] for x in tasks["translate"]["note"]["langs"]]
-        self.assertEqual(langs, ["Hebrew", "Yiddish"])
+        self.assertFalse(any("note" in t for t in tasks.values()))              # the Intento translation note is gone
 
     def test_finder_task_left_out_without_data(self):
         r = self.raw()
         r.pop("taubench")
         del r["lmarena"]["boards"]["search"]
         ids = [t["id"] for t in self.m.build_finder_tasks(r, mods={})]
-        self.assertEqual(ids, ["video", "translate"])
+        self.assertEqual(ids, ["video"])
 
     def test_privacy_scores(self):
         p = self.m.build_privacy()
@@ -2067,13 +2101,16 @@ class MoreTestsV16i(unittest.TestCase):
         self.assertIn("graded by AI", how)
         self.assertIn("Vals AI Terminal-Bench 4", self.m.job_how("coding", False))
         self.assertIn("MathArena", self.m.job_how("math", False))
-        for sid in ("eqbench", "lechmazur", "vals", "matharena"):                 # plain-text credit, no link
+        for sid in ("eqbench", "lechmazur"):                                     # plain-text credit, no link
             self.assertEqual(self.m.SRC[sid]["url"], "")
             self.assertNotIn("http", json.dumps(self.m.SRC[sid]))
+        for sid in ("vals", "matharena"):                                        # v17o: main tests, credited with a link
+            self.assertTrue(self.m.SRC[sid]["url"].startswith("https://"))
+            self.assertIn("No reuse license stated", self.m.SRC[sid]["license"])
         self.assertIn("Graded by AI", self.m.SRC["eqbench"]["what"])
         self.assertIn("Graded by AI", self.m.SRC["lechmazur"]["what"])
         ri = self.m.rule_info(False, raw)
-        self.assertIn("EQ-Bench", ri["names"])
+        self.assertNotIn("EQ-Bench", ri["names"])                               # v17o: names only the main tests
         self.assertIn("MathArena", ri["names"])
 
 
@@ -2112,18 +2149,18 @@ class FullRunV16i(unittest.TestCase):
         self.assertEqual(rc, 0)
         d = self.data()
         picks = {p["id"]: p for p in d["picks"]}
-        self.assertIn("eqbench", [b["src"] for b in picks["writing"]["boards"]])
-        self.assertIn("lechmazur", [b["src"] for b in picks["writing"]["boards"]])
-        self.assertIn("vals", [b["src"] for b in picks["coding"]["boards"]])
-        self.assertIn("matharena", [b["src"] for b in picks["math"]["boards"]])
-        self.assertTrue(all(b.get("ai") for b in picks["writing"]["boards"] if b["src"] in ("eqbench", "lechmazur")))
+        # v17o: MathArena is Math's main test, Vals AI the Agents tab's terminal work; EQ-Bench and Lech Mazur feed no pick
+        self.assertEqual([b["src"] for b in picks["math"]["boards"]], ["matharena"])
+        self.assertEqual([b["src"] for b in picks["writing"]["boards"]], ["lmarena"])
+        self.assertEqual([g["id"] for g in d["agents"]["best"]["groups"]], ["terminal", "pro"])
         for p in d["picks"]:                                                      # always a winner
             self.assertTrue(p["winners"])
             self.assertIn(p["status"], ("best", "lead", "single"))
         for sid in ("eqbench", "lechmazur", "vals", "matharena"):
             self.assertTrue(d["status"][sid]["ok"])
+        for sid in ("vals", "matharena"):
             self.assertIn(sid, [s["id"] for s in d["sources"]])
-        self.assertIn("EQ-Bench", picks["writing"]["how"])
+        self.assertNotIn("EQ-Bench", picks["writing"]["how"])
         self.assertNotIn("xd", json.dumps(d["bignews"]))                         # no key: no AI summaries
 
     def test_broken_source_keeps_yesterdays_copy(self):
@@ -2137,8 +2174,8 @@ class FullRunV16i(unittest.TestCase):
         self.assertTrue(d["status"]["vals"]["updated"])                          # yesterday's copy is used
         raw = json.loads((self.root / "data" / "raw.json").read_text())
         self.assertEqual(raw["vals"]["rows"], prev["vals"]["rows"])
-        picks = {p["id"]: p for p in d["picks"]}
-        self.assertIn("vals", [b["src"] for b in picks["coding"]["boards"]])
+        g = {x["id"]: x for x in d["agents"]["best"]["groups"]}
+        self.assertEqual(g["terminal"]["main"]["name"], "Vals AI")              # yesterday's Vals copy still ranks terminal work
 
     def test_broken_source_with_no_copy_is_left_out(self):
         m, rc = self.run_main(fail=("matharena",))
@@ -2146,8 +2183,8 @@ class FullRunV16i(unittest.TestCase):
         self.assertFalse(d["status"]["matharena"]["ok"])
         self.assertIsNone(d["status"]["matharena"]["updated"])
         picks = {p["id"]: p for p in d["picks"]}
-        self.assertNotIn("matharena", [b["src"] for b in picks["math"]["boards"]])
-        self.assertTrue(picks["math"]["winners"])
+        self.assertNotIn("math", picks)                    # v17o: no main test today = the task is left out, never invented
+        self.assertTrue(all(p["winners"] for p in d["picks"]))
         self.assertNotIn("MathArena", d["ruleInfo"]["names"])
 
     def test_ai_summaries_with_key_never_leak_it(self):
@@ -2681,3 +2718,129 @@ class AiSummariesV17o(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class V17oRules(unittest.TestCase):
+    """v17o (approved 2026-11-21): one main public test per task, published order, untested = unranked, DesignArena
+    as agree/disagree only, early-data labels, seeded sources with a checked date, no Epoch."""
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        os.environ.pop("AA_ENABLED", None)
+        self.m = install_fakes(load(self.root))
+        self.raw = {n: f(None) for n, f in self.m.SECTIONS if n != "aa"}
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_main_test_per_task_is_fixed(self):
+        spec = {t[0]: t[4] for t in self.m.TASKS_V17O}
+        self.assertEqual(spec, {
+            "chat": ("lmarena", "text_sc"), "writing": ("lmarena", "text_creative_writing"), "webdev": ("lmarena", "webdev"),
+            "coding": ("livebench", "coding"), "math": ("matharena", ""), "logic": ("livebench", "reasoning"),
+            "pictures": ("lmarena", "text_to_image"), "research": ("lmarena", "search_fact"),
+            "video": ("lmarena", "text_to_video"), "video_image": ("lmarena", "image_to_video"),
+            "voice": ("taubench", "voice")})
+        self.assertEqual([a[2] for a in self.m.AGENTS_V17O], [("vals", ""), ("mercor", "")])
+        boards = {b[0]: b[1:3] for b in self.m.LM_BOARDS}
+        self.assertEqual(boards["text_sc"], ("text_style_control", "overall"))
+        self.assertEqual(boards["text_creative_writing"], ("text", "creative_writing"))     # raw, not style-controlled
+        self.assertEqual(boards["search_fact"], ("search_factuality", None))
+
+    def test_published_order_ties_and_untested(self):
+        rows = [{"k": "a", "n": "A", "s": 90}, {"k": "b", "n": "B", "s": 90}, {"k": "c", "n": "C", "s": 80}, {"k": "d", "n": "D", "s": 70}]
+        self.assertEqual(self.m.published_ranks(rows), [1, 1, 3, 4])
+        picks = {p["id"]: p for p in self.m.build_picks(self.raw)}
+        chat = [c["k"] for c in picks["chat"]["ranked"]]
+        self.assertNotIn("gpt-6-astra", chat)                               # not on the main test = unranked, not zero
+        self.assertNotIn("score", json.dumps(picks["chat"]["ranked"][0]).replace('"s"', ""))   # only the published value
+        for p in picks.values():
+            if p.get("ranked"):
+                self.assertEqual(p["winners"][0]["k"], p["ranked"][0]["k"])
+                self.assertEqual(len(p["boards"]), 1, p["id"])               # one main test, nothing averaged in
+
+    def test_cross_check_is_agree_or_disagree_only(self):
+        picks = {p["id"]: p for p in self.m.build_picks(self.raw)}
+        self.assertEqual(picks["pictures"]["cross"]["agree"], True)
+        self.assertEqual(picks["webdev"]["cross"]["agree"], False)
+        self.assertEqual(set(picks["webdev"]["cross"]), {"src", "name", "board", "date", "url", "top", "agree"})
+        self.assertNotIn("cross", picks["chat"])
+        self.assertEqual(picks["webdev"]["ranked"][0]["k"], "claude-opus-5-5")   # the cross-check never changes the order
+
+    def test_video_cross_checks_from_the_seed(self):
+        # both DesignArena video boards (seeded #1 only): text-to-video agrees, image-to-video disagrees; order unchanged
+        def lmb(label, rows):
+            return {"label": label, "date": "2026-11-09", "url": "https://lmarena.ai/leaderboard",
+                    "rows": [{"k": self.m.normalize(n), "n": n, "o": o, "s": s, "lo": s - 5, "hi": s + 5, "votes": 5000} for n, o, s in rows]}
+        self.raw["lmarena"]["boards"]["text_to_video"] = lmb("Text-to-video", [("Gemini Omni 1.2 Flash", "google", 1541), ("Wan 3.0", "alibaba", 1477)])
+        self.raw["lmarena"]["boards"]["image_to_video"] = lmb("Image-to-video", [("Gemini Omni 1.2 Flash", "google", 1502), ("MiniMax H3 Max", "minimax", 1493)])
+        da = self.raw["designarena"]["boards"]
+        self.assertEqual((da["video"]["top"], da["video"]["date"]), ("Gemini Omni 1.2 Flash", "2026-11-21"))
+        self.assertEqual((da["video_image"]["top"], da["video_image"]["date"]), ("MiniMax H3 Max", "2026-11-22"))
+        tasks = {t["id"]: t for t in self.m.build_finder(self.raw)["tasks"]}
+        v, vi = tasks["video"], tasks["video_image"]
+        self.assertEqual((v["cross"]["agree"], vi["cross"]["agree"]), (True, False))
+        self.assertEqual((v["cross"]["board"], vi["cross"]["board"]), ("Text-to-video", "Image-to-video"))
+        self.assertTrue(all(t["cross"]["url"].startswith("https://www.designarena.ai/leaderboard") for t in (v, vi)))
+        self.assertEqual(set(vi["cross"]), {"src", "name", "board", "date", "url", "top", "agree"})   # no scores
+        self.assertEqual([c["k"] for c in vi["ranked"]], ["gemini-omni-1-2-flash", "minimax-h3-max"])  # never reordered
+        self.assertTrue(v["early"] and vi["early"])
+
+    def test_early_data_labels(self):
+        early = {t[0]: t[6] for t in self.m.TASKS_V17O}
+        self.assertEqual({k for k, v in early.items() if v}, {"video", "video_image", "voice"})
+        self.assertEqual({a[0]: a[3] for a in self.m.AGENTS_V17O}, {"terminal": False, "pro": True})
+
+    def test_every_pick_has_why_source_and_date(self):
+        tasks = self.m.build_picks(self.raw) + self.m.build_finder(self.raw)["tasks"]
+        for p in tasks:
+            if p["id"] == "cheap":
+                continue
+            m = p["main"]
+            self.assertTrue(p["why"] and m["name"] and m["board"] and m["url"].startswith("https://"), p["id"])
+            self.assertTrue(m.get("date") or m.get("checked"), p["id"])
+        ap = {g["id"]: g for g in self.m.agents_best_v17o(agent_raw(self.m))["groups"]}["pro"]    # a seeded main test
+        self.assertEqual((ap["main"]["name"], ap["main"]["checked"]), ("Mercor", "2026-11-22"))
+
+    def test_research_uses_the_factuality_view(self):
+        date, rows = self.m.lm_board(lm_search_fact_rows(), None)      # its category isn't "overall": found anyway
+        self.assertEqual(rows[0]["k"], "amazon-web-search-agent")
+        res = {p["id"]: p for p in self.m.build_finder(self.raw)["tasks"]}["research"]
+        self.assertEqual(res["main"]["board"], "Search, factuality view")
+        self.assertEqual([c["k"] for c in res["ranked"][:3]], ["amazon-web-search-agent", "gemini-4-argon", "claude-opus-5-5"])
+        self.assertEqual(len({c["k"] for c in res["ranked"]}), len(res["ranked"]))   # "-search" / "-grounding" runs merged
+
+    def test_seeds_have_checked_dates_and_keep_last_good(self):
+        st = json.loads((REPO / "scripts" / "rankings_static.json").read_text())
+        self.assertEqual(set(st) - {"_about"}, {"mercor", "designarena"})      # no WMT26 seed
+        for key in ("mercor", "designarena"):
+            self.assertRegex(st[key]["checked"], r"^20\d\d-\d\d-\d\d$")
+        self.assertTrue(all("s" not in b for b in st["designarena"]["boards"].values()))   # no DesignArena scores stored
+        broken = self.root / "broken.json"
+        broken.write_text("{not json")
+        with self.assertRaises(ValueError):
+            self.m._static_section("mercor", broken)                    # -> main() keeps yesterday's copy
+
+    def test_no_epoch_and_format_v3(self):
+        self.assertNotIn("epoch", [n for n, _ in self.m.SECTIONS])
+        self.assertNotIn("epoch", self.m.SOURCE_ORDER)
+        self.assertNotIn("epoch", [n for n, _ in load(self.root).SECTIONS])
+        rc = self.m.main()
+        self.assertEqual(rc, 0)
+        d = json.loads((self.root / "data" / "data.json").read_text())
+        self.assertEqual(d["v"], 3)
+        self.assertNotIn("epoch", json.dumps(d["sources"]))
+        self.assertFalse([x for x in d["sources"] if x["id"] == "wmt26"])
+        self.assertNotIn("wmt26", d["status"])
+        self.assertNotIn("translate", [t["id"] for t in d["finder"]["tasks"]] + [p["id"] for p in d["picks"]])
+        for sid in ("mercor", "designarena"):
+            s = [x for x in d["sources"] if x["id"] == sid][0]
+            self.assertTrue(s["url"].startswith("https://") and s["license"] == "No reuse license stated", sid)
+        self.assertEqual([x for x in d["sources"] if x["id"] == "lmarena"][0]["license"], "CC BY 4.0")
+
+    def test_seeds_alone_never_count_as_a_fresh_run(self):
+        self.m.main()
+        before = (self.root / "data" / "data.json").read_bytes()
+        m = install_fakes(load(self.root))
+        m.SECTIONS = [(n, boom if n not in m.SEEDED else getattr(m, "fetch_" + n)) for n in ALL_SECTIONS]
+        self.assertEqual(m.main(), 2)
+        self.assertEqual((self.root / "data" / "data.json").read_bytes(), before)
