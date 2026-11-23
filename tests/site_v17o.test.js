@@ -67,12 +67,27 @@ function load(d) {
   return ctx.AITracker;
 }
 const finderFor = (A, t, plan) => { A.setFinder("task", t); A.setFinder("plan", plan || "any"); return A.finderHtml(); };
-const startName = (html) => { const m = html.match(/<p class="fkick">Start here<\/p><p class="fname"><b>([^<]+)<\/b>/); return m ? m[1].replace(/&amp;/g, "&") : null; };
+const startName = (html) => { const m = html.match(/<span class="fkick">Start here<\/span><span class="fname"><b>([^<]+)<\/b>/); return m ? m[1].replace(/&amp;/g, "&") : null; };
 const fullOrder = (html) => [...html.matchAll(/<li data-k="([^"]+)">/g)].map((m) => m[1]);
 
-test("v17o: version bumped in app.js and sw.js", () => {
-  assert.match(read("cloudflare-v9/sw.js"), /const VERSION = "v17o-2026-11-21"/);
-  assert.equal(load().version, "v17o-2026-11-21");
+test("v17p: version bumped in app.js and sw.js", () => {
+  assert.match(read("cloudflare-v9/sw.js"), /const VERSION = "v17p-2026-11-22"/);
+  assert.equal(load().version, "v17p-2026-11-22");
+});
+
+test("v17p: Start here collapses to one tappable row; the info opens on tap", () => {
+  const A = load();
+  for (const p of data().picks.filter((x) => x.rules === "v17o").concat(data().finder.tasks)) {
+    const html = finderFor(A, p.id, "any");
+    assert.match(html, /<details class="fbest fbestx"><summary>/, p.id + ": card is a details row");
+    assert.doesNotMatch(html, /<details class="fbest fbestx" open/, p.id + ": collapsed by default");
+    assert.match(html, /<span class="chev" aria-hidden="true"><\/span><\/summary>/, p.id + ": chevron on the row");
+    const shut = html.indexOf("<summary>"), open = html.indexOf("</summary>");
+    assert.ok(html.indexOf('class="fwhyline"') > open, p.id + ": the why only shows after the row");
+    assert.ok(html.indexOf('class="fwhy"') > open, p.id + ": the price chips only show after the row");
+    assert.ok(shut >= 0 && open > shut, p.id);
+    assert.equal(startName(html), A.taskOrder(p.id, "any").list[0].n, p.id + ": the answer stays on the row");
+  }
 });
 
 test("v17o: Top Picks and Find your AI show one identical order for every task", () => {

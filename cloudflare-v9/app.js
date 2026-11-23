@@ -4,7 +4,7 @@
   //   Find your AI: Top Picks · Cost · Agents   Try it: Explore · Race   Updates: New Releases · News
   // Each tab shows a short simple view first, and "See more" opens the full details.
   // All picks are made by fixed rules in scripts/update_data.py; this file only shows them.
-  var VERSION = "v17o-2026-11-21";   // the same as sw.js
+  var VERSION = "v17p-2026-11-22";   // the same as sw.js
   // ---- settings for Explore ("Ask the AIs", see worker/README.md). Leave ASK_API empty and the Ask tab is the free v8 tab.
   var CONFIG = {
     ASK_API: "https://ai-tracker-ask.ai-tracker-ask.workers.dev",            // the Worker URL, e.g. "https://ai-tracker-ask.<you>.workers.dev"
@@ -585,9 +585,9 @@
       '<div class="fresult" aria-live="polite">';
     if (best) {
       var try1 = CONFIG.ASK_API && best.explore ? '<button type="button" class="trybtn" data-try="' + esc(best.explore.id + "|" + best.explore.model) + '">Ask it in ' + esc(CONFIG.ASK_NAME) + "</button>" : "";
-      h += '<div class="fbest"><p class="fkick">Start here</p><p class="fname"><b>' + esc(best.n) + "</b>" + (best.o ? ' <span class="muted">by ' + esc(makerName(best.o)) + "</span>" : "") + "</p>" +
+      h += '<details class="fbest fbestx"><summary><span class="fsumx"><span class="fkick">Start here</span><span class="fname"><b>' + esc(best.n) + "</b>" + (best.o ? ' <span class="muted">by ' + esc(makerName(best.o)) + "</span>" : "") + '</span></span><span class="chev" aria-hidden="true"></span></summary>' +
         '<p class="fwhyline">' + esc(task1.why || "Top result on the main test.") + "</p>" + (ord.note ? '<p class="note wnote">' + esc(ord.note) + "</p>" : "") + srcLine(task1) +
-        '<ul class="fwhy">' + accessWhy(best, f.plan).map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>" + try1 + "</div>";
+        '<ul class="fwhy">' + accessWhy(best, f.plan).map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>" + try1 + "</details>";
       h += '<details class="frank"' + (ranked.length > 1 ? " open" : " hidden") + '><summary>Full ranking (' + ranked.length + ")</summary><ol>" + ranked.map(function (r) {
         var pct = Math.round(Math.max(0.04, Math.min(1, r.score)) * 100);
         return '<li data-k="' + esc(r.k) + '"><span class="rpos">' + r.pos + '</span><span class="rbody"><b>' + esc(r.n) + "</b>" + (r.o ? ' <span class="muted">' + esc(makerName(r.o)) + "</span>" : "") +

@@ -630,6 +630,13 @@ html.sheetopen{overflow:hidden}
 .segopt input:focus-visible + span{outline:2px solid var(--accent);outline-offset:2px}
 .fresult{margin-top:16px}
 .fbest{padding:16px;border-radius:12px;background:var(--tint);border:0}
+/* v17p: Start here collapses to one tappable row; the info opens on tap */
+.fbestx>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;list-style:none}
+.fbestx>summary::-webkit-details-marker{display:none}
+.fbestx .fsumx{min-width:0}
+.fbestx .fkick{display:block}
+.fbestx .fname{display:block}
+.fbestx>summary .chev{flex:none}
 .fkick{margin:0;font-size:12px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
 .fname{margin:4px 0 0;font-size:20px;line-height:1.25;letter-spacing:-.02em;overflow-wrap:anywhere}
 .fname b{font-weight:700}
