@@ -26,9 +26,9 @@ function manyReleases(n) {
 }
 
 test("v17l: version bumped in app.js and sw.js (v17m: header sizes)", () => {
-  assert.match(read("cloudflare-v9/sw.js"), /const VERSION = "v17p-2026-11-22"/);
-  assert.match(read("cloudflare-v9/app.js"), /var VERSION = "v17p-2026-11-22"/);
-  assert.equal(load().version, "v17p-2026-11-22");
+  assert.match(read("cloudflare-v9/sw.js"), /const VERSION = "v17q-2026-11-23"/);
+  assert.match(read("cloudflare-v9/app.js"), /var VERSION = "v17q-2026-11-23"/);
+  assert.equal(load().version, "v17q-2026-11-23");
 });
 
 test("v17l2: 'It may contain mistakes.' and the 'Summary written by AI' line are both gone, no empty line left", () => {

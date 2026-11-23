@@ -4,7 +4,7 @@
   //   Find your AI: Top Picks · Cost · Agents   Try it: Explore · Race   Updates: New Releases · News
   // Each tab shows a short simple view first, and "See more" opens the full details.
   // All picks are made by fixed rules in scripts/update_data.py; this file only shows them.
-  var VERSION = "v17p-2026-11-22";   // the same as sw.js
+  var VERSION = "v17q-2026-11-23";   // the same as sw.js
   // ---- settings for Explore ("Ask the AIs", see worker/README.md). Leave ASK_API empty and the Ask tab is the free v8 tab.
   var CONFIG = {
     ASK_API: "https://ai-tracker-ask.ai-tracker-ask.workers.dev",            // the Worker URL, e.g. "https://ai-tracker-ask.<you>.workers.dev"
@@ -588,7 +588,8 @@
       h += '<details class="fbest fbestx"><summary><span class="fsumx"><span class="fkick">Start here</span><span class="fname"><b>' + esc(best.n) + "</b>" + (best.o ? ' <span class="muted">by ' + esc(makerName(best.o)) + "</span>" : "") + '</span></span><span class="chev" aria-hidden="true"></span></summary>' +
         '<p class="fwhyline">' + esc(task1.why || "Top result on the main test.") + "</p>" + (ord.note ? '<p class="note wnote">' + esc(ord.note) + "</p>" : "") + srcLine(task1) +
         '<ul class="fwhy">' + accessWhy(best, f.plan).map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>" + try1 + "</details>";
-      h += '<details class="frank"' + (ranked.length > 1 ? " open" : " hidden") + '><summary>Full ranking (' + ranked.length + ")</summary><ol>" + ranked.map(function (r) {
+      var top5 = ranked.slice(0, 5);                                   // v17q: Full ranking shows the top 5 only
+      h += '<details class="frank"' + (top5.length > 1 ? " open" : " hidden") + '><summary>Full ranking (' + top5.length + ")</summary><ol>" + top5.map(function (r) {
         var pct = Math.round(Math.max(0.04, Math.min(1, r.score)) * 100);
         return '<li data-k="' + esc(r.k) + '"><span class="rpos">' + r.pos + '</span><span class="rbody"><b>' + esc(r.n) + "</b>" + (r.o ? ' <span class="muted">' + esc(makerName(r.o)) + "</span>" : "") +
           '<span class="rbar" aria-hidden="true"><i style="width:' + pct + '%"></i></span><small>' + esc(accessWhy(r, f.plan).join(" · ")) + "</small></span></li>";
@@ -637,7 +638,8 @@
       h += '<div class="fbest"><p class="fkick">Your best match</p><p class="fname"><b>' + esc(best.n) + "</b>" + (best.o ? ' <span class="muted">by ' + esc(makerName(best.o)) + "</span>" : "") + "</p>" +
         '<ul class="fwhy">' + finderWhy(best, f.prio, f.plan).map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>" + try1 + "</div>";
       if (fell) h += '<p class="note">' + esc(fell) + "</p>";
-      h += '<details class="frank"' + (ranked.length > 1 ? " open" : " hidden") + '><summary>Full ranking (' + ranked.length + ")</summary><ol>" + ranked.map(function (r, i) {
+      var top5 = ranked.slice(0, 5);                                     // v17q: Full ranking shows the top 5 only
+      h += '<details class="frank"' + (top5.length > 1 ? " open" : " hidden") + '><summary>Full ranking (' + top5.length + ")</summary><ol>" + top5.map(function (r, i) {
         var pct = Math.round(Math.max(0.04, Math.min(1, r.score)) * 100);
         return '<li><span class="rpos">' + (i + 1) + '</span><span class="rbody"><b>' + esc(r.n) + "</b>" + (r.o ? ' <span class="muted">' + esc(makerName(r.o)) + "</span>" : "") +
           '<span class="rbar" aria-hidden="true"><i style="width:' + pct + '%"></i></span><small>' + esc(finderWhy(r, f.prio, f.plan).join(" · ")) + "</small></span></li>";

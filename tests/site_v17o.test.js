@@ -71,8 +71,8 @@ const startName = (html) => { const m = html.match(/<span class="fkick">Start he
 const fullOrder = (html) => [...html.matchAll(/<li data-k="([^"]+)">/g)].map((m) => m[1]);
 
 test("v17p: version bumped in app.js and sw.js", () => {
-  assert.match(read("cloudflare-v9/sw.js"), /const VERSION = "v17p-2026-11-22"/);
-  assert.equal(load().version, "v17p-2026-11-22");
+  assert.match(read("cloudflare-v9/sw.js"), /const VERSION = "v17q-2026-11-23"/);
+  assert.equal(load().version, "v17q-2026-11-23");
 });
 
 test("v17p: Start here collapses to one tappable row; the info opens on tap", () => {
@@ -95,7 +95,7 @@ test("v17o: Top Picks and Find your AI show one identical order for every task",
   for (const p of d.picks.filter((x) => x.rules === "v17o").concat(d.finder.tasks)) {
     const ord = A.taskOrder(p.id, "any").list.map((r) => r.k);
     const html = finderFor(A, p.id, "any");
-    assert.deepEqual(fullOrder(html), ord, p.id);                                     // the finder's full ranking = the list
+    assert.deepEqual(fullOrder(html), ord.slice(0, 5), p.id);                         // v17q: the finder shows the list's top 5
     assert.equal(startName(html), A.taskOrder(p.id, "any").list[0].n, p.id);          // its "Start here" = the list's #1
     const tp = d.picks.find((x) => x.id === p.id);
     if (tp) assert.equal(A.pickTitle(tp), startName(html), p.id);                     // Top Picks shows that same #1
@@ -299,9 +299,24 @@ test("v17o: the real data/data.json meets the live app's contract", () => {
   for (const p of d.picks.filter((x) => x.rules === "v17o").concat(d.finder.tasks)) {
     const html = finderFor(A, p.id, "any");
     assert.equal(startName(html), A.taskOrder(p.id, "any").list[0].n, p.id);
-    assert.deepEqual(fullOrder(html), A.taskOrder(p.id, "any").list.map((r) => r.k), p.id);
+    assert.deepEqual(fullOrder(html), A.taskOrder(p.id, "any").list.slice(0, 5).map((r) => r.k), p.id);
     if (d.picks.includes(p)) assert.equal(A.pickTitle(p), startName(html), p.id);
   }
   assert.doesNotMatch(finderFor(A, d.picks[0].id, "any"), /value="translate"|>Translation</);
   assert.match(A.agentBestCard(false), /Terminal work|Professional tasks/);
+});
+
+test("v17q: Find your AI's Full ranking shows the top 5 only, in the list's order", () => {
+  const d = data();
+  const chat = d.picks.find((p) => p.id === "chat");
+  chat.ranked = ["a", "b", "c", "d", "e", "f", "g"].map((x, i) => C("m-" + x, "Model " + x.toUpperCase(), "Google", 1600 - i * 20, i + 1));
+  const A = load(d);
+  const html = finderFor(A, "chat", "any");
+  assert.equal(A.taskOrder("chat", "any").list.length, 7);                          // the ranking itself is unchanged
+  assert.deepEqual(fullOrder(html), ["m-a", "m-b", "m-c", "m-d", "m-e"]);
+  assert.match(html, /<summary>Full ranking \(5\)<\/summary>/);
+  assert.doesNotMatch(html, /Model F|Model G/);
+  assert.equal(startName(html), "Model A");                                           // Start here unchanged
+  const two = finderFor(A, "pictures", "any");                                        // fewer than 5: all of them
+  assert.equal(fullOrder(two).length, 2);
 });
